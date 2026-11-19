@@ -1,4 +1,4 @@
-import { CliExit, UsageError } from "./errors.ts";
+import { CliExit, UsageError } from "./errors.js";
 
 const UNIT_MS = { ms: 1, s: 1000, m: 60_000, h: 3_600_000 } as const;
 

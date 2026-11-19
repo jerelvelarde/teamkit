@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { exitCodeFor, parseDuration, parseKeyValue, parseLabels } from "../src/args.ts";
-import { CliExit, UsageError } from "../src/errors.ts";
+import { exitCodeFor, parseDuration, parseKeyValue, parseLabels } from "../src/args.js";
+import { CliExit, UsageError } from "../src/errors.js";
 
 test("parseDuration handles each unit and bare seconds", () => {
   assert.equal(parseDuration("500ms"), 500);
