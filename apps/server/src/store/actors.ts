@@ -4,6 +4,7 @@ import {
   isValidRoomPattern,
   newId,
   newTokenSecret,
+  personAgentName,
   roomMatches,
   type ActorRef,
   type Permission,
@@ -58,6 +59,27 @@ function normalizeGrants(grants: Grant[]): Grant[] {
 
 function isUniqueViolation(e: unknown): boolean {
   return typeof e === "object" && e !== null && (e as { code?: unknown }).code === "23505";
+}
+
+/**
+ * The person's own agent, `<person>-agent`: created on first use, owned by them, and given
+ * read, post, claim and create in each room. Grants only ever add up, so another install of
+ * the same agent keeps every room it had.
+ */
+export async function ensureOwnedAgent(q: Q, owner: ActorRef, rooms: string[]): Promise<ActorRef> {
+  const name = personAgentName(owner.name);
+  await q`insert into actors (id, kind, name, owner_id) values (${newId("ac")}, 'agent', ${name}, ${owner.id})
+          on conflict (name) do nothing`;
+  const [row] = await q`select id, kind, owner_id from actors where name = ${name}`;
+  if (!row || row.kind !== "agent" || row.owner_id !== owner.id) {
+    throw new BoardError("name_taken", `the name ${name} belongs to someone else; ask an admin`);
+  }
+  const perms = [...PERMISSIONS];
+  for (const room of rooms) {
+    await q`insert into grants (actor_id, room_pattern, perms) values (${row.id as string}, ${room}, ${perms})
+            on conflict (actor_id, room_pattern) do update set perms = excluded.perms`;
+  }
+  return { id: row.id as string, name, kind: "agent" };
 }
 
 async function insertAgent(

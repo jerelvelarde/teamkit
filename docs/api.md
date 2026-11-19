@@ -272,9 +272,9 @@ The command line signs in with a device code, so no password or link passes thro
 
 | Method | Path | Auth | Body | Response |
 | --- | --- | --- | --- | --- |
-| POST | `/v1/device/start` | public, rate limited | none | `{deviceCode, userCode, verifyUrl, expiresAt, intervalMs}` |
+| POST | `/v1/device/start` | public, rate limited | `{mode?}`: `admin` (the default) or `agent` | `{deviceCode, userCode, verifyUrl, expiresAt, intervalMs}` |
 | POST | `/v1/device/poll` | public | `{deviceCode}` | `{status: "pending"}`, `{status: "expired"}`, or `{status: "approved", token, actor}` |
-| POST | `/v1/device/approve` | a person signed in on the web board | `{userCode}` | `{ok: true}` |
+| POST | `/v1/device/approve` | a person signed in on the web board | `{userCode, rooms?}` | `{ok: true}`, or `{ok: true, agent}` in agent mode |
 
 The flow:
 
@@ -284,6 +284,13 @@ The flow:
 4. The token is handed out once. A later poll answers `expired`, as does a code past its `expiresAt` (ten minutes after start by default). An unknown code is `404 not_found`.
 
 `approve` answers `403 forbidden` for agents and for admin-scope tokens: approving a login needs a person in a browser.
+
+**Agent mode.** `teamkit join` starts the code in agent mode; the `verifyUrl` then ends in `&mode=agent`, and the board asks which rooms the agent may work in.
+
+- The first approval creates the person's agent (`ana-agent` for `ana`), owned by them. Later approvals reuse it.
+- The agent gets `read`, `post`, `claim` and `create` in each picked room, added to any rooms it already has.
+- Each poll hands out a new agent token, so each install has its own.
+- An agent code approved without rooms, or an admin code approved with rooms, is `400 invalid_input`. If `<name>-agent` belongs to someone else, the answer is `409 name_taken`.
 
 `device/start` writes a row each time and needs no credentials, so each client address gets a burst of 10 requests, then 10 a minute. After that it answers `429 rate_limited` with a `Retry-After` header in seconds. By default the server counts the address of the connection itself and ignores `X-Forwarded-For`, so behind a proxy all clients share one budget. Set `TEAMKIT_TRUSTED_PROXY=1` when a reverse proxy that sets `X-Forwarded-For` is the only way to reach the server: the server then counts the first `X-Forwarded-For` address instead (the socket address when the header is missing). Do not set it if clients can reach the server directly, because they could forge the header and dodge the limit.
 

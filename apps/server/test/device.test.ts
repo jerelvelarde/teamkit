@@ -3,7 +3,8 @@ import assert from "node:assert/strict";
 import { hashToken } from "@copilotkit/teamkit-protocol/server";
 import { withTestDb } from "./helpers/db.js";
 import { agentAuth, personAuth } from "./helpers/actors.js";
-import { authenticate } from "../src/store/actors.js";
+import { authenticate, can, createAgent } from "../src/store/actors.js";
+import type { Db } from "../src/db/pool.js";
 import { approveDevice, normalizeUserCode, pollDevice, startDevice } from "../src/store/device.js";
 
 const code = (c: string) => (e: unknown) => (e as { code?: string }).code === c;
@@ -115,5 +116,97 @@ test("starting a code deletes codes that expired over an hour ago and keeps rece
     const d = await startDevice(db);
     const codes = (await db`select code from device_codes order by code`).map((r) => r.code as string);
     assert.deepEqual(codes, [hashToken(d.deviceCode), "recent"].sort());
+  });
+});
+
+const grantsOf = async (db: Db, name: string) =>
+  (await db`select g.room_pattern, g.perms from grants g join actors a on a.id = g.actor_id where a.name = ${name} order by 1`)
+    .map((r) => ({ room: r.room_pattern as string, perms: [...(r.perms as string[])].sort() }));
+const ALL = ["claim", "create", "post", "read"];
+
+test("agent mode: approving creates <person>-agent owned by the person, with the picked rooms, and polls an agent token", async () => {
+  await withTestDb(async (db) => {
+    const ana = await personAuth(db, "ana", "member");
+    const d = await startDevice(db, "agent");
+    assert.equal(d.mode, "agent");
+    const out = await approveDevice(db, ana, d.userCode, ["billing-migration", "billing-migration"]);
+    assert.equal(out.mode, "agent");
+    assert.deepEqual([out.agent?.name, out.agent?.kind], ["ana-agent", "agent"]);
+    const got = await pollDevice(db, d.deviceCode);
+    assert.equal(got.status, "approved");
+    if (got.status !== "approved") return;
+    assert.deepEqual(got.actor, out.agent);
+    const auth = await authenticate(db, got.token);
+    assert.deepEqual([auth?.scope, auth?.role], ["agent", null]);
+    assert.equal((await db`select owner_id from actors where name = 'ana-agent'`)[0]!.owner_id, ana.actor.id);
+    assert.deepEqual(await grantsOf(db, "ana-agent"), [{ room: "billing-migration", perms: ALL }]);
+    assert.equal(await can(db, got.actor, "billing-migration", "claim"), true);
+    assert.equal(await can(db, got.actor, "billing-prod", "read"), false);
+  });
+});
+
+// Review Focus 4
+test("a second install reuses the agent with a new token; rooms add up and the first token keeps working", async () => {
+  await withTestDb(async (db) => {
+    const ana = await personAuth(db, "ana", "member");
+    const tokenFor = async (rooms: string[]) => {
+      const d = await startDevice(db, "agent");
+      await approveDevice(db, ana, d.userCode, rooms);
+      const got = await pollDevice(db, d.deviceCode);
+      assert.equal(got.status, "approved");
+      return got.status === "approved" ? got : assert.fail();
+    };
+    const first = await tokenFor(["billing-migration", "billing-prod"]);
+    const second = await tokenFor(["billing-prod"]);
+    assert.notEqual(first.token, second.token);
+    assert.equal(first.actor.id, second.actor.id);
+    assert.equal((await db`select count(*)::int as n from actors where name = 'ana-agent'`)[0]!.n, 1);
+    assert.deepEqual((await grantsOf(db, "ana-agent")).map((g) => g.room), ["billing-migration", "billing-prod"]);
+    assert.equal((await authenticate(db, first.token))?.actor.name, "ana-agent");
+  });
+});
+
+// Review Focus 5
+test("an admin-mode code approved with rooms is refused and mints nothing", async () => {
+  await withTestDb(async (db) => {
+    const sam = await personAuth(db, "sam", "admin");
+    const d = await startDevice(db);
+    await assert.rejects(approveDevice(db, sam, d.userCode, ["billing-prod"]), code("invalid_input"));
+    assert.deepEqual(await pollDevice(db, d.deviceCode), { status: "pending" });
+    assert.equal((await db`select count(*)::int as n from actors where name = 'sam-agent'`)[0]!.n, 0);
+    assert.equal((await db`select count(*)::int as n from tokens`)[0]!.n, 0);
+  });
+});
+
+test("an agent-mode code needs one to 50 valid rooms", async () => {
+  await withTestDb(async (db) => {
+    const ana = await personAuth(db, "ana", "member");
+    const d = await startDevice(db, "agent");
+    const many = Array.from({ length: 51 }, (_, i) => `room-${i}`);
+    for (const rooms of [undefined, [], ["Billing Prod"], many]) {
+      await assert.rejects(approveDevice(db, ana, d.userCode, rooms), code("invalid_input"), JSON.stringify(rooms));
+    }
+    assert.deepEqual(await pollDevice(db, d.deviceCode), { status: "pending" });
+  });
+});
+
+test("<person>-agent owned by someone else is name_taken", async () => {
+  await withTestDb(async (db) => {
+    await createAgent(db, { name: "ben-agent", grants: [] });
+    const ben = await personAuth(db, "ben", "member");
+    const d = await startDevice(db, "agent");
+    await assert.rejects(approveDevice(db, ben, d.userCode, ["billing-migration"]), code("name_taken"));
+    assert.deepEqual(await pollDevice(db, d.deviceCode), { status: "pending" });
+  });
+});
+
+test("two agent-mode approvals at once for one person make one agent and two tokens", async () => {
+  await withTestDb(async (db) => {
+    const ana = await personAuth(db, "ana", "member");
+    const [a, b] = [await startDevice(db, "agent"), await startDevice(db, "agent")];
+    await Promise.all([approveDevice(db, ana, a.userCode, ["billing-migration"]), approveDevice(db, ana, b.userCode, ["billing-prod"])]);
+    const [pa, pb] = [await pollDevice(db, a.deviceCode), await pollDevice(db, b.deviceCode)];
+    assert.ok(pa.status === "approved" && pb.status === "approved" && pa.actor.id === pb.actor.id && pa.token !== pb.token);
+    assert.equal((await db`select count(*)::int as n from actors where name = 'ana-agent'`)[0]!.n, 1);
   });
 });

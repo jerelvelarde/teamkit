@@ -1,9 +1,9 @@
-import { BoardError, type DeviceStart } from "@copilotkit/teamkit-protocol";
+import { BoardError, DEVICE_MODES, type DeviceMode, type DeviceStart } from "@copilotkit/teamkit-protocol";
 import type { Hono } from "hono";
 import { deleteCookie } from "hono/cookie";
 import type { AppDeps } from "./app.js";
 import { credentialsOf, sessionCookieName, setSessionCookie, type AppEnv } from "./auth.js";
-import { readBody, reqString, requireJsonMediaType } from "./body.js";
+import { optString, optStringArray, readBody, reqString, requireJsonMediaType } from "./body.js";
 import { clientAddress, rateLimited, tokenBucket, type RateLimit } from "./rate-limit.js";
 import { DEVICE_POLL_INTERVAL_MS, approveDevice, pollDevice, startDevice } from "../store/device.js";
 import {
@@ -55,11 +55,13 @@ export function registerPeopleRoutes(
     // Public and each call writes a row, so each client address gets a modest budget.
     const waitMs = deviceStarts.take(clientAddress(c, opts.trustedProxy === true));
     if (waitMs > 0) return rateLimited(c, waitMs, "too many login codes requested; try again shortly");
-    const d = await startDevice(db);
+    const raw = optString(await readBody(c), "mode") ?? "admin";
+    if (!(DEVICE_MODES as readonly string[]).includes(raw)) throw new BoardError("invalid_input", "mode must be admin or agent");
+    const d = await startDevice(db, raw as DeviceMode);
     const out: DeviceStart = {
       deviceCode: d.deviceCode,
       userCode: d.userCode,
-      verifyUrl: `${publicUrl}/device?code=${d.userCode}`,
+      verifyUrl: `${publicUrl}/device?code=${d.userCode}${d.mode === "agent" ? "&mode=agent" : ""}`,
       expiresAt: d.expiresAt,
       intervalMs: DEVICE_POLL_INTERVAL_MS,
     };
@@ -73,7 +75,7 @@ export function registerPeopleRoutes(
 
   v1.post("/device/approve", async (c) => {
     const body = await readBody(c);
-    await approveDevice(db, c.get("auth"), reqString(body, "userCode"));
-    return c.json({ ok: true });
+    const { agent } = await approveDevice(db, c.get("auth"), reqString(body, "userCode"), optStringArray(body, "rooms"));
+    return c.json(agent ? { ok: true, agent } : { ok: true });
   });
 }

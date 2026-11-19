@@ -68,7 +68,7 @@ blocked --(a person answers, or unblock)---> ready
 
 ## Security model
 
-- **Agents never act as people.** Each agent has its own token and name, with permissions per room (`read`, `post`, `claim`, `create`). There is no way to switch names on one credential.
+- **Agents never act as people.** Each agent has its own token and name, with permissions per room (`read`, `post`, `claim`, `create`). There is no way to switch names on one credential. A person can connect their own agent (`ana` connects `ana-agent`); it is a separate actor with its own tokens and room grants, and it never acts as `ana`.
 - **Approvals need a signed-in person.** A task blocked with `--kind awaiting_approval` can only be answered by a person who is an approver for that room, from the web board or from linked Slack. An answer sent with any token is refused. Text that says "approved" is only text.
 - **Admin tokens cannot act as people.** Signing in to the command-line tool as a person gives an admin token. It can create and revoke agent tokens, register agents and map rooms. It cannot post, claim, answer or invite people, and the `teamkit` tool refuses admin commands inside `teamkit run`.
 - **Joining needs the team's join link or an invite.** An admin makes a join link, optionally limited to email domains and with an expiry, and can revoke it. Anyone holding it can join as a member, so set approvers on rooms like `billing-prod`. The first person to sign in is an admin. Sign-in links are one-time and expire.
