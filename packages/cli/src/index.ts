@@ -1,4 +1,3 @@
-import { readFileSync } from "node:fs";
 import { Command, CommanderError } from "commander";
 import { exitCodeFor } from "./args.js";
 import { defaultContext, type CliContext } from "./context.js";
@@ -9,6 +8,8 @@ import { registerPresence } from "./commands/presence.js";
 import { registerChanges } from "./commands/changes.js";
 import { registerAlerts } from "./commands/alerts.js";
 import { registerPending } from "./commands/pending.js";
+import { registerMcp } from "./commands/mcp.js";
+import { VERSION } from "./version.js";
 import { registerRollCall } from "./commands/rollcall.js";
 import { registerJoin } from "./commands/join.js";
 import { registerLogin } from "./commands/login.js";
@@ -19,14 +20,10 @@ import { registerWait } from "./commands/wait.js";
 import { registerWhoami } from "./commands/whoami.js";
 import { registerRun } from "./run.js";
 
-const { version } = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")) as {
-  version: string;
-};
-
 export function buildProgram(ctx: CliContext): Command {
   const program = new Command("teamkit")
     .description("TeamKit command-line tool")
-    .version(version)
+    .version(VERSION)
     .option("--url <u>", "TeamKit server URL")
     .option("--token <t>", "TeamKit API token")
     .option("--json", "machine-readable output")
@@ -43,6 +40,7 @@ export function buildProgram(ctx: CliContext): Command {
   registerChanges(program, ctx);
   registerAlerts(program, ctx);
   registerPending(program, ctx);
+  registerMcp(program, ctx);
   registerRun(program, ctx);
   registerLogin(program, ctx);
   registerJoin(program, ctx);

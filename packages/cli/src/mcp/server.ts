@@ -1,6 +1,10 @@
+import { once } from "node:events";
 import { McpServer } from "@modelcontextprotocol/server";
+import { serveStdio } from "@modelcontextprotocol/server/stdio";
 import { TeamkitError } from "@copilotkit/teamkit-client";
-import { NotSignedInError } from "./session.js";
+import { startKeepalive } from "./keepalive.js";
+import { createLeases } from "./leases.js";
+import { createSession, NotSignedInError, type Env } from "./session.js";
 import { coordinationTools } from "./coordination-tools.js";
 import { taskTools, type McpTool, type ToolDeps } from "./tools.js";
 
@@ -31,4 +35,40 @@ export function createMcpServer(deps: ToolDeps, opts: { version: string; tools?:
     });
   }
   return server;
+}
+
+export interface RunMcpOptions {
+  env: Env;
+  flags: { url?: string; token?: string };
+  log: (line: string) => void;
+  version: string;
+  heartbeatMs?: number;
+  renewEveryMs?: number;
+}
+
+/**
+ * `teamkit mcp`: serves the tools over stdio, reports presence and renews this process's claims
+ * until the client closes stdin. stdout carries only MCP messages; every log line goes to `log`.
+ */
+export async function runMcp(opts: RunMcpOptions): Promise<void> {
+  const session = createSession({ env: opts.env, flags: opts.flags });
+  const leases = createLeases(opts.env);
+  const keepalive = startKeepalive({
+    session,
+    leases,
+    env: opts.env,
+    log: opts.log,
+    ...(opts.heartbeatMs === undefined ? {} : { heartbeatMs: opts.heartbeatMs }),
+    ...(opts.renewEveryMs === undefined ? {} : { renewEveryMs: opts.renewEveryMs }),
+  });
+  const ended = once(process.stdin, "end");
+  const handle = serveStdio(() => createMcpServer({ session, leases }, { version: opts.version }), {
+    onerror: (e) => opts.log(`teamkit mcp: ${e.message}`),
+  });
+  try {
+    await ended;
+  } finally {
+    keepalive.stop();
+    await handle.close();
+  }
 }
