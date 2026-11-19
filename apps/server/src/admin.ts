@@ -126,11 +126,12 @@ function buildProgram(): Command {
     .option("--approvers <names>", "comma-separated approver names")
     .option("--slack-channel <id>", "Slack channel id")
     .option("--slack-announce <mode>", "blocked, all or none")
+    .option("--reservation-minutes <n>", "how long a handoff or an answered ask is held for one agent (1 to 1440)")
     .exitOverride()
     .action(
       async (
         name: string,
-        opts: { agent?: string; approvers?: string; slackChannel?: string; slackAnnounce?: string },
+        opts: { agent?: string; approvers?: string; slackChannel?: string; slackAnnounce?: string; reservationMinutes?: string },
       ) => {
         const settings: RoomSettings = {};
         if (opts.agent !== undefined) settings.agent = opts.agent;
@@ -144,6 +145,7 @@ function buildProgram(): Command {
         if (opts.slackAnnounce !== undefined) {
           settings.slackAnnounce = opts.slackAnnounce as RoomSettings["slackAnnounce"];
         }
+        if (opts.reservationMinutes !== undefined) settings.reservationMinutes = Number(opts.reservationMinutes);
         const info = await withDb(async (db) => {
           await setRoom(db, name, settings);
           return getRoomInfo(db, name);

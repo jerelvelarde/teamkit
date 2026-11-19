@@ -9,7 +9,7 @@ import { createSignInLink, DEFAULT_PUBLIC_URL, invitePerson, listPeople, signInU
 import { addTrigger, listTriggers, removeTrigger, setTriggerEnabled } from "../triggers/store.js";
 import { listRoomInfos, setRoom, type RoomSettings } from "../store/rooms.js";
 
-const ROOM_SETTING_KEYS = ["agent", "approvers", "slackChannel", "slackAnnounce"] as const;
+const ROOM_SETTING_KEYS = ["agent", "approvers", "slackChannel", "slackAnnounce", "reservationMinutes"] as const;
 
 /** A sign-in link becomes a person session, so only an admin on the web board may make one. */
 function requireAdminSession(auth: AuthContext): void {

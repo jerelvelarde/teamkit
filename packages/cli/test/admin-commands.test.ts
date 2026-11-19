@@ -104,3 +104,11 @@ test("people list shows ada; people invite does not exist", async () => {
   const inv = await runCli(["people", "invite", "bob"], adminEnv());
   assert.equal(inv.code, 2);
 });
+
+test("rooms set --reservation-minutes sends the hold length", async () => {
+  const r = await runCli(["rooms", "set", "billing-prod", "--reservation-minutes", "45"], adminEnv());
+  assert.equal(r.code, 0, r.stderr);
+  assert.equal(JSON.parse(r.stdout).reservationMinutes, 45);
+  const bad = await runCli(["rooms", "set", "billing-prod", "--reservation-minutes", "soon"], adminEnv());
+  assert.equal(bad.code, 2);
+});

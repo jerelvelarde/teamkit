@@ -117,3 +117,13 @@ test("a new room holds for 30 minutes by default", async () => {
     assert.equal((await setRoom(db, "billing-migration", {})).reservationMinutes, 30);
   });
 });
+
+test("setRoom sets reservationMinutes and refuses values outside 1 to 1440", async () => {
+  await withTestDb(async (db) => {
+    assert.equal((await setRoom(db, "billing-prod", { reservationMinutes: 45 })).reservationMinutes, 45);
+    assert.equal((await setRoom(db, "billing-prod", { approvers: ["sam"] })).reservationMinutes, 45); // unsent keys stay
+    for (const bad of [0, 1441, 2.5, "30", null]) {
+      await assert.rejects(setRoom(db, "billing-prod", { reservationMinutes: bad as never }), code("invalid_input"));
+    }
+  });
+});

@@ -300,3 +300,16 @@ test("join-links create prints a join link; list and revoke", async () => {
     assert.equal(run(url, ["join-links", "create", "--days", "0"]).code, 1);
   });
 });
+
+test("rooms set --reservation-minutes stores the hold length", async () => {
+  await withTestDb(async (db, url) => {
+    const r = run(url, ["rooms", "set", "billing-prod", "--reservation-minutes", "45"]);
+    assert.equal(r.code, 0, r.err);
+    const info = await getRoomInfo(db, "billing-prod");
+    assert.equal(info?.reservationMinutes, 45);
+    assert.deepEqual(JSON.parse(r.out), info);
+    const bad = run(url, ["rooms", "set", "billing-migration", "--reservation-minutes", "soon"]);
+    assert.equal(bad.code, 1);
+    assert.equal(await getRoomInfo(db, "billing-migration"), null);
+  });
+});

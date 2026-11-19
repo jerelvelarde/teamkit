@@ -539,6 +539,7 @@ There is no `people invite` here, by design. Use the web board's admin page or `
 | `--approvers <a,b>` | Comma-separated people who may approve, or `none`. |
 | `--slack-channel <id>` | Slack channel id, or `none`. |
 | `--slack-announce <mode>` | `blocked`, `all` or `none`. |
+| `--reservation-minutes <n>` | How long a handoff or an answered ask is held for one agent before anyone may claim it: 1 to 1440 minutes, default 30. |
 
 ```sh
 teamkit rooms set eng/web --agent reviewer --approvers dana,ravi --slack-announce blocked
@@ -682,6 +683,7 @@ teamkit-admin agents register helper --url http://127.0.0.1:9/agui --rooms 'ops'
 | `--approvers <names>` | Comma-separated approver names. |
 | `--slack-channel <id>` | Slack channel id. |
 | `--slack-announce <mode>` | `blocked`, `all` or `none`. |
+| `--reservation-minutes <n>` | How long a handoff or an answered ask is held for one agent before anyone may claim it: 1 to 1440 minutes, default 30. |
 
 Unlike `teamkit rooms set`, it has no `none` shortcut to clear a setting.
 

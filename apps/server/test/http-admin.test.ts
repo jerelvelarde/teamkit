@@ -206,3 +206,15 @@ test("POST /v1/admin/people takes an optional email", async () => {
     assert.equal((await errorOf(taken)).code, "email_taken");
   });
 });
+
+test("an admin sets a room's reservationMinutes over HTTP", async () => {
+  await withApp(async ({ db, app }) => {
+    const ana = await signIn(db, "ana", "admin");
+    const ok = await post(app, "/v1/admin/rooms/billing-prod", cookie(ana.secret), { reservationMinutes: 45 });
+    assert.equal(ok.status, 200);
+    assert.equal(((await ok.json()) as { reservationMinutes: number }).reservationMinutes, 45);
+    const bad = await post(app, "/v1/admin/rooms/billing-prod", cookie(ana.secret), { reservationMinutes: 0 });
+    assert.equal(bad.status, 400);
+    assert.equal((await errorOf(bad)).code, "invalid_input");
+  });
+});

@@ -354,8 +354,10 @@ The `link` is in the creation response only; the server keeps just its hash. `ex
 
 | Method | Path | Auth | Body | Response |
 | --- | --- | --- | --- | --- |
-| GET | `/v1/admin/rooms` | admin | none | `[{name, createdAt, agent, approvers, slackChannel, slackAnnounce}]` |
-| POST | `/v1/admin/rooms/:name` | admin | any of `agent`, `approvers`, `slackChannel`, `slackAnnounce` | The room with its settings. Only the fields you send change. |
+| GET | `/v1/admin/rooms` | admin | none | `[{name, createdAt, agent, approvers, slackChannel, slackAnnounce, reservationMinutes}]` |
+| POST | `/v1/admin/rooms/:name` | admin | any of `agent`, `approvers`, `slackChannel`, `slackAnnounce`, `reservationMinutes` | The room with its settings. Only the fields you send change. |
+
+`reservationMinutes` is how long a handoff or an answered ask is held for one agent before anyone may claim it: 1 to 1440 minutes, default 30.
 
 `agent` is the name of a registered agent that works the room's tasks. `approvers` is a list of person names allowed to answer approvals (`null` or empty means any signed-in person). `slackAnnounce` is `blocked` (default), `all` or `none`.
 
