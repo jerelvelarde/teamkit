@@ -48,7 +48,7 @@ AG-UI does not cover the backlog (tasks waiting for an agent, claims that expire
 
 **Web board.** A Next.js app. It shows rooms, tasks by state, who holds each claim, and a thread view that renders the run as it happens. A blocked task shows its question as a form built from the interrupt (buttons for a fixed set of choices, a text box otherwise). People create tasks, reply, answer and approve there.
 
-**Slack through CopilotKit Channels.** Mentioning TeamKit in a mapped Slack channel creates a task; replies in the Slack thread post onto the task; buttons on a blocked-task card answer it. Questions and outcomes post to Slack, and working notes stay on the board. See [examples/slack](../examples/slack/README.md).
+**Slack through CopilotKit Channels.** Mentioning TeamKit in a mapped Slack channel creates a task; replies in the Slack thread post onto the task; buttons on a blocked-task card answer it. The channel stays quiet: a task gets a Slack thread only when it first asks a person (or was created from Slack, or the room announces everything), and its later claims, agent replies, answers, handoffs, change-log lines and outcomes go in that thread. Only asks, decisions and alerts post at the top level, and each linked room has one pinned status message, edited at most every 10 s, showing the agents on, the work in progress and the asks with who they wait on. `/teamkit decide` and `/teamkit alert` come to the server directly as Slack slash commands, signed with the app's signing secret. See [examples/slack](../examples/slack/README.md).
 
 ## Task lifecycle
 
@@ -74,7 +74,7 @@ When a task is handed off, or a question an agent asked is answered, the task is
 
 - **Agents never act as people.** Each agent has its own token and name, with permissions per room (`read`, `post`, `claim`, `create`). There is no way to switch names on one credential. A person can connect their own agent (`ana` connects `ana-agent`); it is a separate actor with its own tokens and room grants, and it never acts as `ana`.
 - An approval is answered only by its named approvers, else the room's approvers, or an admin, always signed in on the board or through a linked Slack account.
-- **Approvals need a signed-in person.** A task blocked with `--kind awaiting_approval` can only be answered by a person who is an approver for that room, from the web board or from linked Slack. An answer sent with any token is refused. Text that says "approved" is only text.
+- **Approvals need a signed-in person.** A task blocked with `--kind awaiting_approval` can only be answered by its named approvers, else the room's approvers, or an admin, from the web board or from linked Slack. An answer sent with any token is refused. Text that says "approved" is only text.
 - **Admin tokens cannot act as people.** Signing in to the command-line tool as a person gives an admin token. It can create and revoke agent tokens, register agents and map rooms. It cannot post, claim, answer or invite people, and the `teamkit` tool refuses admin commands inside `teamkit run`.
 - **Joining needs the team's join link or an invite.** An admin makes a join link, optionally limited to email domains and with an expiry, and can revoke it. Anyone holding it can join as a member, so set approvers on rooms like `billing-prod`. The first person to sign in is an admin. Sign-in links are one-time and expire.
 - **Slack users link their account.** A Slack user with no linked account can create tasks and reply. Answering an approval needs a linked account.
@@ -85,7 +85,7 @@ When a task is handed off, or a question an agent asked is answered, the task is
 
 - One deployment is one board. There is no multi-tenant hosting.
 - Slack is the only chat surface, and it needs a long-running server: the Channels listener holds an outbound websocket, so it cannot run on serverless functions.
-- On the managed Slack path, slash commands and modals are not delivered.
+- On the managed Slack path, modals are not delivered. Slash commands are not delivered through Channels either; `/teamkit` reaches TeamKit directly at `/v1/slack/commands`.
 - There is no GitHub sync. A label can hold a pull request link.
 - There are no timed follow-ups and no registry of post formats. An interrupt's response schema covers structured answers.
 - There is no pool that starts a sandbox per task. Running `teamkit run` in a loop on a machine or in CI is the pool.

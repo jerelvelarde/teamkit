@@ -479,6 +479,7 @@ A Slack user asks for a link in Slack and receives a code (valid for ten minutes
 | POST | `/v1/slack/link` | person on the web board | `{code, slackUserId}` | The new link. `slackUserId` is the Slack user the person confirmed on the page. |
 | GET | `/v1/slack/links` | person on the web board | none | `{links: [{slackUserId, slackUserName, linkedAt}]}` |
 | POST | `/v1/slack/links/:slackUserId/unlink` | person on the web board | none | `{ok: true}` |
+| POST | `/v1/slack/commands` | Slack, signed with the app's signing secret | Slack's slash-command form (`command`, `text`, `user_id`, `channel_id`) | `{response_type: "ephemeral", text}`; `401 unauthorized` for a missing, wrong or older-than-five-minutes signature; `404 not_found` when `SLACK_SIGNING_SECRET` is unset. |
 
 A wrong, used or expired code is `404 not_found`. Unlinking a Slack user that is not linked to you is also `404`.
 
