@@ -10,7 +10,8 @@ import { agentToken, startTestServer } from "../../server/test/helpers/server.js
 
 const WEB_DIR = fileURLToPath(new URL("..", import.meta.url));
 const SHOTS_DIR = fileURLToPath(new URL("../../../.tmp/smoke", import.meta.url));
-const DIST_DIR = ".next-smoke";
+// NEXT_DIST_DIR lets two smoke runs share the checkout without sharing a build directory.
+const DIST_DIR = process.env.NEXT_DIST_DIR || ".next-smoke";
 const VIEWPORTS = [
   { width: 390, height: 844 },
   { width: 768, height: 1024 },
@@ -115,11 +116,18 @@ async function main(): Promise<void> {
     const page = await context.newPage();
     page.setDefaultTimeout(15_000);
 
+    // The sign-in link is spent only on a click, so a link scanner that runs scripts cannot use it up.
     await page.goto(`${base}/signin/${secret}`);
+    await page.getByRole("button", { name: "Sign in", exact: true }).waitFor();
+    await page.waitForLoadState("networkidle");
+    assert(page.url() === `${base}/signin/${secret}`, `the sign-in page waits for a click (now at ${page.url()})`);
+    await page.getByRole("button", { name: "Sign in", exact: true }).click();
     await page.waitForURL(`${base}/`);
-    await page.getByText("AG-UI", { exact: false }).first().waitFor();
+    // The header shows the person without a reload: sign-in ends with a full page load.
+    await page.locator("header").getByRole("button", { name: "Sign out" }).waitFor();
     const headerText = await page.locator("header").innerText();
     assert(/AG-UI\s+TeamKit/.test(headerText), `header reads "AG-UI TeamKit" (got ${JSON.stringify(headerText)})`);
+    assert(headerText.includes("ada"), `header shows the signed-in person (got ${JSON.stringify(headerText)})`);
 
     const blockedCol = page.getByRole("region", { name: "Blocked" });
     const card = blockedCol.locator("a", { hasText: "Pick a database" });
