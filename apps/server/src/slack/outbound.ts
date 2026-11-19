@@ -2,6 +2,7 @@ import type { Db } from "../db/pool.js";
 import type { Notifier } from "../notifier.js";
 import { currentCursor, listEvents } from "../store/events.js";
 import { getServiceCursor, setServiceCursor } from "./mirror.js";
+import { NEWS_EVENT_KINDS, postNewsEvent } from "./news-posts.js";
 import { TASK_EVENT_KINDS } from "./parent-rule.js";
 import { startPassLoop } from "./pass-loop.js";
 import { postTaskEvent } from "./task-posts.js";
@@ -51,9 +52,9 @@ export async function processOutboundOnce(o: OutboundOptions): Promise<OutboundP
   }
   let posted = 0;
   for (;;) {
-    const page = await listEvents(o.db, { after, kinds: [...TASK_EVENT_KINDS], limit: PAGE });
+    const page = await listEvents(o.db, { after, kinds: [...TASK_EVENT_KINDS, ...NEWS_EVENT_KINDS], limit: PAGE });
     for (const e of page.events) {
-      const r = await postTaskEvent(o, e);
+      const r = NEWS_EVENT_KINDS.includes(e.kind) ? await postNewsEvent(o, e) : await postTaskEvent(o, e);
       if (r.kind === "retry") return { posted, retry: { reason: r.reason, afterMs: r.afterMs } };
       posted += r.posted;
       await setServiceCursor(o.db, CURSOR_NAME, e.cursor);
