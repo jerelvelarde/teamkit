@@ -1,15 +1,20 @@
 import { test } from "node:test";
+import { readdir } from "node:fs/promises";
 import assert from "node:assert/strict";
 import { createDb } from "../src/db/pool.js";
-import { migrate } from "../src/db/migrate.js";
+import { MIGRATIONS_DIR, migrate } from "../src/db/migrate.js";
 import { TEST_ADMIN_URL, createTestDatabase, withTestDb } from "./helpers/db.js";
 
-const TABLES = ["actors", "tokens", "grants", "rooms", "threads", "tasks", "task_needs", "messages", "events", "schema_migrations"];
+const TABLES = ["actors", "tokens", "grants", "rooms", "threads", "tasks", "task_needs", "messages", "events", "schema_migrations", "sessions", "signin_links", "device_codes", "slack_links"];
 
-test("migrate applies 001_init.sql once and is idempotent", async () => {
+async function migrationFiles(): Promise<string[]> {
+  return (await readdir(MIGRATIONS_DIR)).filter((f) => f.endsWith(".sql")).sort();
+}
+
+test("migrate applies every migration once and is idempotent", async () => {
   const t = await createTestDatabase({ migrate: false });
   try {
-    assert.deepEqual(await migrate(t.db), ["001_init.sql"]);
+    assert.deepEqual(await migrate(t.db), await migrationFiles());
     assert.deepEqual(await migrate(t.db), []);
   } finally {
     await t.drop();
@@ -24,12 +29,13 @@ test("all tables exist", async () => {
   });
 });
 
-test("concurrent migrate applies the file once in total", async () => {
+test("concurrent migrate applies each file once in total", async () => {
   const t = await createTestDatabase({ migrate: false });
   try {
     const [a, b] = await Promise.all([migrate(t.db), migrate(t.db)]);
-    assert.equal(a.length + b.length, 1);
-    assert.deepEqual([...a, ...b], ["001_init.sql"]);
+    const files = await migrationFiles();
+    assert.equal(a.length + b.length, files.length);
+    assert.deepEqual([...a, ...b].sort(), files);
   } finally {
     await t.drop();
   }
