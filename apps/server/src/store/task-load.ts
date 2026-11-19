@@ -1,5 +1,5 @@
 import type { ActorRef, PendingResume, Task, TaskBlock, TaskState } from "@copilotkit/teamkit-protocol";
-import type { Q } from "../db/pool.js";
+import type { Q, Tx } from "../db/pool.js";
 
 type Row = {
   thread_id: string;
@@ -96,6 +96,9 @@ export async function loadTasks(q: Q, ids: string[]): Promise<Task[]> {
   });
 }
 
+export async function loadTask(q: Q, taskId: string, opts?: { forUpdate?: false }): Promise<Task | null>;
+/** Locks the task row FOR UPDATE until the transaction ends, then loads it; the lock needs a transaction. */
+export async function loadTask(tx: Tx, taskId: string, opts: { forUpdate: true }): Promise<Task | null>;
 export async function loadTask(q: Q, taskId: string, opts?: { forUpdate?: boolean }): Promise<Task | null> {
   if (opts?.forUpdate) {
     const locked = await q`select thread_id from tasks where thread_id = ${taskId} for update`;

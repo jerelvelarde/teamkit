@@ -53,8 +53,35 @@ test("appendMessage assigns increasing seq", async () => {
     await ensureRoom(db, "eng");
     await insertThread(db, { id: "th_1", room: "eng", isTask: false, labels: {}, createdBy: "ac_1" });
     const actor = { id: "ac_1", name: "pat", kind: "person" as const };
-    assert.equal(await appendMessage(db, "th_1", messageFor({ messageId: "m1", role: "user", text: "a", actor })), 1);
-    assert.equal(await appendMessage(db, "th_1", messageFor({ messageId: "m2", role: "user", text: "b", actor })), 2);
+    const append = (id: string) =>
+      db.begin((tx) => appendMessage(tx, "th_1", messageFor({ messageId: id, role: "user", text: id, actor })));
+    assert.equal(await append("m1"), 1);
+    assert.equal(await append("m2"), 2);
+  });
+});
+
+test("concurrent appendMessage transactions on one thread get distinct sequential seqs", async () => {
+  await withTestDb(async (db) => {
+    await db`insert into actors (id, kind, name) values ('ac_1', 'person', 'pat')`;
+    await ensureRoom(db, "eng");
+    await insertThread(db, { id: "th_1", room: "eng", isTask: false, labels: {}, createdBy: "ac_1" });
+    const actor = { id: "ac_1", name: "pat", kind: "person" as const };
+    const seqs = await Promise.all(
+      Array.from({ length: 20 }, (_, i) =>
+        db.begin((tx) =>
+          appendMessage(tx, "th_1", messageFor({ messageId: `m${i}`, role: "user", text: `${i}`, actor })),
+        ),
+      ),
+    );
+    assert.deepEqual(
+      [...seqs].sort((x, y) => x - y),
+      Array.from({ length: 20 }, (_, i) => i + 1),
+    );
+    const rows = await db<{ seq: number }[]>`select seq from messages where thread_id = 'th_1' order by seq`;
+    assert.deepEqual(
+      rows.map((r) => r.seq),
+      Array.from({ length: 20 }, (_, i) => i + 1),
+    );
   });
 });
 

@@ -74,7 +74,7 @@ test("unknown id returns null", async () => {
   await withTestDb(async (db) => {
     await seed(db);
     assert.equal(await loadTask(db, "nope"), null);
-    assert.equal(await loadTask(db, "nope", { forUpdate: true }), null);
+    assert.equal(await db.begin((tx) => loadTask(tx, "nope", { forUpdate: true })), null);
   });
 });
 

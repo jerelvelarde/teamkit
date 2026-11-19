@@ -6,7 +6,7 @@ import {
   type AguiMessage,
   type ThreadInfo,
 } from "@copilotkit/teamkit-protocol";
-import type { Q } from "../db/pool.js";
+import type { Q, Tx } from "../db/pool.js";
 
 export function assertText(field: string, value: unknown, opts?: { required?: boolean }): string | undefined {
   if (value === undefined || value === null) {
@@ -72,11 +72,15 @@ export function messageFor(m: {
   } as AguiMessage;
 }
 
-export async function appendMessage(q: Q, threadId: string, message: AguiMessage): Promise<number> {
-  await q`select id from threads where id = ${threadId} for update`;
-  const [row] = await q`
+/**
+ * Appends a message with the thread's next seq. Takes a transaction: the thread
+ * row lock that serializes seq allocation only lasts until the transaction ends.
+ */
+export async function appendMessage(tx: Tx, threadId: string, message: AguiMessage): Promise<number> {
+  await tx`select id from threads where id = ${threadId} for update`;
+  const [row] = await tx`
     insert into messages (thread_id, seq, message)
-    select ${threadId}, coalesce(max(seq), 0) + 1, ${q.json(message as never)}
+    select ${threadId}, coalesce(max(seq), 0) + 1, ${tx.json(message as never)}
     from messages where thread_id = ${threadId}
     returning seq`;
   return row!.seq as number;
