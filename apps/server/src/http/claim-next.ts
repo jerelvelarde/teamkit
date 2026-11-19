@@ -3,7 +3,7 @@ import type { Hono } from "hono";
 import type { AppDeps } from "./app.js";
 import type { AppEnv } from "./auth.js";
 import { optLabels, readBody, reqString } from "./body.js";
-import { claimNext } from "../store/claims.js";
+import { claimNext, release } from "../store/claims.js";
 
 function optWaitMs(b: Record<string, unknown>): number {
   const v = b.waitMs;
@@ -39,6 +39,11 @@ export function registerClaimNext(v1: Hono<AppEnv>, deps: AppDeps): void {
         if (signal.aborted) return c.body(null, 204);
         dirty = false;
         const claim = await claimNext(deps.db, auth, { room, ...(labels ? { labels } : {}) });
+        if (claim && signal.aborted) {
+          // The caller left while the claim was being taken: nobody holds it, so hand the task back.
+          await release(deps.db, auth, claim.task.id, claim.claimId);
+          return c.body(null, 204);
+        }
         if (claim) return c.json(claim, 200);
         const left = deadline - Date.now();
         if (left <= 0 || signal.aborted) return c.body(null, 204);
