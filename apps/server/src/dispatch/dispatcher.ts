@@ -8,8 +8,14 @@ export interface DispatcherOptions extends Omit<RunClaimOptions, "signal"> {
   notifier: Notifier;
   /** Claims run at once. Default 4. */
   concurrency?: number;
-  /** Scan interval, on top of a scan for every notifier wake-up. Default 5000. */
+  /** Scan interval, on top of the scans notifier wake-ups start. Default 5000. */
   pollMs?: number;
+  /**
+   * Notifier wake-ups start at most one scan per this many ms; the ones in between fold into
+   * one scan at the end of the window. Every logged event wakes the notifier, a streaming run
+   * included, and the payload names no kind to filter on. Default 250.
+   */
+  wakeEveryMs?: number;
   /** A released task waits retryDelayMs × (its attempts before that run + 1) before it is tried again. Default 2000. */
   retryDelayMs?: number;
 }
@@ -33,12 +39,13 @@ function errorMessage(e: unknown): string {
 
 /**
  * Runs ready tasks routed to registered agents (task label `agent`, else the room's agent):
- * scans on every notifier event and every pollMs, claims each task as its agent without
- * opening a run, and hands the claim to runClaim, at most `concurrency` at once. Claims are
- * atomic, so dispatchers sharing a database never run one task twice.
+ * scans on notifier events (at most one scan per wakeEveryMs) and every pollMs, claims each
+ * task as its agent without opening a run, and hands the claim to runClaim, at most
+ * `concurrency` at once. Claims are atomic, so dispatchers sharing a database never run one
+ * task twice.
  */
 export function startDispatcher(o: DispatcherOptions): Dispatcher {
-  const { notifier, concurrency = 4, pollMs = 5000, retryDelayMs = 2000, ...rest } = o;
+  const { notifier, concurrency = 4, pollMs = 5000, retryDelayMs = 2000, wakeEveryMs = 250, ...rest } = o;
   if (!Number.isInteger(concurrency) || concurrency < 1) {
     throw new Error(`dispatcher concurrency must be an integer >= 1, got ${concurrency}`);
   }
@@ -57,12 +64,15 @@ export function startDispatcher(o: DispatcherOptions): Dispatcher {
   /** The last finished scan found nothing to start. */
   let quiet = false;
   let scanning: Promise<void> | null = null;
+  /** A notifier wake-up waiting for its scan. */
+  let wake: NodeJS.Timeout | null = null;
+  let lastWake = 0;
   let stopped = false;
   let stopping: Promise<void> | null = null;
 
   function wakeIdle(): void {
     if (waiters.length === 0) return;
-    if (dirty || scanning || !quiet || running.size > 0 || retrying.size > 0) return;
+    if (dirty || scanning || wake || !quiet || running.size > 0 || retrying.size > 0) return;
     const ready = waiters;
     waiters = [];
     for (const resolve of ready) resolve();
@@ -165,7 +175,20 @@ export function startDispatcher(o: DispatcherOptions): Dispatcher {
     })();
   }
 
-  const unsubscribe = notifier.onEvent(() => requestScan());
+  /** Throttles notifier wake-ups to one scan per wakeEveryMs, keeping the last one. */
+  function onWake(): void {
+    if (stopped || wake) return;
+    wake = setTimeout(
+      () => {
+        wake = null;
+        lastWake = Date.now();
+        requestScan();
+      },
+      Math.max(0, lastWake + wakeEveryMs - Date.now()),
+    );
+  }
+
+  const unsubscribe = notifier.onEvent(onWake);
   const poll = setInterval(requestScan, pollMs);
   requestScan();
 
@@ -175,6 +198,8 @@ export function startDispatcher(o: DispatcherOptions): Dispatcher {
         stopped = true;
         unsubscribe();
         clearInterval(poll);
+        if (wake) clearTimeout(wake);
+        wake = null;
         for (const timer of retrying.values()) clearTimeout(timer);
         retrying.clear();
         // A claim the scan in progress takes starts its run already aborted.

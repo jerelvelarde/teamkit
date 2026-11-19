@@ -62,7 +62,15 @@ async function withDispatch(script: FakeScript, fn: (ctx: DispatchCtx) => Promis
       const lead = await agentAuth(db, "lead");
       const created: string[] = [];
       const logs: string[] = [];
-      const events = async (id: string) => (await listEvents(db, { threadId: id, limit: 1000 })).events;
+      const events = async (id: string) => {
+        const all: BoardEvent[] = [];
+        for (let after: string | undefined; ; ) {
+          const page = await listEvents(db, { threadId: id, after, limit: 1000 });
+          all.push(...page.events);
+          if (page.events.length < 1000) return all;
+          after = page.cursor;
+        }
+      };
       await fn({
         db,
         fake,
@@ -327,4 +335,37 @@ test("a task its agent may not claim is logged once and left alone without keepi
     assert.match(refusals[0]!, /not dispatched: .*lacks claim in elsewhere/);
     assert.deepEqual((await events(id)).filter((e) => settles.has(e.kind) || e.kind === "task.claimed"), []);
   });
+});
+
+test("a 1000-event agent stream starts at most one scan per wakeEveryMs, not one per event", async () => {
+  await withDispatch(
+    (i) => [
+      steps.started(i),
+      { event: { type: "TEXT_MESSAGE_START", messageId: "m1", role: "assistant" } },
+      ...Array.from({ length: 1000 }, () => ({ event: { type: "TEXT_MESSAGE_CONTENT", messageId: "m1", delta: "tok " } })),
+      { event: { type: "TEXT_MESSAGE_END", messageId: "m1" } },
+      steps.success(i),
+    ],
+    async ({ db, start, create, task }) => {
+      let scans = 0;
+      // listDispatchable is the dispatcher's only query that routes a task to its agent.
+      const counting = new Proxy(db, {
+        apply(target, self, args) {
+          if (Array.isArray(args[0]) && args[0].join("").includes("select t.thread_id as task_id, a.*")) scans++;
+          return Reflect.apply(target, self, args);
+        },
+      });
+      const d = start({ db: counting, pollMs: 60_000 });
+      await d.idle();
+      const before = scans;
+      const t0 = Date.now();
+      const id = await create("research");
+      await until(async () => (await task(id)).state === "completed", 30_000);
+      await d.idle();
+      const elapsed = Date.now() - t0;
+      const during = scans - before;
+      assert.ok(during >= 1);
+      assert.ok(during <= Math.ceil(elapsed / 250) + 3, `${during} scans in ${elapsed} ms`);
+    },
+  );
 });
