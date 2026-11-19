@@ -1,0 +1,22 @@
+{
+  "name": "@copilotkit/teamkit",
+  "version": "0.1.0",
+  "license": "MIT",
+  "type": "module",
+  "engines": { "node": ">=22" },
+  "bin": { "teamkit": "./bin/teamkit.mjs" },
+  "scripts": {
+    "test": "node --import tsx --test 'test/**/*.test.ts'",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@copilotkit/teamkit-client": "workspace:*",
+    "@copilotkit/teamkit-protocol": "workspace:*",
+    "commander": "^14.0.3",
+    "tsx": "^4.20.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "~5.9.3"
+  }
+}
