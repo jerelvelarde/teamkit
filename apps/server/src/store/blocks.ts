@@ -44,7 +44,15 @@ function validateOptions(options: unknown): string[] | null {
   return options as string[];
 }
 
-/** claimed -> blocked. Ends the run with an AG-UI interrupt and releases the claim. */
+/** The thread message a block leaves, so the question stays in the thread after it is answered. */
+export function questionText(kind: BlockKind, question: string, options: string[] | null): string {
+  return `Question (${kind}): ${question}${options ? ` [options: ${options.join("|")}]` : ""}`;
+}
+
+/**
+ * claimed -> blocked. Posts the question to the thread as the blocking agent's message, ends the
+ * run with an AG-UI interrupt and releases the claim.
+ */
 export async function block(
   db: Db,
   auth: AuthContext,
@@ -66,12 +74,16 @@ export async function block(
       set state = 'blocked', block = ${tx.json(stored as never)}, claim_id = null, claimed_by = null,
           lease_expires_at = null, updated_at = now()
       where thread_id = ${taskId}`;
+    const messageId = newId(ID_PREFIXES.message);
+    const said = questionText(input.kind, question, options);
+    await appendMessage(tx, taskId, messageFor({ messageId, role: "assistant", text: said, actor: auth.actor }));
     await appendEvent(tx, {
       kind: "task.blocked",
       room: task.room,
       threadId: taskId,
       actorId: auth.actor.id,
       agui: [
+        ...textMessage({ messageId, role: "assistant", text: said, actor: auth.actor }),
         runFinishedInterrupt(taskId, claimId, {
           id: interruptId,
           reason: input.kind,
@@ -79,7 +91,7 @@ export async function block(
           responseSchema: options ? choiceSchema(options) : undefined,
         }),
       ],
-      data: { taskId, state: "blocked", interruptId, kind: input.kind, question, options },
+      data: { taskId, state: "blocked", interruptId, kind: input.kind, question, options, messageId },
     });
     return mustLoad(tx, taskId);
   });

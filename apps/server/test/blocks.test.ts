@@ -6,7 +6,8 @@ import { agentAuth, personAuth } from "./helpers/actors.js";
 import { assertAguiValid } from "./helpers/agui.js";
 import { createTask } from "../src/store/tasks.js";
 import { claimTask } from "../src/store/claims.js";
-import { answer, block } from "../src/store/blocks.js";
+import { answer, block, questionText } from "../src/store/blocks.js";
+import { getThread } from "../src/store/threads.js";
 import { setRoom } from "../src/store/rooms.js";
 import { listEvents } from "../src/store/events.js";
 
@@ -31,10 +32,32 @@ test("block clears the claim and logs a valid interrupt with the choice enum", a
     const { events } = await listEvents(db, { kinds: ["task.blocked"] });
     assert.equal(events.length, 1);
     assertAguiValid(events[0]!.agui);
-    const fin = RunFinishedEventSchema.parse(events[0]!.agui[0]) as any;
+    assert.deepEqual(
+      events[0]!.agui.map((e) => e.type),
+      ["TEXT_MESSAGE_START", "TEXT_MESSAGE_CONTENT", "TEXT_MESSAGE_END", "RUN_FINISHED"],
+    );
+    const fin = RunFinishedEventSchema.parse(events[0]!.agui.at(-1)) as any;
     assert.equal(fin.runId, c.claimId);
     assert.equal(fin.threadId, t.id);
     assert.deepEqual(fin.outcome.interrupts[0].responseSchema.properties.choice.enum, ["a", "b"]);
+  });
+});
+
+test("the question stays in the thread, as the blocking agent's message, before the answer", async () => {
+  await withTestDb(async (db) => {
+    const { bot, t } = await blockedTask(db, "needs_input", ["pg", "sqlite"]);
+    const lead = await agentAuth(db, "lead", [{ room: "*", perms: ["read", "post"] }]);
+    await answer(db, lead, t.id, { choice: "pg" });
+    const said = (await getThread(db, lead, t.id)).messages.map((m) => {
+      const { role, name, content } = m as { role: string; name: string; content: string };
+      return { role, name, content };
+    });
+    assert.deepEqual(said, [
+      { role: "user", name: bot.actor.name, content: "x" },
+      { role: "assistant", name: bot.actor.name, content: "Question (needs_input): ok? [options: pg|sqlite]" },
+      { role: "user", name: "lead", content: "pg" },
+    ]);
+    assert.equal(questionText("awaiting_approval", "ship it?", null), "Question (awaiting_approval): ship it?");
   });
 });
 
