@@ -87,8 +87,21 @@ export function resolveConfig(opts: { url?: string; token?: string }, env: Env =
   return { url: url.replace(/\/$/, ""), token };
 }
 
+/**
+ * `teamkit run` sets TEAMKIT_TASK and TEAMKIT_CLAIM for the agent it starts. Admin commands refuse to
+ * run there, so an agent cannot use the admin login saved in the config file through this tool.
+ */
+export function refuseInsideRun(env: Env = process.env): void {
+  if (env.TEAMKIT_TASK || env.TEAMKIT_CLAIM) {
+    throw new UsageError(
+      "admin commands are disabled inside `teamkit run` (TEAMKIT_TASK or TEAMKIT_CLAIM is set); run them in your own shell",
+    );
+  }
+}
+
 /** Like resolveConfig, but for admin commands: it reads only the admin token, never the agent token. */
 export function resolveAdminConfig(opts: { url?: string; token?: string }, env: Env = process.env): ResolvedConfig {
+  refuseInsideRun(env);
   let url = opts.url || env.TEAMKIT_URL;
   let token = opts.token || env.TEAMKIT_ADMIN_TOKEN;
   if (!url || !token) {
@@ -99,4 +112,28 @@ export function resolveAdminConfig(opts: { url?: string; token?: string }, env: 
   if (!url) throw new UsageError("set TEAMKIT_URL or --url");
   if (!token) throw new UsageError("not signed in for admin commands: run `teamkit login` or set TEAMKIT_ADMIN_TOKEN");
   return { url: url.replace(/\/$/, ""), token };
+}
+
+export interface LogoutTargets {
+  url: string;
+  /** The admin login saved in the config file: `teamkit logout` removes it once the server has revoked it. */
+  fileToken?: string;
+  /** A different admin token from --token or TEAMKIT_ADMIN_TOKEN, revoked too. */
+  givenToken?: string;
+}
+
+/** The admin tokens `teamkit logout` revokes, or null when there are none. */
+export function resolveLogoutTargets(opts: { url?: string; token?: string }, env: Env = process.env): LogoutTargets | null {
+  refuseInsideRun(env);
+  const file = readConfigFile(env);
+  const fileToken = fileValue(file, "adminToken", env);
+  const given = opts.token || env.TEAMKIT_ADMIN_TOKEN;
+  if (!fileToken && !given) return null;
+  const url = opts.url || env.TEAMKIT_URL || fileValue(file, "url", env);
+  if (!url) throw new UsageError("set TEAMKIT_URL or --url");
+  return {
+    url: url.replace(/\/$/, ""),
+    ...(fileToken ? { fileToken } : {}),
+    ...(given && given !== fileToken ? { givenToken: given } : {}),
+  };
 }

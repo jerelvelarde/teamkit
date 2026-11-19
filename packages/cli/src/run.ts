@@ -203,7 +203,7 @@ export async function runTask(opts: RunTaskOptions): Promise<number> {
       (ADMIN_ENV_KEYS as readonly string[]).includes(k) || k.startsWith("TEAMKIT_ADMIN_");
     const agentEnv = Object.fromEntries(Object.entries(baseEnv).filter(([k]) => !isAdminKey(k)));
     if (Object.keys(agentEnv).length !== Object.keys(baseEnv).length) {
-      log("teamkit run: admin credentials in this shell are not passed to the agent; do not export them where agents run");
+      log("teamkit run: admin credentials in the environment are not passed to the agent; admin commands are disabled inside `teamkit run`");
     }
     const c = spawn(command[0] as string, command.slice(1), {
       stdio: "inherit",

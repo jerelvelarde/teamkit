@@ -5,7 +5,7 @@ import {
   TeamkitError,
   waitForDeviceLogin,
 } from "@copilotkit/teamkit-client";
-import { clearConfigKeys, readConfigFile, resolveAdminConfig, writeConfigFile } from "../config.js";
+import { clearConfigKeys, readConfigFile, refuseInsideRun, resolveLogoutTargets, writeConfigFile } from "../config.js";
 import { globalOpts, type CliContext } from "../context.js";
 import { CliExit, UsageError } from "../errors.js";
 
@@ -15,6 +15,7 @@ export function registerLogin(program: Command, ctx: CliContext): void {
     .description("sign in as an admin with a code you confirm on the web board")
     .action(async (_opts: unknown, cmd: Command) => {
       const { url: urlFlag, json } = globalOpts(cmd);
+      refuseInsideRun(ctx.env);
       const raw = urlFlag || ctx.env.TEAMKIT_URL || readConfigFile(ctx.env).url;
       if (!raw || typeof raw !== "string") throw new UsageError("set TEAMKIT_URL or --url");
       const url = raw.replace(/\/$/, "");
@@ -39,29 +40,35 @@ export function registerLogin(program: Command, ctx: CliContext): void {
 
   program
     .command("logout")
-    .description("sign out of the admin login on this machine")
+    .description("revoke the admin login on this machine, then remove it")
     .action(async (_opts: unknown, cmd: Command) => {
       const { url, token } = globalOpts(cmd);
-      let cfg;
-      try {
-        cfg = resolveAdminConfig({ url, token }, ctx.env);
-      } catch (e) {
-        if (e instanceof UsageError && /not signed in/.test(e.message)) {
-          ctx.out("Not signed in");
-          return;
-        }
-        throw e;
+      const targets = resolveLogoutTargets({ url, token }, ctx.env);
+      if (!targets) {
+        ctx.out("Not signed in");
+        return;
       }
-      try {
-        await createAdminClient(cfg).logout();
-      } catch (e) {
-        if (e instanceof TeamkitError && e.status === 401) {
-          // Already invalid on the server; nothing to revoke.
-        } else {
-          ctx.err("warning: could not reach the server to end this login; clearing it locally");
-        }
+      let failed = false;
+      if (targets.fileToken !== undefined) {
+        // Remove the saved login only once the server no longer accepts it.
+        if (await revoke(targets.url, targets.fileToken, ctx)) clearConfigKeys(["adminToken"], ctx.env);
+        else failed = true;
       }
-      clearConfigKeys(["adminToken"], ctx.env);
+      if (targets.givenToken !== undefined && !(await revoke(targets.url, targets.givenToken, ctx))) failed = true;
+      if (failed) throw new CliExit(1, "Could not revoke the admin token; revoke it on the admin page.");
       ctx.out("Signed out");
     });
+}
+
+/** Ends an admin login on the server. True when it is revoked now or was already invalid (401). */
+async function revoke(url: string, token: string, ctx: CliContext): Promise<boolean> {
+  try {
+    await createAdminClient({ url, token }).logout();
+    return true;
+  } catch (e) {
+    if (e instanceof TeamkitError && e.status === 401) return true;
+    const why = e instanceof TeamkitError ? `${e.code}: ${e.message}` : e instanceof Error ? e.message : String(e);
+    ctx.err(`teamkit logout: ${why}`);
+    return false;
+  }
 }

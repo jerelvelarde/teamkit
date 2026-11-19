@@ -3,7 +3,15 @@ import { mkdtempSync, statSync, writeFileSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { clearConfigKeys, configPath, readConfigFile, resolveAdminConfig, resolveConfig, writeConfigFile } from "../src/config.js";
+import {
+  clearConfigKeys,
+  configPath,
+  readConfigFile,
+  resolveAdminConfig,
+  resolveConfig,
+  resolveLogoutTargets,
+  writeConfigFile,
+} from "../src/config.js";
 import { CliExit, UsageError } from "../src/errors.js";
 
 function env(extra: Record<string, string> = {}): Record<string, string> {
@@ -127,4 +135,45 @@ test("clearConfigKeys removes only the named keys and keeps 0600", () => {
   assert.deepEqual(readConfigFile(e), { url: "http://a", token: "t" });
   assert.equal(statSync(configPath(e)).mode & 0o777, 0o600);
   clearConfigKeys(["adminToken"], env());
+});
+
+test("admin config is refused inside `teamkit run`, even with a saved admin login", () => {
+  for (const key of ["TEAMKIT_TASK", "TEAMKIT_CLAIM"]) {
+    const e = env({ TEAMKIT_URL: "http://x", [key]: "task_1" });
+    writeConfigFile({ adminToken: "file-admin" }, e);
+    for (const resolve of [() => resolveAdminConfig({}, e), () => resolveLogoutTargets({}, e)]) {
+      assert.throws(
+        resolve,
+        (err: unknown) =>
+          err instanceof UsageError &&
+          err.code === 2 &&
+          /^admin commands are disabled inside `teamkit run`/.test(err.message),
+      );
+    }
+    assert.throws(() => resolveAdminConfig({ token: "flag-admin" }, { ...e, TEAMKIT_ADMIN_TOKEN: "env-admin" }), UsageError);
+  }
+  // The agent token keeps working there.
+  const inRun = env({ TEAMKIT_URL: "http://x", TEAMKIT_TOKEN: "tk_agent", TEAMKIT_TASK: "task_1" });
+  assert.deepEqual(resolveConfig({}, inRun), { url: "http://x", token: "tk_agent" });
+});
+
+test("logout targets: the saved login, plus a different flag or env token", () => {
+  assert.equal(resolveLogoutTargets({}, env({ TEAMKIT_URL: "http://x" })), null);
+  const e = env();
+  writeConfigFile({ url: "http://file/", adminToken: "file-admin" }, e);
+  assert.deepEqual(resolveLogoutTargets({}, e), { url: "http://file", fileToken: "file-admin" });
+  assert.deepEqual(resolveLogoutTargets({}, { ...e, TEAMKIT_ADMIN_TOKEN: "env-admin" }), {
+    url: "http://file",
+    fileToken: "file-admin",
+    givenToken: "env-admin",
+  });
+  assert.deepEqual(resolveLogoutTargets({ token: "file-admin" }, e), { url: "http://file", fileToken: "file-admin" });
+  assert.deepEqual(resolveLogoutTargets({}, env({ TEAMKIT_URL: "http://x", TEAMKIT_ADMIN_TOKEN: "env-admin" })), {
+    url: "http://x",
+    givenToken: "env-admin",
+  });
+  assert.throws(
+    () => resolveLogoutTargets({}, env({ TEAMKIT_ADMIN_TOKEN: "env-admin" })),
+    (err: unknown) => err instanceof UsageError && err.message === "set TEAMKIT_URL or --url",
+  );
 });
