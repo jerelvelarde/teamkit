@@ -224,6 +224,19 @@ function clipContent<M extends { content?: unknown }>(m: M): M {
   return typeof m.content === "string" ? { ...m, content: clip(m.content) } : m;
 }
 
+/** Tool-call arguments past MAX_TEXT_LENGTH become a marker, since a cut-off string is not JSON. */
+function clipToolCalls(m: Extract<Message, { role: "assistant" }>): Message {
+  if (!m.toolCalls?.some((tc) => tc.function.arguments.length > MAX_TEXT_LENGTH)) return m;
+  return {
+    ...m,
+    toolCalls: m.toolCalls.map((tc) =>
+      tc.function.arguments.length > MAX_TEXT_LENGTH
+        ? { ...tc, function: { ...tc.function, arguments: '{"_clipped":true}' } }
+        : tc,
+    ),
+  };
+}
+
 /**
  * What the thread keeps of a message the agent's run produced, or null to drop it. An agent
  * speaks only as itself: its assistant messages get its name and actor whatever they
@@ -235,13 +248,19 @@ function storable(m: Message, agent: RegisteredAgent, ownCalls: Set<string>): Me
   if (m.role === "assistant") {
     const { id, name, kind } = agent.actor;
     const metadata = isRecord(m.metadata) ? m.metadata : {};
-    return clipContent({
-      ...m,
-      name: agent.name,
-      metadata: { ...metadata, teamkit: { actorId: id, actorName: name, actorKind: kind } },
-    });
+    return clipContent(
+      clipToolCalls({
+        ...m,
+        name: agent.name,
+        metadata: { ...metadata, teamkit: { actorId: id, actorName: name, actorKind: kind } },
+      }),
+    );
   }
-  if (m.role === "tool" && ownCalls.has(m.toolCallId)) return clipContent(m);
+  if (m.role === "tool" && ownCalls.has(m.toolCallId)) {
+    // metadata.teamkit is TeamKit's attribution; a tool message carries none.
+    const { teamkit: _, ...metadata } = isRecord(m.metadata) ? m.metadata : ({} as Record<string, unknown>);
+    return clipContent({ ...m, metadata });
+  }
   return null;
 }
 

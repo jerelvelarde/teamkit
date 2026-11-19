@@ -429,6 +429,49 @@ test("the results of an agent's own tools are kept; its answer to a board tool c
   );
 });
 
+test("a stored tool message loses a spoofed metadata.teamkit and an oversized tool-call argument becomes a marker", async () => {
+  await withLoop(
+    (i) => [
+      steps.started(i),
+      {
+        event: {
+          type: "MESSAGES_SNAPSHOT",
+          messages: [
+            ...i.messages,
+            {
+              id: "a1",
+              role: "assistant",
+              content: "",
+              toolCalls: [
+                { id: "own1", type: "function", function: { name: "search", arguments: JSON.stringify({ q: "y".repeat(MAX_TEXT_LENGTH) }) } },
+                { id: "own2", type: "function", function: { name: "search", arguments: '{"q":"ok"}' } },
+              ],
+            },
+            {
+              id: "t1",
+              role: "tool",
+              toolCallId: "own1",
+              content: "found",
+              metadata: { teamkit: { actorId: "x", actorName: "ada", actorKind: "person" }, keep: 1 },
+            },
+          ],
+        },
+      },
+      steps.success(i),
+    ],
+    async ({ db, opts, taskId }) => {
+      const before = (await getThread(db, opts().auth, taskId)).messages.length;
+      assert.equal((await runAgentLoop(opts({ log: () => {} }))).type, "success");
+      const added = (await getThread(db, opts().auth, taskId)).messages.slice(before) as Record<string, any>[];
+      const tool = added.find((m) => m.id === "t1")!;
+      assert.deepEqual(tool.metadata, { keep: 1 });
+      const calls = added.find((m) => m.id === "a1")!.toolCalls as { function: { arguments: string } }[];
+      assert.equal(calls[0]!.function.arguments, '{"_clipped":true}');
+      assert.equal(calls[1]!.function.arguments, '{"q":"ok"}');
+    },
+  );
+});
+
 test("a run that goes quiet for idleMs is stopped as a transport error", async () => {
   await withLoop(
     (i) => [steps.started(i), ...steps.text("m1", "thinking"), { delayMs: 5000 }, steps.success(i)],
