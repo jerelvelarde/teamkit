@@ -4,7 +4,7 @@
  * cannot ping anyone or turn into a link; the only live mention is the confirmed alert's `<!here>`.
  */
 import type { ActorRef, Alert, ChangeEntry } from "@copilotkit/teamkit-protocol";
-import { escapeMrkdwn as esc } from "./cards.js";
+import { escapeMrkdwn as esc } from "./escape.js";
 
 const PROGRESS_MAX = 1500;
 const TEXT_MAX = 2000;

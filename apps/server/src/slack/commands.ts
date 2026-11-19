@@ -1,11 +1,10 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { BoardError } from "@copilotkit/teamkit-protocol";
 import type { Db } from "../db/pool.js";
-import { escapeMrkdwn } from "./cards.js";
+import { escapeMrkdwn } from "./escape.js";
 import { alertAsPerson, decideAsPerson } from "./coordination.js";
-import { NOT_MAPPED } from "./handlers.js";
 import { createSlackLinkCode, findLinkedPerson, slackLinkUrl } from "./links.js";
-import { roomForSlackChannel } from "./mirror.js";
+import { NOT_MAPPED, roomForSlackChannel } from "./mirror.js";
 
 /** A signed Slack request older (or newer) than this is refused, so a captured one cannot be replayed. */
 export const SLACK_SIGNATURE_MAX_AGE_S = 300;

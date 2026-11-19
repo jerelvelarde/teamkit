@@ -4,17 +4,22 @@ import { TaskCard } from "./cards.js";
 import { isNotAnswererError, refusalFor } from "./coordination.js";
 import { findLinkedPerson } from "./links.js";
 import {
+  NOT_MAPPED,
   findTaskByConversation,
   findTaskByCoordinates,
   isUniqueViolation,
   roomForSlackChannel,
   saveSlackThread,
 } from "./mirror.js";
+
 import type { AuthContext } from "../store/actors.js";
 import { answer } from "../store/blocks.js";
 import { loadTask } from "../store/task-load.js";
 import { createTask } from "../store/tasks.js";
 import { reply } from "../store/threads.js";
+
+/** Re-exported for callers that already import it from here. */
+export { NOT_MAPPED };
 
 export interface SlackThreadLike {
   conversationKey: string;
@@ -39,8 +44,7 @@ export interface SlackHandlerDeps {
 
 const GUEST_NAME = "slack-guest";
 const NATIVE_KEY_RE = /^([CDG][A-Z0-9]+)::(\d+\.\d+)$/;
-export const NOT_MAPPED =
-  "This Slack channel isn't mapped to a TeamKit room. An admin can run `teamkit rooms set <room> --slack-channel <channel id>`.";
+
 
 /** The agent actor that acts for Slack users who have not linked a TeamKit account. No token. */
 export async function ensureSlackGuest(db: Db): Promise<AuthContext> {

@@ -77,6 +77,10 @@ export async function saveSlackThread(q: Q, row: SlackThreadRow): Promise<SlackT
   return toRow(r);
 }
 
+/** What a person sees when their Slack channel is not mapped to a TeamKit room. */
+export const NOT_MAPPED =
+  "This Slack channel isn't mapped to a TeamKit room. An admin can run `teamkit rooms set <room> --slack-channel <channel id>`.";
+
 /** The first room (by name) mapped to a Slack channel, or null. */
 export async function roomForSlackChannel(q: Q, channel: string): Promise<string | null> {
   const [r] = await q`select name from rooms where slack_channel = ${channel} order by name limit 1`;
