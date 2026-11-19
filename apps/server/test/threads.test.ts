@@ -5,6 +5,8 @@ import { withTestDb } from "./helpers/db.js";
 import { agentAuth, personAuth } from "./helpers/actors.js";
 import { assertAguiValid } from "./helpers/agui.js";
 import { getThread, post, reply, setLabel } from "../src/store/threads.js";
+import { listEvents } from "../src/store/events.js";
+import type { Db } from "../src/db/pool.js";
 
 const code = (c: string) => (e: unknown) => (e as { code?: string }).code === c;
 
@@ -104,6 +106,37 @@ test("an agent without read calling getThread is forbidden", async () => {
     const noRead = await agentAuth(db, "blind", [{ room: "*", perms: ["post"] }]);
     const { threadId } = await post(db, alice, { room: "build", text: "q" });
     await assert.rejects(getThread(db, noRead, threadId), code("forbidden"));
+  });
+});
+
+test("getThread's cursor never covers a message it did not return", async () => {
+  await withTestDb(async (db) => {
+    const alice = await personAuth(db, "alice");
+    const { threadId } = await post(db, alice, { room: "build", text: "q" });
+    // Commit a reply just before getThread reads the messages and just before it
+    // reads the cursor, so one lands between those two statements whatever their order.
+    let n = 0;
+    const racing = new Proxy(db, {
+      apply(target, thisArg, args: unknown[]) {
+        const sql = Array.isArray(args[0]) ? (args[0] as string[]).join("?") : "";
+        if (!sql.includes("from messages") && !sql.includes("max(cursor)")) return Reflect.apply(target, thisArg, args);
+        return (async () => {
+          await reply(db, alice, threadId, `late ${++n}`);
+          return Reflect.apply(target, thisArg, args);
+        })();
+      },
+    }) as Db;
+    const v = await getThread(racing, alice, threadId);
+    assert.equal(n, 2);
+    const returned = new Set(v.messages.map((m) => m.id));
+    const { events } = await listEvents(db, { threadId });
+    const covered = events.filter((e) => BigInt(e.cursor) <= BigInt(v.cursor));
+    assert.ok(covered.length > 0);
+    for (const e of covered) assert.ok(returned.has(e.data.messageId as string), `event ${e.cursor} is covered but its message is missing`);
+    const followed = new Set((await listEvents(db, { threadId, after: v.cursor })).events.map((e) => e.data.messageId));
+    const all = await db`select message->>'id' as id from messages where thread_id = ${threadId}`;
+    assert.equal(all.length, 3);
+    for (const m of all) assert.ok(returned.has(m.id) || followed.has(m.id), `message ${m.id} is skipped by a follower`);
   });
 });
 

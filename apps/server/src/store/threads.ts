@@ -112,9 +112,12 @@ export async function setLabel(
 export async function getThread(db: Db, auth: AuthContext, threadId: string): Promise<ThreadView> {
   const thread = await requireThread(db, threadId);
   await requirePerm(db, auth, thread.room, "read");
+  // Read the cursor BEFORE the messages. Read afterwards, a reply could commit
+  // between the two statements: its message would be missing here while the cursor
+  // already covered its event, so a follower waiting after the cursor would never see it.
+  const [c] = await db`select coalesce(max(cursor), 0)::text as cursor from events where thread_id = ${threadId}`;
   const task = thread.isTask ? await loadTask(db, threadId) : null;
   const rows = await db`select message from messages where thread_id = ${threadId} order by seq`;
-  const [c] = await db`select coalesce(max(cursor), 0)::text as cursor from events where thread_id = ${threadId}`;
   return {
     thread,
     task,
