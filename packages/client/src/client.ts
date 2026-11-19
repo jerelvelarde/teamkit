@@ -15,7 +15,8 @@ import { parseSse } from "./sse.js";
 
 export interface ClientOptions {
   url: string;
-  token: string;
+  /** Omit for cookie-session mode: no Authorization header is sent and the browser's same-origin cookie carries the session. */
+  token?: string;
   fetch?: typeof fetch;
   /**
    * How long one request may take, response body included, before it throws a
@@ -90,7 +91,7 @@ function withQuery(path: string, params: URLSearchParams): string {
   return s === "" ? path : `${path}?${s}`;
 }
 
-async function toError(res: Response): Promise<TeamkitError> {
+export async function toError(res: Response): Promise<TeamkitError> {
   const text = await res.text().catch(() => "");
   try {
     const body = JSON.parse(text) as { error?: { code?: unknown; message?: unknown } };
@@ -122,7 +123,8 @@ export function createClient(opts: ClientOptions): TeamkitClient {
     init: { signal?: AbortSignal; accept?: string; timeoutMs?: number },
     read: (res: Response) => Promise<T>,
   ): Promise<T> {
-    const headers: Record<string, string> = { authorization: `Bearer ${opts.token}` };
+    const headers: Record<string, string> = {};
+    if (opts.token) headers.authorization = `Bearer ${opts.token}`;
     if (init.accept !== undefined) headers.accept = init.accept;
     if (body !== undefined) headers["content-type"] = "application/json";
     const ms = init.timeoutMs ?? defaultTimeoutMs;
