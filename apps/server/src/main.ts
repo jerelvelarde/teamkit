@@ -7,7 +7,7 @@ import { migrate } from "./db/migrate.js";
 import { createApp } from "./http/app.js";
 import { createNotifier } from "./notifier.js";
 import { ensureBootstrapLink, signInUrl } from "./store/people.js";
-import { startSlackBridge } from "./slack/bridge.js";
+import { startSlackBridge, type SlackBridge } from "./slack/bridge.js";
 import { reapExpired } from "./store/reaper.js";
 
 const config = loadConfig();
@@ -49,19 +49,8 @@ if (!server.listening) {
 const { port } = server.address() as AddressInfo;
 console.log(`teamkit-server listening on http://127.0.0.1:${port}`);
 
-const { botToken } = config.slack;
-const outbound = botToken
-  ? await (await import("./slack/outbound.js")).startOutbound({
-      db,
-      notifier,
-      slack: { token: botToken, apiBase: config.slack.apiBase },
-      publicUrl: config.publicUrl,
-    })
-  : null;
-if (outbound) console.log("slack outbound started");
-
-const bridge = await startSlackBridge({ db, config: config.slack.bridge });
-if (!bridge) console.log("slack bridge off (set CPK_INTELLIGENCE_API_KEY and TEAMKIT_SLACK_CHANNEL_NAME)");
+let outbound: { stop(): Promise<void> } | null = null;
+let bridge: SlackBridge | null = null;
 
 let shuttingDown = false;
 async function shutdown(): Promise<void> {
@@ -76,6 +65,8 @@ async function shutdown(): Promise<void> {
   await db.end({ timeout: 5 });
   process.exit(0);
 }
+// Registered before Slack starts: the bridge can wait up to 30 s for its Channel, and a signal
+// in that time must still shut down cleanly.
 for (const sig of ["SIGINT", "SIGTERM"] as const) {
   process.on(sig, () => {
     shutdown().catch((err) => {
@@ -83,4 +74,30 @@ for (const sig of ["SIGINT", "SIGTERM"] as const) {
       process.exit(1);
     });
   });
+}
+
+const { botToken } = config.slack;
+if (botToken) {
+  outbound = await (await import("./slack/outbound.js")).startOutbound({
+    db,
+    notifier,
+    slack: { token: botToken, apiBase: config.slack.apiBase },
+    publicUrl: config.publicUrl,
+    log: (line) => console.warn(line),
+  });
+  console.log("slack outbound started");
+}
+
+try {
+  bridge = await startSlackBridge({ db, config: config.slack.bridge });
+  if (!bridge) console.log("slack bridge off (set CPK_INTELLIGENCE_API_KEY and TEAMKIT_SLACK_CHANNEL_NAME)");
+} catch (err) {
+  // The board keeps serving without Slack; say so loudly rather than exit.
+  if (!shuttingDown) {
+    console.error(
+      `SLACK BRIDGE FAILED TO START: the server keeps running without Slack mentions, replies or buttons. ${
+        err instanceof Error ? err.message : String(err)
+      }`,
+    );
+  }
 }

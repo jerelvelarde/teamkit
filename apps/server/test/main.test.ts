@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
+import { createServer, type AddressInfo, type Socket } from "node:net";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { loadConfig } from "../src/config.js";
@@ -194,6 +195,68 @@ test("main.ts starts Slack outbound with SLACK_BOT_TOKEN, exits 0, and never pri
     assert.ok(!s.err.includes("xoxb-test"), "token in stderr");
   } finally {
     await s.stop();
+    await t.drop();
+  }
+});
+
+test("main.ts exits 0 on a SIGTERM while the Slack bridge is still waiting for its Channel", async () => {
+  const t = await createTestDatabase({ migrate: false });
+  // A fake key and a local server that accepts connections and never answers: the bridge waits
+  // (up to 30 s) for its Channel.
+  const sockets = new Set<Socket>();
+  const silent = createServer((sock) => {
+    sockets.add(sock);
+    sock.on("error", () => {});
+  });
+  await new Promise<void>((r) => silent.listen(0, "127.0.0.1", r));
+  const silentPort = (silent.address() as AddressInfo).port;
+  const child = spawn(process.execPath, ["--import", "tsx", "src/main.ts"], {
+    cwd,
+    env: {
+      ...process.env,
+      DATABASE_URL: t.url,
+      PORT: "0",
+      HOST: "127.0.0.1",
+      CPK_INTELLIGENCE_API_KEY: "cpk-1_test-not-a-real-key",
+      CPK_INTELLIGENCE_API_URL: `http://127.0.0.1:${silentPort}`,
+      CPK_INTELLIGENCE_WS_URL: `ws://127.0.0.1:${silentPort}`,
+      COPILOTKIT_TELEMETRY_DISABLED: "true",
+      TEAMKIT_SLACK_CHANNEL_NAME: "teamkit",
+    },
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  let out = "";
+  let err = "";
+  child.stderr.on("data", (d) => (err += d));
+  const exited = new Promise<{ code: number | null; signal: NodeJS.Signals | null }>((resolve) =>
+    child.once("exit", (code, signal) => resolve({ code, signal })),
+  );
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error(`no listening line in 10s: ${out}${err}`)), 10_000);
+      child.stdout.on("data", (d) => {
+        out += d;
+        if (/teamkit-server listening on /.test(out)) {
+          clearTimeout(timer);
+          resolve();
+        }
+      });
+    });
+    // Let the bridge get into its wait for the Channel.
+    await new Promise((r) => setTimeout(r, 1_500));
+    assert.doesNotMatch(out, /slack bridge (status|off)/, `the bridge was still starting: ${err}`);
+    child.kill("SIGTERM");
+    const result = await Promise.race([
+      exited,
+      new Promise<never>((_, reject) => setTimeout(() => reject(new Error(`no exit within 5s: ${out}${err}`)), 5_000)),
+    ]);
+    assert.deepEqual(result, { code: 0, signal: null });
+    assert.ok(!(out + err).includes("cpk-1_test-not-a-real-key"), "key in the logs");
+    assert.doesNotMatch(err, /SLACK BRIDGE FAILED/);
+  } finally {
+    child.kill("SIGKILL");
+    for (const sock of sockets) sock.destroy();
+    await new Promise((r) => silent.close(r));
     await t.drop();
   }
 });
