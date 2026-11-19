@@ -150,7 +150,7 @@ test("an admin session invites a person, and the link signs them in as a member"
     assert.equal(invite.role, "member");
     assert.match(invite.link, /^http:\/\/127\.0\.0\.1:3000\/signin\/sl_/);
     const secret = invite.link.split("/signin/")[1]!;
-    const si = await app.request("/v1/signin", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ secret }) });
+    const si = await app.request("/v1/signin", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ token: secret }) });
     assert.equal(si.status, 200);
     assert.equal(((await si.json()) as { role: string }).role, "member");
 
