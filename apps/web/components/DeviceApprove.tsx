@@ -14,6 +14,7 @@ export function DeviceApprove() {
   const initial = useSearchParams().get("code") ?? "";
   const { state, refresh } = useWhoami();
   const [code, setCode] = useState(initial.toUpperCase());
+  const [confirmed, setConfirmed] = useState(false);
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<Result>({ kind: "idle" });
 
@@ -25,6 +26,7 @@ export function DeviceApprove() {
 
   async function approve(e: FormEvent) {
     e.preventDefault();
+    if (!confirmed) return;
     setBusy(true);
     try {
       await postJson("/v1/device/approve", { userCode: code.trim() });
@@ -57,20 +59,40 @@ export function DeviceApprove() {
       {result.kind === "approved" ? (
         <p className={styles.error}>Approved. You can return to your terminal.</p>
       ) : (
-        <form className={styles.form} onSubmit={approve}>
-          <input
-            className={`tk-input ${styles.codeInput}`}
-            aria-label="Device code"
-            value={code}
-            onChange={(e) => setCode(e.target.value.toUpperCase())}
-            placeholder="BCDF-GHJK"
-            autoComplete="off"
-            spellCheck={false}
-          />
-          <button type="submit" className={`tk-button ${styles.submit}`} disabled={busy || !code.trim()}>
-            Approve this sign-in
-          </button>
-        </form>
+        <>
+          <p className={styles.warning}>Never approve a code someone sent you.</p>
+          <form className={styles.codeForm} onSubmit={approve}>
+            <label className={styles.field}>
+              <span className={styles.fieldLabel}>Code shown in your terminal</span>
+              <input
+                className={`tk-input ${styles.codeDisplay}`}
+                value={code}
+                onChange={(e) => {
+                  setCode(e.target.value.toUpperCase());
+                  // The confirmation is for the code on screen; a new code needs a new one.
+                  setConfirmed(false);
+                }}
+                placeholder="BCDF-GHJK"
+                autoComplete="off"
+                spellCheck={false}
+              />
+            </label>
+            <label className={styles.check}>
+              <input type="checkbox" checked={confirmed} onChange={(e) => setConfirmed(e.target.checked)} />
+              <span>
+                This code matches the one in my own terminal, and I just ran{" "}
+                <code className={styles.mono}>teamkit login</code>
+              </span>
+            </label>
+            <button
+              type="submit"
+              className={`tk-button ${styles.submit}`}
+              disabled={busy || !code.trim() || !confirmed}
+            >
+              Approve this sign-in
+            </button>
+          </form>
+        </>
       )}
       {result.kind === "error" ? <p className={styles.error}>{result.message}</p> : null}
     </section>
