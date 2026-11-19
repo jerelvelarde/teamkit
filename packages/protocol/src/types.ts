@@ -185,3 +185,24 @@ export type TriggerAction = { type: "webhook"; url: string } | { type: "agent"; 
 export interface TriggerInput { name: string; room: string; kinds: EventKind[]; labels?: Record<string, string>; webhook?: string; agent?: string }
 export interface TriggerInfo { id: string; name: string; room: string; kinds: EventKind[]; labels: Record<string, string> | null; action: TriggerAction; cursor: string; enabled: boolean; createdAt: string }
 export interface CreatedTrigger { trigger: TriggerInfo; secret: string | null }
+
+/** How a device code signs in: as an admin login, or as the approving person's own agent. */
+export type DeviceMode = "admin" | "agent";
+export const DEVICE_MODES = ["admin", "agent"] as const satisfies readonly DeviceMode[];
+
+/** A team join link as an admin sees it. The secret link itself is shown only once, at creation. */
+export interface JoinLink {
+  id: string;
+  createdAt: string;
+  expiresAt: string | null;
+  domains: string[] | null;
+  revokedAt: string | null;
+  uses: number;
+}
+export interface CreatedJoinLink extends JoinLink {
+  link: string;
+}
+export interface JoinLinkInput {
+  expiresInDays?: number;
+  domains?: string[];
+}
