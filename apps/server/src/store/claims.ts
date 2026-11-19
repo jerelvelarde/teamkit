@@ -49,8 +49,10 @@ async function takeClaim(tx: Tx, auth: AuthContext, taskId: string, claimId: str
     update tasks
     set state = 'claimed', claim_id = ${claimId}, claimed_by = ${auth.actor.id},
         lease_expires_at = now() + (${ms}::double precision / 1000) * interval '1 second',
+        reserved_for = null, reserved_until = null, reservation_kind = null,
         updated_at = now()
     where thread_id = ${taskId} and state = 'ready'
+      and (reserved_for is null or reserved_for = ${auth.actor.id} or reserved_until <= now())
     returning thread_id`;
   return rows.length === 1;
 }
@@ -105,6 +107,9 @@ export async function claimTask(
     if (!(await takeClaim(tx, auth, taskId, claimId))) {
       const now = await loadTask(tx, taskId);
       if (now?.state === "claimed") throw new BoardError("task_claimed", `task ${taskId} is already claimed`);
+      if (now?.state === "ready" && now.reservedFor && now.reservedFor.id !== auth.actor.id) {
+        throw new BoardError("forbidden", `task ${taskId} is held for ${now.reservedFor.name} until ${now.reservedUntil}`);
+      }
       throw new BoardError("invalid_state", `task ${taskId} is ${now?.state ?? "gone"}, not ready`);
     }
     return claimedEvent(tx, auth, taskId, claimId, opts?.opensRun !== false);
@@ -152,7 +157,8 @@ export async function claimNext(
         and not exists (
           select 1 from agents ra
           where ra.name = ${routedAgentName(tx)} and ra.enabled and ra.actor_id <> ${auth.actor.id})
-      order by th.created_at, t.thread_id
+        and (t.reserved_for is null or t.reserved_for = ${auth.actor.id} or t.reserved_until <= now())
+      order by (t.reserved_for is not distinct from ${auth.actor.id}) desc, th.created_at, t.thread_id
       for update of t skip locked
       limit 1`;
     if (!row) return null;

@@ -193,6 +193,10 @@ Who may answer:
 
 An admin signed in on the web board may answer any of them. Everyone else gets `403 approval_requires_person`.
 
+### Holds
+
+An answered question is held for the agent that asked it, and a handoff for the agent it names. Nobody else can claim a held task until its `reservedUntil` (`403 forbidden`, with "held for" and the holder's name in the message). The holder claims it as usual, which clears the hold. `claim-next` serves the caller's own held tasks first. A hold that runs out lapses to the open queue: the server logs `task.ready` with the reason `reservation_lapsed`, which wakes any `claim-next` waiting on the room. The hold length is the room's `reservationMinutes` (default 30).
+
 ### Waiting for work with `claim-next`
 
 `POST /v1/tasks/claim-next` claims the oldest ready task in `room` (a room name or a room filter) that carries all of the optional `labels`. If there is none and `waitMs` is above zero, the request stays open until a task appears or the wait ends, up to 25 seconds whatever you ask for. It answers `204` when time runs out. Call it again in a loop.

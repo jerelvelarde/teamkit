@@ -50,8 +50,8 @@ Two rules explain most of the table:
 | `task.released` | The claimer gives the task back. | `taskId`, `state` (`ready`), `claimId` | `RUN_ERROR` with code `teamkit.released`. |
 | `task.lease_expired` | A claim ran out of time and TeamKit took it back. | `taskId`, `state` (`ready`), `claimId` | `RUN_ERROR` with code `teamkit.lease_expired`. |
 | `task.blocked` | The claimer needs an answer. | `taskId`, `state` (`blocked`), `interruptId`, `kind`, `question`, `options`, `approvers` (the people named to answer, or `null`), `messageId` | The question as an `assistant` message (`Question (<kind>): ...`), then `RUN_FINISHED` with an interrupt outcome. |
-| `task.answered` | Someone answers the question. | `taskId`, `state` (`ready`), `interruptId`, `kind`, plus `text` and/or `choice` | `CUSTOM teamkit.interrupt.answered` (`{ interruptId, by, payload }`), then the answer as a `user` message. |
-| `task.ready` | A task that was `waiting` has all its `needs` completed. | `taskId`, `state` (`ready`), `reason` (`dependencies_met`) | `CUSTOM teamkit.task.ready` (`{ reason }`). |
+| `task.answered` | Someone answers the question. | `taskId`, `state` (`ready`), `interruptId`, `kind`, plus `text` and/or `choice`, `reservedFor` (the agent that asked, which holds the task) and `reservedUntil` | `CUSTOM teamkit.interrupt.answered` (`{ interruptId, by, payload }`), then the answer as a `user` message. |
+| `task.ready` | A task that was `waiting` has all its `needs` completed, or a hold on it lapsed. | `taskId`, `state` (`ready`), `reason` (`dependencies_met` or `reservation_lapsed`); `reservedFor` (the former holder) for a lapse, whose event has no actor | `CUSTOM teamkit.task.ready` (`{ reason }`, plus `reservedFor` for a lapse). |
 | `task.completed` | The claimer finishes. | `taskId`, `state` (`completed`), `claimId` | `RUN_FINISHED` with `outcome: { "type": "success" }` and `result` (when there is one). |
 | `task.failed` | The claimer gives up. | `taskId`, `state` (`failed`), `claimId`, `reason` | `RUN_ERROR` with code `teamkit.failed` and the reason as `message`. |
 | `run.event` | A service agent (one TeamKit calls itself) streams an event. | `runId`, `agent`, `round`, and `claimId`, `taskId` on a claimed task | Exactly one AG-UI event per row. See [Service agents](#service-agents-and-runevent). |
@@ -103,7 +103,7 @@ Every `CUSTOM` event TeamKit writes has a `name` starting with `teamkit.` and a 
 | `teamkit.label` | `key`, `value` | `label.set` |
 | `teamkit.task.created` | `taskId`, `room`, `brief`, `labels`, `needs`, `target` | `task.created` |
 | `teamkit.task.claimed` | `claimId`, `actor` | `task.claimed` |
-| `teamkit.task.ready` | `reason` | `task.ready` |
+| `teamkit.task.ready` | `reason`, and `reservedFor` for `reservation_lapsed` | `task.ready` |
 | `teamkit.interrupt.answered` | `interruptId`, `by`, `payload` | `task.answered` |
 | `teamkit.trigger.fired` | `triggerId`, `cursor`, `kind` | `message.posted` (see below) |
 | `teamkit.task.completed` | `claimId`, `result` | `task.completed`, only when a run already closed itself |

@@ -20,6 +20,7 @@ export function formatTask(t: Task): string {
     out += ` needs: ${t.needs.map((id) => `${id}(${t.needStates[id] ?? "unknown"})`).join(",")}`;
   }
   if (t.block) out += ` ${formatBlock(t.block)}`;
+  if (t.reservedFor) out += ` held for ${t.reservedFor.name} until ${t.reservedUntil}`;
   return out;
 }
 

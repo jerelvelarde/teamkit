@@ -73,3 +73,16 @@ export async function blockedTask(
   const { brief: _brief, ...blockInput } = input;
   return block(db, asker.auth, task.id, claim.claimId, blockInput);
 }
+
+export const MIN = 60_000;
+
+/** True when `iso` is within 5 s of now + `ms`. */
+export function near(iso: string | null, ms: number): boolean {
+  if (iso === null) return false;
+  return Math.abs(Date.parse(iso) - (Date.now() + ms)) < 5_000;
+}
+
+/** An assert.rejects matcher: a forbidden error whose message says "held for <name>". */
+export function heldFor(name: string): (e: unknown) => boolean {
+  return (e) => (e as { code?: string }).code === "forbidden" && (e as Error).message.includes(`held for ${name}`);
+}

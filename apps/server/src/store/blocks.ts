@@ -17,6 +17,7 @@ import type { Db, Q } from "../db/pool.js";
 import { requirePerm, type AuthContext } from "./actors.js";
 import { appendEvent } from "./events.js";
 import { lockClaim, type SettleOptions } from "./claims.js";
+import { reserve } from "./reservations.js";
 import { getRoomInfo } from "./rooms.js";
 import { appendMessage, assertCleanString, assertText, messageFor } from "./rows.js";
 import { loadTask } from "./task-load.js";
@@ -202,6 +203,8 @@ export async function answer(
       update tasks
       set state = 'ready', block = null, pending_resume = ${tx.json(resume as never)}, updated_at = now()
       where thread_id = ${taskId}`;
+    // The answer goes back to the agent that asked: nobody else may claim it for a while.
+    const reservedUntil = await reserve(tx, taskId, blk.blockedBy.id, "answer");
     const messageId = newId(ID_PREFIXES.message);
     const said = (text ?? choice) as string;
     await appendMessage(tx, taskId, messageFor({ messageId, role: "user", text: said, actor: auth.actor }));
@@ -214,7 +217,15 @@ export async function answer(
         custom("teamkit.interrupt.answered", { interruptId: blk.interruptId, by: auth.actor, payload }),
         ...textMessage({ messageId, role: "user", text: said, actor: auth.actor }),
       ],
-      data: { taskId, state: "ready", interruptId: blk.interruptId, kind: blk.kind, ...payload },
+      data: {
+        taskId,
+        state: "ready",
+        interruptId: blk.interruptId,
+        kind: blk.kind,
+        ...payload,
+        reservedFor: blk.blockedBy,
+        reservedUntil,
+      },
     });
     return mustLoad(tx, taskId);
   });

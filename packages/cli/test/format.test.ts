@@ -134,3 +134,8 @@ test("formatTask names who a block waits on", () => {
     options: null, blockedBy: benAgentRef, approvers: ["sam"] };
   assert.match(formatTask(task({ state: "blocked", block })), /blocked \(awaiting_approval\): Run the backfill on billing-prod\? \(waiting on sam\)$/);
 });
+
+test("formatTask shows who a task is held for", () => {
+  assert.match(formatTask(task({ reservedFor: benAgentRef, reservedUntil: "2026-11-19T10:30:00.000Z" })),
+    / held for ben-agent until 2026-11-19T10:30:00\.000Z$/);
+});

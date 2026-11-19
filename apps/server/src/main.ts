@@ -13,6 +13,7 @@ import { SLACK_OUTBOUND_LOCK, startSingleton, TRIGGERS_LOCK, type Singleton } fr
 import { startTriggers } from "./triggers/runner.js";
 import { startSlackBridge, type SlackBridge } from "./slack/bridge.js";
 import { reapExpired } from "./store/reaper.js";
+import { lapseReservations } from "./store/reservations.js";
 
 const config = loadConfig();
 const db = createDb(config.databaseUrl);
@@ -43,12 +44,17 @@ if (config.mail) {
 const app = createApp({ db, notifier, publicUrl: config.publicUrl, mailer }, { trustedProxy: config.trustedProxy });
 
 const reaper = setInterval(() => {
-  reapExpired(db).then(
-    (n) => {
+  reapExpired(db)
+    .then((n) => {
       if (n > 0) console.log(`reaped ${n} expired lease(s)`);
-    },
-    (err) => console.error("reaper failed", err),
-  );
+      return lapseReservations(db);
+    })
+    .then(
+      (n) => {
+        if (n > 0) console.log(`lapsed ${n} hold(s)`);
+      },
+      (err) => console.error("reaper failed", err),
+    );
 }, config.reapIntervalMs);
 
 const server = serve({ fetch: app.fetch, port: config.port, hostname: config.host }) as Server;
