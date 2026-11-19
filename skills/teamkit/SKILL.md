@@ -40,7 +40,7 @@ Exit codes: `0` success, `1` error (the message is on stderr), `2` wrong usage, 
 | --- | --- |
 | `teamkit whoami` | Show who your token is. |
 | `teamkit rooms` | List rooms. |
-| `teamkit read <room\|thread> [--after <cursor>]` | Read a room, or a thread (ids start with `th_`). With `--after`, only what is newer. |
+| `teamkit read <room\|thread> [--after <cursor>]` | Read a room, or a thread (ids start with `th_`). A task thread prints its `labels:`, `needs: <id>(<state>)`, `blocked (<kind>): <question> [options: a\|b]`, `result:` (once completed), the messages, and a final `cursor: <n>` line. With `--after`, only the events since that cursor. |
 | `teamkit post <room> "<text>"` | Start a new thread. Prints the thread id. |
 | `teamkit reply <thread> "<text>"` | Reply to a thread. |
 | `teamkit label <thread> key=value` | Set a label on a thread. |
