@@ -1,11 +1,14 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { get } from "node:http";
 import type { BoardEvent } from "@copilotkit/teamkit-protocol";
 import { withTestDb } from "./helpers/db.js";
 import { agentAuth, personAuth } from "./helpers/actors.js";
+import { countingNotifier, liveCount, serveApp, type CountingNotifier } from "./helpers/notifier.js";
 import { createNotifier } from "../src/notifier.js";
-import { createApp } from "../src/http/app.js";
-import { listEvents } from "../src/store/events.js";
+import { createApp, type AppOptions } from "../src/http/app.js";
+import { listTokens, revokeToken } from "../src/store/actors.js";
+import { currentCursor, listEvents } from "../src/store/events.js";
 import { post } from "../src/store/threads.js";
 
 type ReadResult = { done: boolean; value?: Uint8Array };
@@ -16,7 +19,7 @@ interface Frame {
   data?: string;
 }
 
-/** Reads SSE frames from a response body as they arrive; comments are skipped. */
+/** Reads SSE frames from a response body as they arrive; comments are skipped. `timeoutMs` bounds the whole call. */
 function frameReader(res: Response) {
   const reader = res.body!.getReader();
   const decoder = new TextDecoder();
@@ -24,6 +27,7 @@ function frameReader(res: Response) {
   // A read that timed out stays pending, so the next call reuses it and no chunk is lost.
   let pending: Promise<ReadResult> | null = null;
   return async function next(timeoutMs = 3000): Promise<Frame> {
+    const deadline = Date.now() + timeoutMs;
     for (;;) {
       const i = buf.indexOf("\n\n");
       if (i >= 0) {
@@ -44,7 +48,7 @@ function frameReader(res: Response) {
       pending ??= reader.read();
       let timer: NodeJS.Timeout | undefined;
       const timeout = new Promise<never>((_, rej) => {
-        timer = setTimeout(() => rej(new Error("timed out waiting for an SSE frame")), timeoutMs);
+        timer = setTimeout(() => rej(new Error("timed out waiting for an SSE frame")), deadline - Date.now());
       });
       let result: ReadResult;
       try {
@@ -65,14 +69,15 @@ async function withApp(
     db: Parameters<Parameters<typeof withTestDb>[0]>[0];
     app: ReturnType<typeof createApp>;
     token: string;
-    notifier: Awaited<ReturnType<typeof createNotifier>>;
+    notifier: CountingNotifier;
   }) => Promise<void>,
+  opts?: AppOptions,
 ): Promise<void> {
   await withTestDb(async (db) => {
-    const notifier = await createNotifier(db);
+    const notifier = countingNotifier(await createNotifier(db));
     try {
       const a = await agentAuth(db, "bot");
-      await fn({ db, app: createApp({ db, notifier }), token: a.token, notifier });
+      await fn({ db, app: createApp({ db, notifier }, opts), token: a.token, notifier });
     } finally {
       await notifier.close();
     }
@@ -138,33 +143,52 @@ test("abort then reconnect with Last-Event-ID: no duplicates, no gaps", async ()
     await post(db, alice, { room: "build", text: "c" });
     await post(db, alice, { room: "build", text: "d" });
 
+    assert.equal(await liveCount(notifier, 0), 0, "the aborted stream unsubscribed");
     const second = open(app, token, "", { "last-event-id": seen[seen.length - 1]! });
     const n2 = frameReader(await second.res);
     seen.push((await n2()).id!);
     seen.push((await n2()).id!);
     await post(db, alice, { room: "build", text: "e" });
     seen.push((await n2(1000)).id!);
+    assert.equal(notifier.live(), 1);
     second.ac.abort();
 
     const all = (await listEvents(db, { after: "0" })).events.map((e) => e.cursor);
     assert.deepEqual(seen, all);
     for (let i = 1; i < seen.length; i++) assert.ok(BigInt(seen[i]!) > BigInt(seen[i - 1]!));
-
-    // Every stream unsubscribed: a new notification reaches no leftover callback.
-    await new Promise((r) => setTimeout(r, 100));
-    let leaked = 0;
-    const un = notifier.onEvent(() => leaked++);
-    un();
-    assert.equal(leaked, 0);
+    assert.equal(await liveCount(notifier, 0), 0, "every stream unsubscribed");
   });
 });
 
-test("no after means a live tail with no replay of old events", async () => {
+test("destroying the socket mid-stream unsubscribes", async () => {
+  await withApp(async ({ app, token, notifier }) => {
+    const srv = await serveApp(app);
+    try {
+      const req = get(`${srv.url}/v1/events/stream`, { headers: { authorization: `Bearer ${token}` } });
+      req.on("error", () => {});
+      // The live tail's id-only frame shows the stream is open and subscribed.
+      const first = await new Promise<string>((resolve, reject) => {
+        req.on("response", (res) => res.once("data", (b: Buffer) => resolve(b.toString())));
+        req.on("error", reject);
+      });
+      assert.match(first, /^id: \d+\n\n/);
+      assert.equal(notifier.live(), 1);
+      req.socket!.destroy();
+      assert.equal(await liveCount(notifier, 0), 0);
+    } finally {
+      await srv.close();
+    }
+  });
+});
+
+test("no after means a live tail with no replay of old events, opened by an id-only frame", async () => {
   await withApp(async ({ db, app, token }) => {
     const alice = await personAuth(db, "alice");
     await post(db, alice, { room: "build", text: "old" });
+    const head = await currentCursor(db);
     const { ac, res } = open(app, token, "");
     const next = frameReader(await res);
+    assert.deepEqual(await next(), { id: head });
     await assert.rejects(next(400), /timed out/);
     await post(db, alice, { room: "build", text: "new" });
     const f = await next(1000);
@@ -173,6 +197,64 @@ test("no after means a live tail with no replay of old events", async () => {
     assert.ok(all.length > 1);
     ac.abort();
   });
+});
+
+test("reconnecting with the id-only frame's cursor replays what was posted in between", async () => {
+  await withApp(async ({ db, app, token }) => {
+    const alice = await personAuth(db, "alice");
+    await post(db, alice, { room: "build", text: "old" });
+    const first = open(app, token, "");
+    const start = (await frameReader(await first.res)()).id!;
+    first.ac.abort();
+    await post(db, alice, { room: "build", text: "while away" });
+    const second = open(app, token, "", { "last-event-id": start });
+    const f = await frameReader(await second.res)();
+    assert.equal(f.event, "board");
+    assert.ok(f.data!.includes("while away"));
+    second.ac.abort();
+  });
+});
+
+test("a revoked token's stream ends within one ping; a valid one survives its pings", async () => {
+  const pingMs = 200;
+  await withApp(
+    async ({ db, app, token, notifier }) => {
+      const { ac, res } = open(app, token, "");
+      const next = frameReader(await res);
+      await next(); // id-only frame
+      // Pings carry on while the token is valid (comments are skipped, so this times out).
+      await assert.rejects(next(pingMs * 3), /timed out/);
+      const tok = (await listTokens(db)).find((t) => t.actorName === "bot")!;
+      await revokeToken(db, tok.id);
+      const t0 = Date.now();
+      await assert.rejects(next(pingMs + 1000), /stream ended/);
+      const dt = Date.now() - t0;
+      assert.ok(dt < pingMs + 400, `ended ${dt} ms after revoke`);
+      assert.equal(await liveCount(notifier, 0), 0);
+      ac.abort();
+    },
+    { streamPingMs: pingMs },
+  );
+});
+
+test("a stream ends at its lifetime cap and Last-Event-ID resumes it", async () => {
+  await withApp(
+    async ({ db, app, token, notifier }) => {
+      const alice = await personAuth(db, "alice");
+      await post(db, alice, { room: "build", text: "one" });
+      const first = open(app, token, "?after=0");
+      const n1 = frameReader(await first.res);
+      const last = (await n1()).id!;
+      await assert.rejects(n1(2000), /stream ended/);
+      assert.equal(await liveCount(notifier, 0), 0);
+      await post(db, alice, { room: "build", text: "two" });
+      const second = open(app, token, "", { "last-event-id": last });
+      const f = await frameReader(await second.res)();
+      assert.ok(f.data!.includes("two"));
+      second.ac.abort();
+    },
+    { streamMaxMs: 300 },
+  );
 });
 
 test("a bad cursor or an unreadable room is a JSON error before the stream starts", async () => {

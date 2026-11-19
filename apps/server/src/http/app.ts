@@ -14,6 +14,13 @@ export interface AppDeps {
   notifier: Notifier;
 }
 
+export interface AppOptions {
+  /** How often an SSE stream pings and re-checks its token (default 15 s). */
+  streamPingMs?: number;
+  /** Longest an SSE stream stays open before the client must reconnect with Last-Event-ID (default 30 min). */
+  streamMaxMs?: number;
+}
+
 /** SQLSTATE class 22, data exception: Postgres refused a value it was sent (NUL, bad encoding, out of range). */
 function isDataException(e: unknown): e is Error & { code: string } {
   if (!(e instanceof Error) || e.name !== "PostgresError") return false;
@@ -21,7 +28,7 @@ function isDataException(e: unknown): e is Error & { code: string } {
   return typeof code === "string" && code.startsWith("22");
 }
 
-export function createApp(deps: AppDeps): Hono {
+export function createApp(deps: AppDeps, opts: AppOptions = {}): Hono {
   const app = new Hono();
 
   app.get("/healthz", (c) => c.json({ ok: true }));
@@ -40,7 +47,7 @@ export function createApp(deps: AppDeps): Hono {
   registerRoutes(v1, deps);
   registerClaimNext(v1, deps);
   registerTaskRoutes(v1, deps);
-  registerStream(v1, deps);
+  registerStream(v1, deps, { pingMs: opts.streamPingMs, maxMs: opts.streamMaxMs });
   app.route("/v1", v1);
 
   app.onError((e, c) => {

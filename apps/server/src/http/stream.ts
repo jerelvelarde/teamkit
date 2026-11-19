@@ -1,13 +1,15 @@
 import type { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
 import type { AppDeps } from "./app.js";
-import type { AppEnv } from "./auth.js";
+import { bearerToken, type AppEnv } from "./auth.js";
 import { eventQueryFromRequest } from "./body.js";
+import { authenticate } from "../store/actors.js";
 import { currentCursor } from "../store/events.js";
 import { readEvents, validateEventQuery } from "../store/feed.js";
 
 const DRAIN_LIMIT = 500;
 const DEFAULT_PING_MS = 15_000;
+const DEFAULT_MAX_MS = 30 * 60_000;
 
 /**
  * GET /events/stream: server-sent events with GET /events' query.
@@ -18,12 +20,24 @@ const DEFAULT_PING_MS = 15_000;
  * that is cleared BEFORE each drain, so an event committed at any point after the
  * subscription is either read by the drain in progress or triggers another drain.
  * Nothing is missed and, because the cursor only advances past events written, nothing repeats.
+ * A live tail first writes an id-only frame holding its start cursor, so a client
+ * that reconnects before any event arrives resumes from there, not from a newer head.
+ *
+ * Each ping re-checks the bearer token and ends the stream once it no longer
+ * authenticates (revoked). Every stream also ends after `maxMs`; the client then
+ * reconnects with Last-Event-ID and is authenticated afresh.
  */
-export function registerStream(v1: Hono<AppEnv>, deps: AppDeps, opts: { pingMs?: number } = {}): void {
+export function registerStream(
+  v1: Hono<AppEnv>,
+  deps: AppDeps,
+  opts: { pingMs?: number; maxMs?: number } = {},
+): void {
   const pingMs = opts.pingMs ?? DEFAULT_PING_MS;
+  const maxMs = opts.maxMs ?? DEFAULT_MAX_MS;
 
   v1.get("/events/stream", async (c) => {
     const auth = c.get("auth");
+    const token = bearerToken(c.req.header("authorization"));
     const q = eventQueryFromRequest(c);
     const lastEventId = c.req.header("last-event-id");
     if (lastEventId !== undefined && lastEventId !== "") q.after = lastEventId;
@@ -36,6 +50,7 @@ export function registerStream(v1: Hono<AppEnv>, deps: AppDeps, opts: { pingMs?:
       let wake: (() => void) | null = null;
       let dirty = true;
       let ping: NodeJS.Timeout | undefined;
+      let lifetime: NodeJS.Timeout | undefined;
 
       const notify = () => {
         dirty = true;
@@ -47,18 +62,36 @@ export function registerStream(v1: Hono<AppEnv>, deps: AppDeps, opts: { pingMs?:
         if (stopped) return;
         stopped = true;
         unsubscribe();
-        if (ping !== undefined) clearInterval(ping);
+        clearInterval(ping);
+        clearTimeout(lifetime);
         wake?.();
       };
       stream.onAbort(stop);
       c.req.raw.signal.addEventListener("abort", stop, { once: true });
+      lifetime = setTimeout(stop, maxMs);
+
+      let checking = false;
+      const heartbeat = async () => {
+        if (checking) return;
+        checking = true;
+        try {
+          // Hash and look the token up again: a revoked token loses its stream here.
+          if (token === undefined || !(await authenticate(deps.db, token))) return stop();
+          await stream.write(": ping\n\n");
+        } catch {
+          stop();
+        } finally {
+          checking = false;
+        }
+      };
+      ping = setInterval(() => void heartbeat(), pingMs);
 
       try {
-        let cursor = q.after ?? (await currentCursor(deps.db));
-
-        ping = setInterval(() => {
-          stream.write(": ping\n\n").catch(stop);
-        }, pingMs);
+        let cursor = q.after;
+        if (cursor === undefined) {
+          cursor = await currentCursor(deps.db);
+          await stream.write(`id: ${cursor}\n\n`);
+        }
 
         while (!stopped) {
           if (!dirty) {
@@ -69,7 +102,7 @@ export function registerStream(v1: Hono<AppEnv>, deps: AppDeps, opts: { pingMs?:
             continue;
           }
           dirty = false;
-          for (;;) {
+          while (!stopped) {
             const page = await readEvents(deps.db, auth, { ...q, after: cursor, limit: DRAIN_LIMIT });
             for (const e of page.events) {
               if (stopped) return;
