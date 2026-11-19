@@ -1,0 +1,97 @@
+:root {
+  --tk-surface-main: #dedee9;
+  --tk-surface-container: #ffffff;
+  --tk-surface-hovered: #fafcfa;
+  --tk-glass: rgba(255, 255, 255, 0.5);
+  --tk-glass-selected: rgba(255, 255, 255, 0.7);
+  --tk-glass-tag: rgba(255, 255, 255, 0.65);
+  --tk-border: #ffffff;
+  --tk-border-container: #dbdbe5;
+  --tk-text-primary: #010507;
+  --tk-text-secondary: #57575b;
+  --tk-text-disabled: #838389;
+  --tk-text-invert: #ffffff;
+  --tk-radius-xs: 4px;
+  --tk-radius-sm: 8px;
+  --tk-radius-md: 12px;
+  --tk-radius-full: 9999px;
+  --tk-shadow-sm: 0px 1px 3px 0px rgba(1, 5, 7, 0.08);
+  --tk-shadow-md: 0px 6px 6px -2px rgba(1, 5, 7, 0.08);
+  --tk-font-sans: "Plus Jakarta Sans", ui-sans-serif, system-ui, sans-serif;
+  --tk-font-mono: "Spline Sans Mono", ui-monospace, SFMono-Regular, monospace;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--tk-surface-main);
+  font-family: "Plus Jakarta Sans", system-ui, sans-serif;
+  color: var(--tk-text-primary);
+  -webkit-font-smoothing: antialiased;
+}
+
+.tk-glass {
+  background: var(--tk-glass);
+  border: 2px solid var(--tk-border);
+  border-radius: var(--tk-radius-sm);
+  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
+}
+
+.tk-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: var(--tk-radius-full);
+  background: var(--tk-glass-tag);
+  color: var(--tk-text-primary);
+  font-family: var(--tk-font-mono);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.4;
+}
+
+.tk-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 32px;
+  padding: 0 12px;
+  border: none;
+  border-radius: var(--tk-radius-sm);
+  background: var(--tk-surface-container);
+  color: var(--tk-text-primary);
+  font-family: var(--tk-font-sans);
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.tk-button:hover {
+  background: var(--tk-surface-hovered);
+  box-shadow: var(--tk-shadow-sm);
+}
+
+.tk-button:focus-visible {
+  outline: 2px solid var(--tk-text-primary);
+  outline-offset: 2px;
+}
+
+.tk-input {
+  height: 40px;
+  padding: 0 12px;
+  border: 1px solid var(--tk-border-container);
+  border-radius: var(--tk-radius-xs);
+  background: var(--tk-surface-container);
+  color: var(--tk-text-primary);
+  font-family: var(--tk-font-sans);
+  font-size: 14px;
+}
+
+.tk-input:focus-visible {
+  outline: 2px solid var(--tk-text-primary);
+  outline-offset: 1px;
+}
