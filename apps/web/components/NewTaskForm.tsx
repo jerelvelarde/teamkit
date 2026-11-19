@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import type { FormEvent } from "react";
+import { useEffect, useRef, useState } from "react";
+import type { FormEvent, KeyboardEvent } from "react";
 import type { RoomSummary } from "@copilotkit/teamkit-protocol";
 import { api } from "../lib/api";
+import { IconX } from "./Icons";
 import styles from "./board.module.css";
 
 function parseLabels(text: string): Record<string, string> {
@@ -20,16 +21,21 @@ function parseLabels(text: string): Record<string, string> {
   return labels;
 }
 
+/** Linear's "new issue" dialog: brief first, room and labels underneath, ⌘↵ creates. */
 export function NewTaskForm({
+  open,
+  onClose,
   rooms,
   selected,
   onCreated,
 }: {
+  open: boolean;
+  onClose(): void;
   rooms: RoomSummary[];
   selected: string;
   onCreated: () => void | Promise<void>;
 }) {
-  const [open, setOpen] = useState(false);
+  const dialog = useRef<HTMLDialogElement>(null);
   const [room, setRoom] = useState(selected === "*" ? "" : selected);
   const [brief, setBrief] = useState("");
   const [labels, setLabels] = useState("");
@@ -40,8 +46,19 @@ export function NewTaskForm({
     if (selected !== "*") setRoom(selected);
   }, [selected]);
 
-  async function submit(e: FormEvent) {
-    e.preventDefault();
+  useEffect(() => {
+    const d = dialog.current;
+    if (!d) return;
+    if (open && !d.open) {
+      setError(null);
+      d.showModal();
+    } else if (!open && d.open) {
+      d.close();
+    }
+  }, [open]);
+
+  async function submit(e?: FormEvent) {
+    e?.preventDefault();
     setError(null);
     if (room.trim() === "") return setError("Pick a room for the task.");
     if (brief.trim() === "") return setError("Write a brief for the task.");
@@ -55,7 +72,7 @@ export function NewTaskForm({
       });
       setBrief("");
       setLabels("");
-      setOpen(false);
+      onClose();
       await onCreated();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not create the task.");
@@ -64,71 +81,92 @@ export function NewTaskForm({
     }
   }
 
-  if (!open) {
-    return (
-      <div className={styles.formClosed}>
-        <button type="button" className="tk-button" onClick={() => setOpen(true)}>
-          New task
-        </button>
-      </div>
-    );
+  function onKeyDown(e: KeyboardEvent) {
+    if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+      e.preventDefault();
+      void submit();
+    }
   }
 
   return (
-    <form className={`tk-glass ${styles.form}`} onSubmit={submit}>
-      <div className={styles.columnHead}>
-        <span className={styles.columnTitle}>New task</span>
-        <div className={styles.line} />
-      </div>
-      <div className={styles.formGrid}>
-        <label className={styles.field}>
-          <span className={styles.fieldLabel}>Room</span>
-          <input
-            className={`tk-input ${styles.formInput}`}
-            list="tk-room-options"
-            value={room}
-            onChange={(e) => setRoom(e.target.value)}
-            placeholder="room name"
-          />
-          <datalist id="tk-room-options">
-            {rooms.map((r) => (
-              <option key={r.name} value={r.name} />
-            ))}
-          </datalist>
+    <dialog
+      ref={dialog}
+      className={styles.dialog}
+      aria-labelledby="tk-new-task-title"
+      onClose={onClose}
+      onClick={(e) => {
+        if (e.target === dialog.current) onClose();
+      }}
+    >
+      <form className={styles.dialogForm} onSubmit={submit} onKeyDown={onKeyDown}>
+        <div className={styles.dialogHead}>
+          <h2 id="tk-new-task-title" className={styles.dialogTitle}>
+            New task
+          </h2>
+          <button type="button" className="tk-button tk-button-ghost tk-icon-button" aria-label="Close" onClick={onClose}>
+            <IconX />
+          </button>
+        </div>
+
+        <label className="tk-visually-hidden" htmlFor="tk-new-brief">
+          Brief
         </label>
-        <label className={styles.field}>
-          <span className={styles.fieldLabel}>Labels</span>
-          <input
-            className={`tk-input ${styles.formInput}`}
-            value={labels}
-            onChange={(e) => setLabels(e.target.value)}
-            placeholder="k=v, k=v"
-          />
-        </label>
-        <label className={`${styles.field} ${styles.fieldWide}`}>
-          <span className={styles.fieldLabel}>Brief</span>
-          <textarea
-            className={styles.textarea}
-            value={brief}
-            onChange={(e) => setBrief(e.target.value)}
-            rows={3}
-            placeholder="What should an agent do?"
-          />
-        </label>
-      </div>
-      {error ? (
-        <p className={styles.error} role="alert">
-          {error}
-        </p>
-      ) : null}
-      <div className={styles.formActions}>
-        <button type="submit" className={`tk-button ${styles.primary}`} disabled={busy}>
-          {busy ? "Creating…" : "Create task"}
-        </button>
-        <button type="button" className="tk-button" onClick={() => setOpen(false)}>
-          Cancel
-        </button>
-      </div>
-    </form>
+        <textarea
+          id="tk-new-brief"
+          className={styles.briefInput}
+          value={brief}
+          onChange={(e) => setBrief(e.target.value)}
+          rows={4}
+          placeholder="What should an agent do?"
+          autoFocus
+        />
+
+        <div className={styles.dialogFields}>
+          <label className={styles.field}>
+            <span className={styles.fieldLabel}>Room</span>
+            <input
+              className="tk-input"
+              list="tk-room-options"
+              value={room}
+              onChange={(e) => setRoom(e.target.value)}
+              placeholder="room name"
+            />
+            <datalist id="tk-room-options">
+              {rooms.map((r) => (
+                <option key={r.name} value={r.name} />
+              ))}
+            </datalist>
+          </label>
+          <label className={styles.field}>
+            <span className={styles.fieldLabel}>Labels</span>
+            <input
+              className="tk-input"
+              value={labels}
+              onChange={(e) => setLabels(e.target.value)}
+              placeholder="key=value, key=value"
+            />
+          </label>
+        </div>
+
+        {error ? (
+          <p className={styles.formError} role="alert">
+            {error}
+          </p>
+        ) : null}
+
+        <div className={styles.dialogActions}>
+          <span className={styles.dialogHint}>
+            <kbd>⌘</kbd>
+            <kbd>↵</kbd> to create
+          </span>
+          <button type="button" className="tk-button" onClick={onClose}>
+            Cancel
+          </button>
+          <button type="submit" className="tk-button tk-button-primary" disabled={busy}>
+            {busy ? "Creating…" : "Create task"}
+          </button>
+        </div>
+      </form>
+    </dialog>
   );
 }

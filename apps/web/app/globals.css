@@ -1,97 +1,305 @@
 :root {
-  --tk-surface-main: #dedee9;
-  --tk-surface-container: #ffffff;
-  --tk-surface-hovered: #fafcfa;
-  --tk-glass: rgba(255, 255, 255, 0.5);
-  --tk-glass-selected: rgba(255, 255, 255, 0.7);
-  --tk-glass-tag: rgba(255, 255, 255, 0.65);
-  --tk-border: #ffffff;
-  --tk-border-container: #dbdbe5;
-  --tk-text-primary: #010507;
-  --tk-text-secondary: #57575b;
-  --tk-text-disabled: #838389;
-  --tk-text-invert: #ffffff;
-  --tk-radius-xs: 4px;
-  --tk-radius-sm: 8px;
-  --tk-radius-md: 12px;
-  --tk-radius-full: 9999px;
-  --tk-shadow-sm: 0px 1px 3px 0px rgba(1, 5, 7, 0.08);
-  --tk-shadow-md: 0px 6px 6px -2px rgba(1, 5, 7, 0.08);
-  --tk-font-sans: "Plus Jakarta Sans", ui-sans-serif, system-ui, sans-serif;
-  --tk-font-mono: "Spline Sans Mono", ui-monospace, SFMono-Regular, monospace;
+  color-scheme: light;
+
+  --tk-font-sans: var(--tk-font-inter), "Inter", ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial,
+    sans-serif;
+  --tk-font-mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
+
+  /* Grounds: the frame (sidebar), the content panel, and raised things on it. */
+  --tk-bg-app: #f3f3f4;
+  --tk-bg-main: #fbfbfb;
+  --tk-bg-raised: #ffffff;
+  --tk-bg-sunken: #f4f4f5;
+  --tk-bg-hover: rgba(24, 24, 27, 0.045);
+  --tk-bg-active: rgba(24, 24, 27, 0.08);
+  --tk-line: #e5e5e8;
+  --tk-line-strong: #d4d4d8;
+
+  --tk-fg: #18181b;
+  --tk-fg-2: #4f4f57;
+  --tk-fg-3: #6e6e78;
+  --tk-fg-4: #a1a1aa;
+
+  /* The one accent: primary action, current selection, focus. */
+  --tk-accent: #6430ab;
+  --tk-accent-hover: #55259a;
+  --tk-accent-fg: #ffffff;
+  --tk-accent-text: #6430ab;
+  --tk-accent-soft: rgba(100, 48, 171, 0.08);
+  --tk-accent-line: rgba(100, 48, 171, 0.45);
+  --tk-focus: rgba(100, 48, 171, 0.4);
+
+  /* Status, used small: glyphs, one line of text, the blocked card's edge. */
+  --tk-claimed: #d99a06;
+  --tk-blocked: #e8590c;
+  --tk-blocked-text: #c2410c;
+  --tk-blocked-soft: #fff6ef;
+  --tk-blocked-line: #f8c7a4;
+  --tk-done: #1f9d55;
+  --tk-failed: #dc2626;
+  --tk-failed-text: #b91c1c;
+
+  --tk-shadow-card: none;
+  --tk-shadow-pop: 0 12px 32px -8px rgba(24, 24, 27, 0.2), 0 2px 6px rgba(24, 24, 27, 0.06);
+  --tk-shadow-panel: -16px 0 40px -16px rgba(24, 24, 27, 0.22);
+
+  --tk-radius-sm: 6px;
+  --tk-radius-md: 8px;
+  --tk-radius-lg: 12px;
+  --tk-radius-full: 999px;
+
+  --tk-ease: cubic-bezier(0.16, 1, 0.3, 1);
 }
 
-* {
+@media (prefers-color-scheme: dark) {
+  :root {
+    color-scheme: dark;
+
+    --tk-bg-app: #0d0d0f;
+    --tk-bg-main: #131315;
+    --tk-bg-raised: #1a1a1d;
+    --tk-bg-sunken: #212125;
+    --tk-bg-hover: rgba(255, 255, 255, 0.05);
+    --tk-bg-active: rgba(255, 255, 255, 0.09);
+    --tk-line: #26262a;
+    --tk-line-strong: #36363c;
+
+    --tk-fg: #ececef;
+    --tk-fg-2: #b0b0b9;
+    --tk-fg-3: #8e8e98;
+    --tk-fg-4: #5d5d66;
+
+    --tk-accent: #7a4ad4;
+    --tk-accent-hover: #8a5de0;
+    --tk-accent-fg: #ffffff;
+    --tk-accent-text: #b89ef6;
+    --tk-accent-soft: rgba(160, 124, 245, 0.13);
+    --tk-accent-line: rgba(167, 132, 245, 0.55);
+    --tk-focus: rgba(167, 132, 245, 0.55);
+
+    --tk-claimed: #f0b429;
+    --tk-blocked: #f97316;
+    --tk-blocked-text: #fb923c;
+    --tk-blocked-soft: rgba(249, 115, 22, 0.07);
+    --tk-blocked-line: rgba(249, 115, 22, 0.4);
+    --tk-done: #2fbf6b;
+    --tk-failed: #ef4444;
+    --tk-failed-text: #f87171;
+
+    --tk-shadow-card: none;
+    --tk-shadow-pop: 0 16px 40px -8px rgba(0, 0, 0, 0.6), 0 2px 6px rgba(0, 0, 0, 0.3);
+    --tk-shadow-panel: -16px 0 40px -16px rgba(0, 0, 0, 0.7);
+  }
+}
+
+*,
+*::before,
+*::after {
   box-sizing: border-box;
+}
+
+html,
+body {
+  height: 100%;
 }
 
 body {
   margin: 0;
-  background: var(--tk-surface-main);
-  font-family: "Plus Jakarta Sans", system-ui, sans-serif;
-  color: var(--tk-text-primary);
+  background: var(--tk-bg-app);
+  color: var(--tk-fg);
+  font-family: var(--tk-font-sans);
+  font-size: 14px;
+  line-height: 1.5;
+  font-feature-settings: "cv11", "ss01";
   -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
 }
 
+::selection {
+  background: var(--tk-accent-soft);
+  color: inherit;
+}
+
+:focus-visible {
+  outline: 2px solid var(--tk-focus);
+  outline-offset: 2px;
+}
+
+a {
+  color: inherit;
+}
+
+button,
+input,
+textarea,
+select {
+  font: inherit;
+  color: inherit;
+}
+
+code,
+pre,
+kbd {
+  font-family: var(--tk-font-mono);
+  font-size: 0.92em;
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--tk-line-strong) transparent;
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--tk-line-strong);
+  border: 3px solid transparent;
+  border-radius: 999px;
+  background-clip: padding-box;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* Shared building blocks, used across the board, the admin page and the sign-in pages. */
+
 .tk-glass {
-  background: var(--tk-glass);
-  border: 2px solid var(--tk-border);
-  border-radius: var(--tk-radius-sm);
-  -webkit-backdrop-filter: blur(12px);
-  backdrop-filter: blur(12px);
+  background: var(--tk-bg-raised);
+  border: 1px solid var(--tk-line);
+  border-radius: var(--tk-radius-lg);
 }
 
 .tk-pill {
   display: inline-flex;
   align-items: center;
-  padding: 2px 8px;
+  gap: 4px;
+  height: 20px;
+  padding: 0 7px;
+  border: 1px solid var(--tk-line);
   border-radius: var(--tk-radius-full);
-  background: var(--tk-glass-tag);
-  color: var(--tk-text-primary);
-  font-family: var(--tk-font-mono);
+  background: var(--tk-bg-raised);
+  color: var(--tk-fg-2);
   font-size: 12px;
   font-weight: 500;
-  line-height: 1.4;
+  line-height: 1;
+  white-space: nowrap;
 }
 
 .tk-button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  height: 32px;
+  gap: 6px;
+  height: 30px;
   padding: 0 12px;
-  border: none;
+  border: 1px solid var(--tk-line-strong);
   border-radius: var(--tk-radius-sm);
-  background: var(--tk-surface-container);
-  color: var(--tk-text-primary);
-  font-family: var(--tk-font-sans);
-  font-size: 14px;
+  background: var(--tk-bg-raised);
+  box-shadow: var(--tk-shadow-card);
+  color: var(--tk-fg);
+  font-size: 13px;
   font-weight: 500;
+  line-height: 1;
+  white-space: nowrap;
   cursor: pointer;
+  transition:
+    background-color 120ms ease,
+    border-color 120ms ease;
 }
 
-.tk-button:hover {
-  background: var(--tk-surface-hovered);
-  box-shadow: var(--tk-shadow-sm);
+.tk-button:hover:not(:disabled) {
+  background: var(--tk-bg-sunken);
 }
 
-.tk-button:focus-visible {
-  outline: 2px solid var(--tk-text-primary);
-  outline-offset: 2px;
+.tk-button:active:not(:disabled) {
+  background: var(--tk-bg-active);
+}
+
+.tk-button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.tk-button-primary {
+  border-color: transparent;
+  background: var(--tk-accent);
+  color: var(--tk-accent-fg);
+}
+
+.tk-button-primary:hover:not(:disabled) {
+  background: var(--tk-accent-hover);
+}
+
+.tk-button-primary:active:not(:disabled) {
+  background: var(--tk-accent-hover);
+}
+
+.tk-button-ghost {
+  border-color: transparent;
+  background: transparent;
+  box-shadow: none;
+  color: var(--tk-fg-2);
+}
+
+.tk-button-ghost:hover:not(:disabled) {
+  background: var(--tk-bg-hover);
+  color: var(--tk-fg);
+}
+
+.tk-icon-button {
+  width: 28px;
+  height: 28px;
+  padding: 0;
 }
 
 .tk-input {
-  height: 40px;
-  padding: 0 12px;
-  border: 1px solid var(--tk-border-container);
-  border-radius: var(--tk-radius-xs);
-  background: var(--tk-surface-container);
-  color: var(--tk-text-primary);
-  font-family: var(--tk-font-sans);
-  font-size: 14px;
+  height: 32px;
+  padding: 0 10px;
+  border: 1px solid var(--tk-line-strong);
+  border-radius: var(--tk-radius-sm);
+  background: var(--tk-bg-raised);
+  color: var(--tk-fg);
+  font-size: 13px;
+  transition:
+    border-color 120ms ease,
+    box-shadow 120ms ease;
 }
 
+.tk-input::placeholder,
+textarea::placeholder {
+  color: var(--tk-fg-3);
+}
+
+.tk-input:focus,
 .tk-input:focus-visible {
-  outline: 2px solid var(--tk-text-primary);
-  outline-offset: 1px;
+  outline: none;
+  border-color: var(--tk-accent-line);
+  box-shadow: 0 0 0 3px var(--tk-accent-soft);
+}
+
+.tk-visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }

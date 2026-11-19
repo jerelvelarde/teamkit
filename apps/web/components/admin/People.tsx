@@ -15,10 +15,7 @@ export function errorText(err: unknown, fallback: string): string {
 
 export function SectionHead({ children }: { children: string }) {
   return (
-    <div className={styles.sectionHead}>
-      <span>{children}</span>
-      <div className={styles.line} />
-    </div>
+    <h2 className={styles.sectionHead}>{children}</h2>
   );
 }
 
@@ -70,7 +67,9 @@ export function ShownOnce({
 function formatTime(iso: string | null): string {
   if (!iso) return "never";
   const d = new Date(iso);
-  return Number.isNaN(d.getTime()) ? iso : d.toLocaleString();
+  return Number.isNaN(d.getTime())
+    ? iso
+    : d.toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
 }
 
 export function People() {

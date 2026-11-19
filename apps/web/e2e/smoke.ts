@@ -123,11 +123,12 @@ async function main(): Promise<void> {
     assert(page.url() === `${base}/signin/${secret}`, `the sign-in page waits for a click (now at ${page.url()})`);
     await page.getByRole("button", { name: "Sign in", exact: true }).click();
     await page.waitForURL(`${base}/`);
-    // The header shows the person without a reload: sign-in ends with a full page load.
-    await page.locator("header").getByRole("button", { name: "Sign out" }).waitFor();
-    const headerText = await page.locator("header").innerText();
-    assert(/AG-UI\s+TeamKit/.test(headerText), `header reads "AG-UI TeamKit" (got ${JSON.stringify(headerText)})`);
-    assert(headerText.includes("ada"), `header shows the signed-in person (got ${JSON.stringify(headerText)})`);
+    // The sidebar shows the person without a reload: sign-in ends with a full page load.
+    const sidebar = page.getByRole("complementary", { name: "Workspace" });
+    await sidebar.getByRole("button", { name: "Sign out" }).waitFor();
+    const sidebarText = await sidebar.innerText();
+    assert(/AG-UI\s+TeamKit/.test(sidebarText), `sidebar reads "AG-UI TeamKit" (got ${JSON.stringify(sidebarText)})`);
+    assert(sidebarText.includes("ada"), `sidebar shows the signed-in person (got ${JSON.stringify(sidebarText)})`);
 
     const blockedCol = page.getByRole("region", { name: "Blocked" });
     const card = blockedCol.locator("a", { hasText: "Pick a database" });
@@ -137,11 +138,8 @@ async function main(): Promise<void> {
     await page.getByText("Which database?").first().waitFor();
 
     await page.getByRole("button", { name: "pg", exact: true }).click();
-    await page.waitForFunction(
-      () => [...document.querySelectorAll("span")].some((s) => s.textContent === "ready"),
-      undefined,
-      { timeout: 10_000 },
-    );
+    // The open task panel shows the task's state as it changes.
+    await page.locator('[data-task-state="ready"]').waitFor({ timeout: 10_000 });
     const view = await worker.thread(task.id);
     assert(view.task?.state === "ready", `server state is ready (got ${view.task?.state})`);
 

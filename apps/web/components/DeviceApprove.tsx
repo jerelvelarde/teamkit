@@ -47,17 +47,13 @@ export function DeviceApprove() {
 
   return (
     <section className={`tk-glass ${styles.panel}`} aria-live="polite">
-      <div className={styles.label}>
-        <span>Device</span>
-        <div className={styles.line} />
-      </div>
       <h2 className={styles.title}>Approve a command-line sign-in</h2>
       <p className={styles.text}>
         This lets the teamkit command-line tool run admin commands as you. It cannot post, claim or
         answer.
       </p>
       {result.kind === "approved" ? (
-        <p className={styles.error}>Approved. You can return to your terminal.</p>
+        <p className={styles.success}>Approved. You can return to your terminal.</p>
       ) : (
         <>
           <p className={styles.warning}>Never approve a code someone sent you.</p>

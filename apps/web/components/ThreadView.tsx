@@ -1,17 +1,27 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
+import { useRouter, useSearchParams } from "next/navigation";
 import type { BoardEvent, ThreadView as ThreadData } from "@copilotkit/teamkit-protocol";
 import { api } from "../lib/api";
 import { foldEvents } from "../lib/fold";
+import type { ViewItem } from "../lib/fold";
 import { cursorAfter, useBoardStream } from "../lib/stream";
 import { AnswerForm } from "./AnswerForm";
+import { Avatar } from "./Avatar";
+import { roomQuery } from "./Board";
 import { EventRenderer } from "./EventRenderer";
+import { IconHash, IconLink, IconX, STATE_LABEL, StatusIcon } from "./Icons";
 import { ReplyBox } from "./ReplyBox";
 import { SignedOut } from "./SignedOut";
+import { firstLine, leaseText } from "./TaskCard";
 import styles from "./thread.module.css";
 
 const PAGE = 1000;
+const NEAR_BOTTOM_PX = 120;
+/** The server posts a block's question as a plain message too; the question card already shows it. */
+const QUESTION_TEXT = /^Question \((needs_input|awaiting_approval)\): /;
 
 async function fetchEvents(thread: string, from: string): Promise<{ events: BoardEvent[]; cursor: string }> {
   const all: BoardEvent[] = [];
@@ -24,12 +34,29 @@ async function fetchEvents(thread: string, from: string): Promise<{ events: Boar
   }
 }
 
+function sameAuthor(a: ViewItem | undefined, b: ViewItem): boolean {
+  return (
+    a?.kind === "message" &&
+    b.kind === "message" &&
+    a.role === b.role &&
+    a.actor?.name === b.actor?.name &&
+    a.actor?.kind === b.actor?.kind
+  );
+}
+
+/** The task's thread in a side panel over the board, laid out like a Slack thread. */
 export function ThreadView({ id }: { id: string }) {
   const [data, setData] = useState<ThreadData | null>(null);
   const [events, setEvents] = useState<BoardEvent[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [ready, setReady] = useState(false);
+  const [copied, setCopied] = useState(false);
   const lastRef = useRef("0");
+  const scroller = useRef<HTMLDivElement>(null);
+  const stick = useRef(false);
+  const router = useRouter();
+  const params = useSearchParams();
+  const closeHref = `/${roomQuery(params.get("room"))}`;
 
   const merge = useCallback((incoming: BoardEvent[]) => {
     const fresh = incoming.filter((e) => cursorAfter(e.cursor, lastRef.current === "0" ? undefined : lastRef.current));
@@ -80,6 +107,20 @@ export function ThreadView({ id }: { id: string }) {
   }, [id]);
 
   const model = useMemo(() => foldEvents(events), [events]);
+  const times = useMemo(() => new Map(events.map((e) => [e.cursor, e.createdAt])), [events]);
+  const blocked = data?.task?.state === "blocked";
+
+  // Ask once: drop the server's plain-text copy of each question, and while the question card
+  // is open, the "Waiting" line for the same question.
+  const items = useMemo(() => {
+    const list = model.items.filter((i) => !(i.kind === "message" && QUESTION_TEXT.test(i.text)));
+    if (!blocked) return list;
+    for (let i = list.length - 1; i >= 0; i--) {
+      const it = list[i]!;
+      if (it.kind === "status" && it.label.startsWith("Waiting")) return [...list.slice(0, i), ...list.slice(i + 1)];
+    }
+    return list;
+  }, [model.items, blocked]);
 
   // `after` is only where the stream starts; on every (re)open, refetch the thread and any
   // events past the last merged cursor, so nothing from a gap in the stream goes missing.
@@ -92,76 +133,192 @@ export function ThreadView({ id }: { id: string }) {
     { enabled: ready, onOpen: () => void refresh() },
   );
 
+  // Follow new activity the way a chat does: only when the reader is already at the bottom.
+  const onScroll = useCallback(() => {
+    const el = scroller.current;
+    if (el) stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < NEAR_BOTTOM_PX;
+  }, []);
+  useLayoutEffect(() => {
+    const el = scroller.current;
+    if (el && stick.current) el.scrollTop = el.scrollHeight;
+  }, [items]);
+
+  // Escape closes the panel unless the visitor is typing or a dialog is open.
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.key !== "Escape" || e.defaultPrevented || document.querySelector("dialog[open]")) return;
+      const t = e.target as HTMLElement | null;
+      if (t && (t.tagName === "TEXTAREA" || t.tagName === "INPUT")) {
+        t.blur();
+        return;
+      }
+      router.push(closeHref, { scroll: false });
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [router, closeHref]);
+
+  async function copyLink() {
+    try {
+      await navigator.clipboard.writeText(`${window.location.origin}/t/${encodeURIComponent(id)}`);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      // clipboard blocked; the address bar still has the link
+    }
+  }
+
   if (signedOut) return <SignedOut hint="Your session ended. Open a new sign-in link to continue." />;
 
-  if (error && !data) {
-    return (
-      <section className={`tk-glass ${styles.notice}`} role="alert">
-        {error}
-      </section>
-    );
-  }
-  if (!data) return <section className={`tk-glass ${styles.notice}`}>Loading thread…</section>;
-
-  const { task, thread } = data;
-  const labels = Object.entries(thread.labels);
+  const task = data?.task ?? null;
+  const thread = data?.thread ?? null;
+  const labels = thread ? Object.entries(thread.labels) : [];
   const needs = task ? task.needs : [];
+  const briefLines = task ? task.brief.trim().split("\n") : [];
+  const title = task ? firstLine(task.brief, 400) : "Conversation thread";
+  const description = briefLines.length > 1 ? briefLines.slice(1).join("\n").trim() : "";
 
   return (
-    <div className={styles.page}>
-      <section className={`tk-glass ${styles.head}`}>
-        <div className={styles.headTop}>
-          <span className="tk-pill">{thread.room}</span>
-          {task ? <span className={`${styles.statePill} ${styles[`state_${task.state}`] ?? ""}`}>{task.state}</span> : null}
-        </div>
-        {task ? <p className={styles.brief}>{task.brief}</p> : <p className={styles.muted}>Conversation thread</p>}
-        <dl className={styles.meta}>
-          {labels.length > 0 ? (
-            <div>
-              <dt>Labels</dt>
-              <dd className={styles.chips}>
-                {labels.map(([k, v]) => (
-                  <span key={k} className="tk-pill">{`${k}=${v}`}</span>
-                ))}
-              </dd>
-            </div>
-          ) : null}
-          {needs.length > 0 && task ? (
-            <div>
-              <dt>Needs</dt>
-              <dd className={styles.chips}>
-                {needs.map((n) => (
-                  <a key={n} href={`/t/${encodeURIComponent(n)}`} className={`tk-pill ${styles.needLink}`}>
-                    {`${n} · ${task.needStates[n] ?? "unknown"}`}
-                  </a>
-                ))}
-              </dd>
-            </div>
-          ) : null}
-          {task?.claim ? (
-            <div>
-              <dt>Claimed by</dt>
-              <dd>{task.claim.actor.name}</dd>
-            </div>
-          ) : null}
-        </dl>
-        {task?.state === "completed" && task.result ? (
-          <div className={styles.result}>
-            <div className={styles.label}>Result</div>
-            <div className={styles.text}>{task.result}</div>
-          </div>
+    <aside className={styles.panel} aria-label="Task">
+      <div className={styles.bar}>
+        {task ? (
+          <span className={styles.state} data-task-state={task.state}>
+            <StatusIcon state={task.state} />
+            {STATE_LABEL[task.state]}
+          </span>
         ) : null}
-      </section>
+        {thread ? (
+          <span className={styles.room}>
+            <IconHash size={13} />
+            {thread.room}
+          </span>
+        ) : null}
+        <span className={styles.barSpacer} />
+        <button
+          type="button"
+          className="tk-button tk-button-ghost tk-icon-button"
+          onClick={copyLink}
+          aria-label={copied ? "Link copied" : "Copy link"}
+          title={copied ? "Link copied" : "Copy link"}
+        >
+          <IconLink />
+        </button>
+        <Link
+          href={closeHref}
+          scroll={false}
+          className="tk-button tk-button-ghost tk-icon-button"
+          aria-label="Close"
+          title="Close (Esc)"
+        >
+          <IconX />
+        </Link>
+      </div>
 
-      <section className={styles.timeline} aria-label="Events" aria-live="polite">
-        {model.items.length === 0 ? <p className={styles.muted}>No events yet.</p> : null}
-        {model.items.map((item) => (
-          <EventRenderer key={item.id} item={item} />
-        ))}
-      </section>
+      {!data ? (
+        <div className={styles.notice} role={error ? "alert" : "status"}>
+          {error ?? "Loading thread…"}
+        </div>
+      ) : (
+        <>
+          <div className={styles.scroll} ref={scroller} onScroll={onScroll}>
+            <div className={styles.details}>
+              <h2 className={styles.title}>{title}</h2>
+              {description ? <p className={styles.description}>{description}</p> : null}
 
-      {task?.state === "blocked" ? <AnswerForm key={task.block?.interruptId} task={task} onAnswered={refresh} /> : null}
-      <ReplyBox threadId={id} onSent={refresh} />
-    </div>
+              <dl className={styles.props}>
+                {task?.claim ? (
+                  <div className={styles.prop}>
+                    <dt>Claimed by</dt>
+                    <dd>
+                      <Avatar name={task.claim.actor.name} kind={task.claim.actor.kind} size={18} />
+                      {task.claim.actor.name}
+                      <span className={styles.propMuted}>· {leaseText(task.claim.leaseExpiresAt, Date.now())}</span>
+                    </dd>
+                  </div>
+                ) : null}
+                {task?.state === "blocked" && task.block && !task.claim ? (
+                  <div className={styles.prop}>
+                    <dt>Asked by</dt>
+                    <dd>
+                      <Avatar name={task.block.blockedBy.name} kind={task.block.blockedBy.kind} size={18} />
+                      {task.block.blockedBy.name}
+                    </dd>
+                  </div>
+                ) : null}
+                {labels.length > 0 ? (
+                  <div className={styles.prop}>
+                    <dt>Labels</dt>
+                    <dd className={styles.chips}>
+                      {labels.map(([k, v]) => (
+                        <span key={k} className="tk-pill">{`${k}: ${v}`}</span>
+                      ))}
+                    </dd>
+                  </div>
+                ) : null}
+                {needs.length > 0 && task ? (
+                  <div className={styles.prop}>
+                    <dt>Needs</dt>
+                    <dd className={styles.chips}>
+                      {needs.map((n) => {
+                        const st = task.needStates[n];
+                        return (
+                          <Link
+                            key={n}
+                            href={`/t/${encodeURIComponent(n)}${roomQuery(params.get("room"))}`}
+                            scroll={false}
+                            className={`tk-pill ${styles.needLink}`}
+                          >
+                            {st ? <StatusIcon state={st} size={12} /> : null}
+                            {`Task ${n.slice(-6)}`}
+                          </Link>
+                        );
+                      })}
+                    </dd>
+                  </div>
+                ) : null}
+                {thread ? (
+                  <div className={styles.prop}>
+                    <dt>Created by</dt>
+                    <dd>
+                      <Avatar name={thread.createdBy.name} kind={thread.createdBy.kind} size={18} />
+                      {thread.createdBy.name}
+                    </dd>
+                  </div>
+                ) : null}
+              </dl>
+
+              {task?.state === "completed" && task.result ? (
+                <div className={styles.result}>
+                  <div className={styles.resultHead}>
+                    <StatusIcon state="completed" size={12} /> Result
+                  </div>
+                  <div className={styles.resultText}>{task.result}</div>
+                </div>
+              ) : null}
+            </div>
+
+            <h3 className={styles.activityTitle}>Activity</h3>
+            <div className={styles.activity} aria-label="Events" aria-live="polite">
+              {items.length === 0 ? <p className={styles.muted}>No events yet.</p> : null}
+              {items.map((item, i) => (
+                <EventRenderer
+                  key={item.id}
+                  item={item}
+                  grouped={sameAuthor(items[i - 1], item)}
+                  at={times.get(item.cursor)}
+                />
+              ))}
+            </div>
+          </div>
+
+          <div className={styles.foot}>
+            {task?.state === "blocked" ? (
+              <AnswerForm key={task.block?.interruptId} task={task} onAnswered={refresh} />
+            ) : null}
+            <ReplyBox threadId={id} onSent={refresh} />
+          </div>
+        </>
+      )}
+    </aside>
   );
 }

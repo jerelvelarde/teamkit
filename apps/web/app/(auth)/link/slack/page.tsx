@@ -1,5 +1,5 @@
 import { Suspense } from "react";
-import { SlackLink } from "../../../components/SlackLink";
+import { SlackLink } from "../../../../components/SlackLink";
 
 export default function SlackLinkPage() {
   return (

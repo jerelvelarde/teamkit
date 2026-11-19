@@ -1,0 +1,705 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-11-19T17:34:29+00:00",
+  "title": "Design System: AG-UI TeamKit",
+  "extensions": {
+    "colorMeta": {
+      "violet": {
+        "role": "primary",
+        "displayName": "CopilotKit Violet",
+        "canonical": "#6430ab",
+        "dark": "#7a4ad4",
+        "cssVar": "--tk-accent",
+        "tonalRamp": [
+          "oklch(15% 0.092 298)",
+          "oklch(26% 0.118 298)",
+          "oklch(38% 0.145 298)",
+          "oklch(49% 0.171 298)",
+          "oklch(61% 0.171 298)",
+          "oklch(72% 0.145 298)",
+          "oklch(84% 0.118 298)",
+          "oklch(95% 0.092 298)"
+        ],
+        "darkText": "#b89ef6",
+        "note": "--tk-accent-text is #6430ab light, #b89ef6 dark; --tk-focus is rgba(100, 48, 171, 0.4) light, rgba(167, 132, 245, 0.55) dark."
+      },
+      "violet-deep": {
+        "role": "primary",
+        "displayName": "Deep Violet",
+        "canonical": "#55259a",
+        "dark": "#8a5de0",
+        "cssVar": "--tk-accent-hover",
+        "tonalRamp": [
+          "oklch(15% 0.088 296)",
+          "oklch(26% 0.113 296)",
+          "oklch(38% 0.139 296)",
+          "oklch(49% 0.164 296)",
+          "oklch(61% 0.164 296)",
+          "oklch(72% 0.139 296)",
+          "oklch(84% 0.113 296)",
+          "oklch(95% 0.088 296)"
+        ]
+      },
+      "violet-soft": {
+        "role": "primary",
+        "displayName": "Violet Wash",
+        "dark": "rgba(160, 124, 245, 0.13)",
+        "cssVar": "--tk-accent-soft",
+        "tonalRamp": [
+          "oklch(15% 0.092 298)",
+          "oklch(26% 0.118 298)",
+          "oklch(38% 0.145 298)",
+          "oklch(49% 0.171 298)",
+          "oklch(61% 0.171 298)",
+          "oklch(72% 0.145 298)",
+          "oklch(84% 0.118 298)",
+          "oklch(95% 0.092 298)"
+        ]
+      },
+      "violet-line": {
+        "role": "primary",
+        "displayName": "Violet Line",
+        "dark": "rgba(167, 132, 245, 0.55)",
+        "cssVar": "--tk-accent-line",
+        "tonalRamp": [
+          "oklch(15% 0.092 298)",
+          "oklch(26% 0.118 298)",
+          "oklch(38% 0.145 298)",
+          "oklch(49% 0.171 298)",
+          "oklch(61% 0.171 298)",
+          "oklch(72% 0.145 298)",
+          "oklch(84% 0.118 298)",
+          "oklch(95% 0.092 298)"
+        ]
+      },
+      "on-violet": {
+        "role": "primary",
+        "displayName": "On Violet",
+        "canonical": "#ffffff",
+        "dark": "#ffffff",
+        "cssVar": "--tk-accent-fg",
+        "tonalRamp": [
+          "oklch(15% 0.000 90)",
+          "oklch(26% 0.000 90)",
+          "oklch(38% 0.000 90)",
+          "oklch(49% 0.000 90)",
+          "oklch(61% 0.000 90)",
+          "oklch(72% 0.000 90)",
+          "oklch(84% 0.000 90)",
+          "oklch(95% 0.000 90)"
+        ]
+      },
+      "frame-grey": {
+        "role": "neutral",
+        "displayName": "Frame Grey",
+        "canonical": "#f3f3f4",
+        "dark": "#0d0d0f",
+        "cssVar": "--tk-bg-app",
+        "tonalRamp": [
+          "oklch(15% 0.001 286)",
+          "oklch(26% 0.001 286)",
+          "oklch(38% 0.001 286)",
+          "oklch(49% 0.001 286)",
+          "oklch(61% 0.001 286)",
+          "oklch(72% 0.001 286)",
+          "oklch(84% 0.001 286)",
+          "oklch(95% 0.001 286)"
+        ]
+      },
+      "panel-grey": {
+        "role": "neutral",
+        "displayName": "Panel Grey",
+        "canonical": "#fbfbfb",
+        "dark": "#131315",
+        "cssVar": "--tk-bg-main",
+        "tonalRamp": [
+          "oklch(15% 0.000 90)",
+          "oklch(26% 0.000 90)",
+          "oklch(38% 0.000 90)",
+          "oklch(49% 0.000 90)",
+          "oklch(61% 0.000 90)",
+          "oklch(72% 0.000 90)",
+          "oklch(84% 0.000 90)",
+          "oklch(95% 0.000 90)"
+        ]
+      },
+      "raised-white": {
+        "role": "neutral",
+        "displayName": "Raised White",
+        "canonical": "#ffffff",
+        "dark": "#1a1a1d",
+        "cssVar": "--tk-bg-raised",
+        "tonalRamp": [
+          "oklch(15% 0.000 90)",
+          "oklch(26% 0.000 90)",
+          "oklch(38% 0.000 90)",
+          "oklch(49% 0.000 90)",
+          "oklch(61% 0.000 90)",
+          "oklch(72% 0.000 90)",
+          "oklch(84% 0.000 90)",
+          "oklch(95% 0.000 90)"
+        ]
+      },
+      "sunken-grey": {
+        "role": "neutral",
+        "displayName": "Sunken Grey",
+        "canonical": "#f4f4f5",
+        "dark": "#212125",
+        "cssVar": "--tk-bg-sunken",
+        "tonalRamp": [
+          "oklch(15% 0.001 286)",
+          "oklch(26% 0.001 286)",
+          "oklch(38% 0.001 286)",
+          "oklch(49% 0.001 286)",
+          "oklch(61% 0.001 286)",
+          "oklch(72% 0.001 286)",
+          "oklch(84% 0.001 286)",
+          "oklch(95% 0.001 286)"
+        ]
+      },
+      "hover-wash": {
+        "role": "neutral",
+        "displayName": "Hover Wash",
+        "dark": "rgba(255, 255, 255, 0.05)",
+        "cssVar": "--tk-bg-hover",
+        "tonalRamp": [
+          "oklch(15% 0.003 286)",
+          "oklch(26% 0.004 286)",
+          "oklch(38% 0.005 286)",
+          "oklch(49% 0.005 286)",
+          "oklch(61% 0.005 286)",
+          "oklch(72% 0.005 286)",
+          "oklch(84% 0.004 286)",
+          "oklch(95% 0.003 286)"
+        ]
+      },
+      "active-wash": {
+        "role": "neutral",
+        "displayName": "Active Wash",
+        "dark": "rgba(255, 255, 255, 0.09)",
+        "cssVar": "--tk-bg-active",
+        "tonalRamp": [
+          "oklch(15% 0.003 286)",
+          "oklch(26% 0.004 286)",
+          "oklch(38% 0.005 286)",
+          "oklch(49% 0.005 286)",
+          "oklch(61% 0.005 286)",
+          "oklch(72% 0.005 286)",
+          "oklch(84% 0.004 286)",
+          "oklch(95% 0.003 286)"
+        ]
+      },
+      "hairline": {
+        "role": "neutral",
+        "displayName": "Hairline",
+        "canonical": "#e5e5e8",
+        "dark": "#26262a",
+        "cssVar": "--tk-line",
+        "tonalRamp": [
+          "oklch(15% 0.002 286)",
+          "oklch(26% 0.003 286)",
+          "oklch(38% 0.003 286)",
+          "oklch(49% 0.004 286)",
+          "oklch(61% 0.004 286)",
+          "oklch(72% 0.003 286)",
+          "oklch(84% 0.003 286)",
+          "oklch(95% 0.002 286)"
+        ]
+      },
+      "hairline-strong": {
+        "role": "neutral",
+        "displayName": "Strong Hairline",
+        "canonical": "#d4d4d8",
+        "dark": "#36363c",
+        "cssVar": "--tk-line-strong",
+        "tonalRamp": [
+          "oklch(15% 0.003 286)",
+          "oklch(26% 0.004 286)",
+          "oklch(38% 0.004 286)",
+          "oklch(49% 0.005 286)",
+          "oklch(61% 0.005 286)",
+          "oklch(72% 0.004 286)",
+          "oklch(84% 0.004 286)",
+          "oklch(95% 0.003 286)"
+        ]
+      },
+      "ink": {
+        "role": "neutral",
+        "displayName": "Ink",
+        "canonical": "#18181b",
+        "dark": "#ececef",
+        "cssVar": "--tk-fg",
+        "tonalRamp": [
+          "oklch(15% 0.003 286)",
+          "oklch(26% 0.004 286)",
+          "oklch(38% 0.005 286)",
+          "oklch(49% 0.005 286)",
+          "oklch(61% 0.005 286)",
+          "oklch(72% 0.005 286)",
+          "oklch(84% 0.004 286)",
+          "oklch(95% 0.003 286)"
+        ]
+      },
+      "ink-2": {
+        "role": "neutral",
+        "displayName": "Ink 2",
+        "canonical": "#4f4f57",
+        "dark": "#b0b0b9",
+        "cssVar": "--tk-fg-2",
+        "tonalRamp": [
+          "oklch(15% 0.007 286)",
+          "oklch(26% 0.008 286)",
+          "oklch(38% 0.010 286)",
+          "oklch(49% 0.012 286)",
+          "oklch(61% 0.012 286)",
+          "oklch(72% 0.010 286)",
+          "oklch(84% 0.008 286)",
+          "oklch(95% 0.007 286)"
+        ]
+      },
+      "ink-3": {
+        "role": "neutral",
+        "displayName": "Ink 3",
+        "canonical": "#6e6e78",
+        "dark": "#8e8e98",
+        "cssVar": "--tk-fg-3",
+        "tonalRamp": [
+          "oklch(15% 0.008 286)",
+          "oklch(26% 0.010 286)",
+          "oklch(38% 0.012 286)",
+          "oklch(49% 0.014 286)",
+          "oklch(61% 0.014 286)",
+          "oklch(72% 0.012 286)",
+          "oklch(84% 0.010 286)",
+          "oklch(95% 0.008 286)"
+        ]
+      },
+      "ink-4": {
+        "role": "neutral",
+        "displayName": "Ink 4",
+        "canonical": "#a1a1aa",
+        "dark": "#5d5d66",
+        "cssVar": "--tk-fg-4",
+        "tonalRamp": [
+          "oklch(15% 0.006 286)",
+          "oklch(26% 0.008 286)",
+          "oklch(38% 0.010 286)",
+          "oklch(49% 0.012 286)",
+          "oklch(61% 0.012 286)",
+          "oklch(72% 0.010 286)",
+          "oklch(84% 0.008 286)",
+          "oklch(95% 0.006 286)"
+        ]
+      },
+      "claimed-amber": {
+        "role": "tertiary",
+        "displayName": "Claimed Amber",
+        "canonical": "#d99a06",
+        "dark": "#f0b429",
+        "cssVar": "--tk-claimed",
+        "tonalRamp": [
+          "oklch(15% 0.075 79)",
+          "oklch(26% 0.097 79)",
+          "oklch(38% 0.118 79)",
+          "oklch(49% 0.140 79)",
+          "oklch(61% 0.140 79)",
+          "oklch(72% 0.118 79)",
+          "oklch(84% 0.097 79)",
+          "oklch(95% 0.075 79)"
+        ]
+      },
+      "blocked-orange": {
+        "role": "tertiary",
+        "displayName": "Blocked Orange",
+        "canonical": "#e8590c",
+        "dark": "#f97316",
+        "cssVar": "--tk-blocked",
+        "tonalRamp": [
+          "oklch(15% 0.096 42)",
+          "oklch(26% 0.123 42)",
+          "oklch(38% 0.151 42)",
+          "oklch(49% 0.178 42)",
+          "oklch(61% 0.178 42)",
+          "oklch(72% 0.151 42)",
+          "oklch(84% 0.123 42)",
+          "oklch(95% 0.096 42)"
+        ]
+      },
+      "blocked-text": {
+        "role": "tertiary",
+        "displayName": "Blocked Text",
+        "canonical": "#c2410c",
+        "dark": "#fb923c",
+        "cssVar": "--tk-blocked-text",
+        "tonalRamp": [
+          "oklch(15% 0.087 38)",
+          "oklch(26% 0.112 38)",
+          "oklch(38% 0.137 38)",
+          "oklch(49% 0.161 38)",
+          "oklch(61% 0.161 38)",
+          "oklch(72% 0.137 38)",
+          "oklch(84% 0.112 38)",
+          "oklch(95% 0.087 38)"
+        ]
+      },
+      "blocked-soft": {
+        "role": "tertiary",
+        "displayName": "Blocked Wash",
+        "canonical": "#fff6ef",
+        "dark": "rgba(249, 115, 22, 0.07)",
+        "cssVar": "--tk-blocked-soft",
+        "tonalRamp": [
+          "oklch(15% 0.007 61)",
+          "oklch(26% 0.009 61)",
+          "oklch(38% 0.011 61)",
+          "oklch(49% 0.012 61)",
+          "oklch(61% 0.012 61)",
+          "oklch(72% 0.011 61)",
+          "oklch(84% 0.009 61)",
+          "oklch(95% 0.007 61)"
+        ]
+      },
+      "blocked-line": {
+        "role": "tertiary",
+        "displayName": "Blocked Edge",
+        "canonical": "#f8c7a4",
+        "dark": "rgba(249, 115, 22, 0.4)",
+        "cssVar": "--tk-blocked-line",
+        "tonalRamp": [
+          "oklch(15% 0.036 57)",
+          "oklch(26% 0.047 57)",
+          "oklch(38% 0.057 57)",
+          "oklch(49% 0.068 57)",
+          "oklch(61% 0.068 57)",
+          "oklch(72% 0.057 57)",
+          "oklch(84% 0.047 57)",
+          "oklch(95% 0.036 57)"
+        ]
+      },
+      "done-green": {
+        "role": "tertiary",
+        "displayName": "Done Green",
+        "canonical": "#1f9d55",
+        "dark": "#2fbf6b",
+        "cssVar": "--tk-done",
+        "tonalRamp": [
+          "oklch(15% 0.075 152)",
+          "oklch(26% 0.097 152)",
+          "oklch(38% 0.118 152)",
+          "oklch(49% 0.140 152)",
+          "oklch(61% 0.140 152)",
+          "oklch(72% 0.118 152)",
+          "oklch(84% 0.097 152)",
+          "oklch(95% 0.075 152)"
+        ]
+      },
+      "failed-red": {
+        "role": "tertiary",
+        "displayName": "Failed Red",
+        "canonical": "#dc2626",
+        "dark": "#ef4444",
+        "cssVar": "--tk-failed",
+        "tonalRamp": [
+          "oklch(15% 0.108 27)",
+          "oklch(26% 0.138 27)",
+          "oklch(38% 0.169 27)",
+          "oklch(49% 0.200 27)",
+          "oklch(61% 0.200 27)",
+          "oklch(72% 0.169 27)",
+          "oklch(84% 0.138 27)",
+          "oklch(95% 0.108 27)"
+        ]
+      },
+      "failed-text": {
+        "role": "tertiary",
+        "displayName": "Failed Text",
+        "canonical": "#b91c1c",
+        "dark": "#f87171",
+        "cssVar": "--tk-failed-text",
+        "tonalRamp": [
+          "oklch(15% 0.095 28)",
+          "oklch(26% 0.122 28)",
+          "oklch(38% 0.150 28)",
+          "oklch(49% 0.177 28)",
+          "oklch(61% 0.177 28)",
+          "oklch(72% 0.150 28)",
+          "oklch(84% 0.122 28)",
+          "oklch(95% 0.095 28)"
+        ]
+      }
+    },
+    "typographyMeta": {
+      "headline": {
+        "displayName": "Headline",
+        "purpose": "Task title atop the thread panel; the largest type in the app."
+      },
+      "title": {
+        "displayName": "Title",
+        "purpose": "Page header room title, brand name, panel section heads."
+      },
+      "body": {
+        "displayName": "Body",
+        "purpose": "Descriptions, notices, result text; the root size."
+      },
+      "message": {
+        "displayName": "Message",
+        "purpose": "Slack-style message text and the composer."
+      },
+      "card-title": {
+        "displayName": "Card Title",
+        "purpose": "Task card titles on the board."
+      },
+      "label": {
+        "displayName": "Label",
+        "purpose": "Buttons, nav items, column names, property values."
+      },
+      "caption": {
+        "displayName": "Caption",
+        "purpose": "Chips, pills, meta, counts and times (tabular numerals)."
+      },
+      "mono": {
+        "displayName": "Mono",
+        "purpose": "Ids, device codes, secrets and tool payloads only."
+      }
+    },
+    "shadows": [
+      {
+        "name": "card",
+        "value": "none",
+        "purpose": "Cards and buttons rest flat; hover strengthens the border instead."
+      },
+      {
+        "name": "pop",
+        "value": "0 12px 32px -8px rgba(24, 24, 27, 0.2), 0 2px 6px rgba(24, 24, 27, 0.06)",
+        "dark": "0 16px 40px -8px rgba(0, 0, 0, 0.6), 0 2px 6px rgba(0, 0, 0, 0.3)",
+        "purpose": "New task dialog and the mobile sidebar drawer."
+      },
+      {
+        "name": "panel",
+        "value": "-16px 0 40px -16px rgba(24, 24, 27, 0.22)",
+        "dark": "-16px 0 40px -16px rgba(0, 0, 0, 0.7)",
+        "purpose": "Left edge of the thread panel over the board."
+      },
+      {
+        "name": "focus-ring",
+        "value": "0 0 0 3px var(--tk-accent-soft)",
+        "purpose": "Focused inputs, composer, cards and the selected card, with a violet-line border."
+      }
+    ],
+    "motion": [
+      {
+        "name": "ease",
+        "value": "cubic-bezier(0.16, 1, 0.3, 1)",
+        "purpose": "Panel slide-in, dialog rise, drawer and the live pulse."
+      },
+      {
+        "name": "state",
+        "value": "120ms ease",
+        "purpose": "Background and border changes on buttons, inputs, cards and the composer."
+      },
+      {
+        "name": "nav",
+        "value": "100ms ease",
+        "purpose": "Sidebar item hover."
+      },
+      {
+        "name": "panel-in",
+        "value": "220ms, translateX(24px) and fade",
+        "purpose": "Thread panel opening; the mobile drawer also uses 220ms."
+      },
+      {
+        "name": "dialog-rise",
+        "value": "180ms, translateY(6px) scale(0.99) and fade",
+        "purpose": "New task dialog opening."
+      },
+      {
+        "name": "live-pulse",
+        "value": "2.2s infinite, scale 0.92 to 1.18, fade out",
+        "purpose": "Amber ring around an agent avatar holding a task."
+      },
+      {
+        "name": "typing",
+        "value": "1.2s infinite, 0.15s stagger, 2px rise",
+        "purpose": "Slack typing dots on streaming messages."
+      },
+      {
+        "name": "reduced-motion",
+        "value": "all animation and transition durations to 0.01ms",
+        "purpose": "Honors prefers-reduced-motion globally."
+      }
+    ],
+    "breakpoints": [
+      {
+        "name": "drawer",
+        "value": "899px",
+        "purpose": "At and below: sidebar becomes a drawer, panel and thread go full-screen, columns snap."
+      }
+    ],
+    "layout": {
+      "sidebar": "224px",
+      "contentInset": "8px",
+      "header": "52px",
+      "column": "flex 1 0 220px, max 360px",
+      "threadPanel": "560px",
+      "dialog": "600px",
+      "admin": "820px",
+      "auth": "440px"
+    },
+    "icons": {
+      "size": "16px",
+      "grid": "16",
+      "stroke": "1.5",
+      "caps": "round",
+      "statusGlyph": "14px Linear-style circles: dashed (waiting), ring (ready), amber half (claimed), orange alert (blocked), green check (done), red cross (failed)"
+    }
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "The one violet action per area: New task, Create task, Approve, sign-in submit.",
+      "html": "<button class=\"ds-btn ds-btn-primary\"><svg width=\"16\" height=\"16\" viewBox=\"0 0 16 16\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"M8 3.25v9.5M3.25 8h9.5\"/></svg>New task</button>",
+      "css": ".ds-btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; height: 30px; padding: 0 12px; border: 1px solid var(--tk-line-strong, #d4d4d8); border-radius: var(--tk-radius-sm, 6px); background: var(--tk-bg-raised, #fff); color: var(--tk-fg, #18181b); font-family: var(--tk-font-sans, Inter, ui-sans-serif, system-ui, sans-serif); font-size: 13px; font-weight: 500; line-height: 1; cursor: pointer; transition: background-color 120ms ease, border-color 120ms ease; } .ds-btn:hover { background: var(--tk-bg-sunken, #f4f4f5); } .ds-btn:active { background: var(--tk-bg-active, rgba(24,24,27,0.08)); } .ds-btn:focus-visible { outline: 2px solid var(--tk-focus, rgba(100,48,171,0.4)); outline-offset: 2px; } .ds-btn-primary { border-color: transparent; background: var(--tk-accent, #6430ab); color: var(--tk-accent-fg, #fff); } .ds-btn-primary:hover, .ds-btn-primary:active { background: var(--tk-accent-hover, #55259a); }"
+    },
+    {
+      "name": "Default Button",
+      "kind": "button",
+      "refersTo": "button",
+      "description": "Raised white button with a strong hairline for every non-primary action (Reject, Copy, Cancel).",
+      "html": "<button class=\"ds-btn\">Reject</button>",
+      "css": ".ds-btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; height: 30px; padding: 0 12px; border: 1px solid var(--tk-line-strong, #d4d4d8); border-radius: var(--tk-radius-sm, 6px); background: var(--tk-bg-raised, #fff); color: var(--tk-fg, #18181b); font-family: var(--tk-font-sans, Inter, ui-sans-serif, system-ui, sans-serif); font-size: 13px; font-weight: 500; line-height: 1; cursor: pointer; transition: background-color 120ms ease, border-color 120ms ease; } .ds-btn:hover { background: var(--tk-bg-sunken, #f4f4f5); } .ds-btn:active { background: var(--tk-bg-active, rgba(24,24,27,0.08)); } .ds-btn:focus-visible { outline: 2px solid var(--tk-focus, rgba(100,48,171,0.4)); outline-offset: 2px; }"
+    },
+    {
+      "name": "Icon Button",
+      "kind": "button",
+      "refersTo": "icon-button",
+      "description": "28px ghost button with a 16px line icon for close, copy link, menu and sign-out.",
+      "html": "<button class=\"ds-icon-btn\" aria-label=\"Close\"><svg width=\"16\" height=\"16\" viewBox=\"0 0 16 16\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"M4 4l8 8M12 4l-8 8\"/></svg></button>",
+      "css": ".ds-icon-btn { display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; padding: 0; border: 1px solid transparent; border-radius: var(--tk-radius-sm, 6px); background: transparent; color: var(--tk-fg-2, #4f4f57); cursor: pointer; transition: background-color 120ms ease; } .ds-icon-btn:hover { background: var(--tk-bg-hover, rgba(24,24,27,0.045)); color: var(--tk-fg, #18181b); } .ds-icon-btn:focus-visible { outline: 2px solid var(--tk-focus, rgba(100,48,171,0.4)); outline-offset: 2px; }"
+    },
+    {
+      "name": "Text Input",
+      "kind": "input",
+      "refersTo": "input",
+      "description": "32px field with a strong hairline; focus shifts the border to violet with a soft 3px ring.",
+      "html": "<input class=\"ds-input\" placeholder=\"person@company.com\" />",
+      "css": ".ds-input { height: 32px; width: 260px; padding: 0 10px; border: 1px solid var(--tk-line-strong, #d4d4d8); border-radius: var(--tk-radius-sm, 6px); background: var(--tk-bg-raised, #fff); color: var(--tk-fg, #18181b); font-family: var(--tk-font-sans, Inter, ui-sans-serif, system-ui, sans-serif); font-size: 13px; transition: border-color 120ms ease, box-shadow 120ms ease; } .ds-input::placeholder { color: var(--tk-fg-3, #6e6e78); } .ds-input:focus, .ds-input:focus-visible { outline: none; border-color: var(--tk-accent-line, rgba(100,48,171,0.45)); box-shadow: 0 0 0 3px var(--tk-accent-soft, rgba(100,48,171,0.08)); }"
+    },
+    {
+      "name": "Sidebar Navigation",
+      "kind": "nav",
+      "refersTo": "nav-item",
+      "description": "Linear-style sidebar: top views, a Rooms group of # names; the current item is a grey fill, never violet.",
+      "html": "<nav class=\"ds-nav\"><a class=\"ds-nav-item\" aria-current=\"page\" href=\"#\"><svg width=\"16\" height=\"16\" viewBox=\"0 0 16 16\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><rect x=\"2.25\" y=\"2.75\" width=\"11.5\" height=\"10.5\" rx=\"2\"/><path d=\"M6 2.75v10.5M10 2.75v6.5\"/></svg><span>All rooms</span></a><a class=\"ds-nav-item\" href=\"#\"><svg width=\"16\" height=\"16\" viewBox=\"0 0 16 16\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"M2.5 4.5h6M11.5 4.5h2M2.5 11.5h2M7.5 11.5h6\"/><circle cx=\"10\" cy=\"4.5\" r=\"1.5\"/><circle cx=\"6\" cy=\"11.5\" r=\"1.5\"/></svg><span>Admin</span></a><div class=\"ds-nav-group\">Rooms</div><a class=\"ds-nav-item\" href=\"#\"><svg width=\"16\" height=\"16\" viewBox=\"0 0 16 16\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"M6.25 2.5L5 13.5M11 2.5L9.75 13.5M2.75 6h11M2.25 10h11\"/></svg><span>launch</span></a><a class=\"ds-nav-item\" href=\"#\"><svg width=\"16\" height=\"16\" viewBox=\"0 0 16 16\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"M6.25 2.5L5 13.5M11 2.5L9.75 13.5M2.75 6h11M2.25 10h11\"/></svg><span>support</span></a></nav>",
+      "css": ".ds-nav { display: flex; flex-direction: column; gap: 1px; width: 208px; padding: 8px; background: var(--tk-bg-app, #f3f3f4); font-family: var(--tk-font-sans, Inter, ui-sans-serif, system-ui, sans-serif); } .ds-nav-item { display: flex; align-items: center; gap: 8px; height: 30px; padding: 0 8px; border-radius: var(--tk-radius-sm, 6px); color: var(--tk-fg-2, #4f4f57); font-size: 13px; font-weight: 500; text-decoration: none; transition: background-color 100ms ease; } .ds-nav-item svg { color: var(--tk-fg-3, #6e6e78); flex: none; } .ds-nav-item:hover { background: var(--tk-bg-hover, rgba(24,24,27,0.045)); color: var(--tk-fg, #18181b); } .ds-nav-item[aria-current=\"page\"] { background: var(--tk-bg-active, rgba(24,24,27,0.08)); color: var(--tk-fg, #18181b); } .ds-nav-item[aria-current=\"page\"] svg { color: var(--tk-fg-2, #4f4f57); } .ds-nav-item:focus-visible { outline: 2px solid var(--tk-focus, rgba(100,48,171,0.4)); outline-offset: 2px; } .ds-nav-group { padding: 18px 8px 4px; color: var(--tk-fg-3, #6e6e78); font-size: 12px; font-weight: 500; }"
+    },
+    {
+      "name": "Room Chip",
+      "kind": "chip",
+      "refersTo": "chip",
+      "description": "20px hairline pill on task cards for room, area and priority.",
+      "html": "<span class=\"ds-chip\"><svg width=\"12\" height=\"12\" viewBox=\"0 0 16 16\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"M6.25 2.5L5 13.5M11 2.5L9.75 13.5M2.75 6h11M2.25 10h11\"/></svg>launch</span> <span class=\"ds-chip\">area: api</span>",
+      "css": ".ds-chip { display: inline-flex; align-items: center; gap: 3px; height: 20px; padding: 0 6px; border: 1px solid var(--tk-line, #e5e5e8); border-radius: 999px; color: var(--tk-fg-2, #4f4f57); font-family: var(--tk-font-sans, Inter, ui-sans-serif, system-ui, sans-serif); font-size: 11.5px; font-weight: 500; white-space: nowrap; } .ds-chip svg { color: var(--tk-fg-3, #6e6e78); }"
+    },
+    {
+      "name": "Task Card",
+      "kind": "card",
+      "refersTo": "task-card",
+      "description": "Linear-style card: title, holder avatar, a blocked line in status color, chips. Hover strengthens the border; blocked takes an orange 1px edge.",
+      "html": "<a class=\"ds-card\" data-state=\"blocked\" href=\"#\"><div class=\"ds-card-top\"><p class=\"ds-card-title\">Draft the v1.2 release notes from merged PRs</p><span class=\"ds-avatar ds-avatar-agent ds-live\" style=\"--h:190\">W</span></div><p class=\"ds-card-block\"><span class=\"ds-card-kind\"><svg width=\"14\" height=\"14\" viewBox=\"0 0 14 14\" fill=\"none\" aria-hidden=\"true\"><circle cx=\"7\" cy=\"7\" r=\"6.5\" fill=\"var(--tk-blocked, #e8590c)\"/><path d=\"M7 3.9v3.6\" stroke=\"#fff\" stroke-width=\"1.6\" stroke-linecap=\"round\"/><circle cx=\"7\" cy=\"9.85\" r=\"0.95\" fill=\"#fff\"/></svg> Approval needed</span><span class=\"ds-card-text\">Ship the release notes?</span></p><div class=\"ds-card-foot\"><span class=\"ds-chip\"># launch</span></div></a>",
+      "css": ".ds-card { display: flex; flex-direction: column; gap: 8px; width: 260px; padding: 11px 12px 10px; border: 1px solid var(--tk-line, #e5e5e8); border-radius: var(--tk-radius-md, 8px); background: var(--tk-bg-raised, #fff); color: var(--tk-fg, #18181b); text-decoration: none; font-family: var(--tk-font-sans, Inter, ui-sans-serif, system-ui, sans-serif); transition: border-color 120ms ease, box-shadow 120ms ease; } .ds-card:hover { border-color: var(--tk-line-strong, #d4d4d8); } .ds-card:focus-visible { outline: none; border-color: var(--tk-accent-line, rgba(100,48,171,0.45)); box-shadow: 0 0 0 3px var(--tk-accent-soft, rgba(100,48,171,0.08)); } .ds-card[data-state=\"blocked\"] { border-color: var(--tk-blocked-line, #f8c7a4); } .ds-card-top { display: flex; align-items: flex-start; gap: 8px; } .ds-card-title { flex: 1; margin: 0; font-size: 13.5px; font-weight: 500; line-height: 1.4; letter-spacing: -0.005em; } .ds-card-block { display: flex; flex-direction: column; gap: 1px; margin: 0; font-size: 12.5px; line-height: 1.4; } .ds-card-kind { display: inline-flex; align-items: center; gap: 6px; color: var(--tk-blocked-text, #c2410c); font-weight: 600; } .ds-card-text { color: var(--tk-fg-2, #4f4f57); } .ds-card-foot { display: flex; gap: 4px; } .ds-chip { display: inline-flex; align-items: center; height: 20px; padding: 0 6px; border: 1px solid var(--tk-line, #e5e5e8); border-radius: 999px; color: var(--tk-fg-2, #4f4f57); font-size: 11.5px; font-weight: 500; } .ds-avatar { position: relative; display: inline-flex; flex: none; align-items: center; justify-content: center; width: 20px; height: 20px; border-radius: 50%; background: hsl(var(--h) 55% 91%); color: hsl(var(--h) 42% 30%); font-size: 8.4px; font-weight: 600; } .ds-avatar-agent { border-radius: 5.6px; } .ds-live::after { content: \"\"; position: absolute; inset: -3px; border: 1.5px solid var(--tk-claimed, #d99a06); border-radius: 8.6px; animation: ds-pulse 2.2s cubic-bezier(0.16, 1, 0.3, 1) infinite; } @keyframes ds-pulse { 0% { opacity: 0.9; transform: scale(0.92); } 70%, 100% { opacity: 0; transform: scale(1.18); } } @media (prefers-reduced-motion: reduce) { .ds-live::after { animation: none; } }"
+    },
+    {
+      "name": "Slack Message",
+      "kind": "custom",
+      "refersTo": "thread-panel",
+      "description": "Unboxed Slack row: square agent avatar, bold name, Agent app badge, time, 14.5px text, typing dots while streaming.",
+      "html": "<div class=\"ds-msg\"><span class=\"ds-msg-av\" style=\"--h:190\">W</span><div class=\"ds-msg-body\"><div class=\"ds-msg-head\"><span class=\"ds-msg-name\">writer</span><span class=\"ds-msg-badge\">Agent</span><span class=\"ds-msg-time\">9:14 AM</span></div><div class=\"ds-msg-text\">Collected 23 merged PRs: 9 features, 11 fixes, 3 docs changes.<span class=\"ds-typing\"><span></span><span></span><span></span></span></div></div></div>",
+      "css": ".ds-msg { display: flex; gap: 10px; width: 480px; padding: 4px 8px; border-radius: var(--tk-radius-md, 8px); font-family: var(--tk-font-sans, Inter, ui-sans-serif, system-ui, sans-serif); } .ds-msg:hover { background: var(--tk-bg-hover, rgba(24,24,27,0.045)); } .ds-msg-av { display: inline-flex; flex: none; align-items: center; justify-content: center; width: 32px; height: 32px; border-radius: 9px; background: hsl(var(--h) 55% 91%); color: hsl(var(--h) 42% 30%); font-size: 13.4px; font-weight: 600; } .ds-msg-body { flex: 1; min-width: 0; } .ds-msg-head { display: flex; align-items: baseline; gap: 6px; margin-bottom: 1px; } .ds-msg-name { color: var(--tk-fg, #18181b); font-size: 14px; font-weight: 700; } .ds-msg-badge { padding: 1px 4px; border-radius: 3px; background: var(--tk-bg-sunken, #f4f4f5); color: var(--tk-fg-3, #6e6e78); font-size: 10px; font-weight: 600; letter-spacing: 0.02em; text-transform: uppercase; } .ds-msg-time { color: var(--tk-fg-3, #6e6e78); font-size: 12px; font-variant-numeric: tabular-nums; } .ds-msg-text { color: var(--tk-fg, #18181b); font-size: 14.5px; line-height: 1.5; } .ds-typing { display: inline-flex; gap: 3px; margin-left: 6px; vertical-align: middle; } .ds-typing span { width: 5px; height: 5px; border-radius: 50%; background: var(--tk-fg-3, #6e6e78); animation: ds-typing 1.2s ease-in-out infinite; } .ds-typing span:nth-child(2) { animation-delay: 0.15s; } .ds-typing span:nth-child(3) { animation-delay: 0.3s; } @keyframes ds-typing { 0%, 60%, 100% { opacity: 0.35; transform: translateY(0); } 30% { opacity: 1; transform: translateY(-2px); } }"
+    },
+    {
+      "name": "Question Card",
+      "kind": "custom",
+      "refersTo": "thread-panel",
+      "description": "The agent's ask, once, in the panel footer: blocked kind line, the question, approvers, Approve primary.",
+      "html": "<div class=\"ds-ask\"><div class=\"ds-ask-head\"><svg width=\"14\" height=\"14\" viewBox=\"0 0 14 14\" fill=\"none\" aria-hidden=\"true\"><circle cx=\"7\" cy=\"7\" r=\"6.5\" fill=\"var(--tk-blocked, #e8590c)\"/><path d=\"M7 3.9v3.6\" stroke=\"#fff\" stroke-width=\"1.6\" stroke-linecap=\"round\"/><circle cx=\"7\" cy=\"9.85\" r=\"0.95\" fill=\"#fff\"/></svg><span class=\"ds-ask-kind\">Approval needed</span><span class=\"ds-ask-from\">from writer</span></div><p class=\"ds-ask-q\">Ship the release notes?</p><p class=\"ds-ask-meta\">Approvers: maya</p><div class=\"ds-ask-choices\"><button class=\"ds-ask-btn ds-ask-primary\">Approve</button><button class=\"ds-ask-btn\">Reject</button></div></div>",
+      "css": ".ds-ask { width: 480px; padding: 12px 14px; border: 1px solid var(--tk-line-strong, #d4d4d8); border-radius: var(--tk-radius-md, 8px); background: var(--tk-bg-raised, #fff); font-family: var(--tk-font-sans, Inter, ui-sans-serif, system-ui, sans-serif); } .ds-ask-head { display: flex; align-items: center; gap: 6px; font-size: 12.5px; } .ds-ask-kind { color: var(--tk-blocked-text, #c2410c); font-weight: 600; } .ds-ask-from { color: var(--tk-fg-3, #6e6e78); } .ds-ask-q { margin: 6px 0 0; color: var(--tk-fg, #18181b); font-size: 15px; font-weight: 500; line-height: 1.45; } .ds-ask-meta { margin: 2px 0 0; color: var(--tk-fg-3, #6e6e78); font-size: 12.5px; } .ds-ask-choices { display: flex; gap: 8px; margin-top: 12px; } .ds-ask-btn { height: 30px; padding: 0 12px; border: 1px solid var(--tk-line-strong, #d4d4d8); border-radius: var(--tk-radius-sm, 6px); background: var(--tk-bg-raised, #fff); color: var(--tk-fg, #18181b); font: 500 13px/1 inherit; cursor: pointer; transition: background-color 120ms ease; } .ds-ask-btn:hover { background: var(--tk-bg-sunken, #f4f4f5); } .ds-ask-btn:focus-visible { outline: 2px solid var(--tk-focus, rgba(100,48,171,0.4)); outline-offset: 2px; } .ds-ask-primary { border-color: transparent; background: var(--tk-accent, #6430ab); color: var(--tk-accent-fg, #fff); } .ds-ask-primary:hover { background: var(--tk-accent-hover, #55259a); }"
+    },
+    {
+      "name": "Composer",
+      "kind": "input",
+      "refersTo": "composer",
+      "description": "Slack-style reply box: borderless textarea in a hairline frame, hint line, violet send that greys out when empty.",
+      "html": "<div class=\"ds-composer\"><textarea class=\"ds-composer-input\" rows=\"1\" placeholder=\"Reply to this thread\"></textarea><div class=\"ds-composer-bar\"><span class=\"ds-composer-hint\"><strong>Shift + Enter</strong> for a new line</span><button class=\"ds-send\" aria-label=\"Send\"><svg width=\"16\" height=\"16\" viewBox=\"0 0 16 16\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"M8 13V3.5M4 7.25L8 3.25l4 4\"/></svg></button></div></div>",
+      "css": ".ds-composer { width: 480px; border: 1px solid var(--tk-line-strong, #d4d4d8); border-radius: var(--tk-radius-md, 8px); background: var(--tk-bg-raised, #fff); font-family: var(--tk-font-sans, Inter, ui-sans-serif, system-ui, sans-serif); transition: border-color 120ms ease, box-shadow 120ms ease; } .ds-composer:focus-within { border-color: var(--tk-accent-line, rgba(100,48,171,0.45)); box-shadow: 0 0 0 3px var(--tk-accent-soft, rgba(100,48,171,0.08)); } .ds-composer-input { display: block; width: 100%; min-height: 40px; padding: 10px 12px 4px; border: none; background: transparent; color: var(--tk-fg, #18181b); font: 400 14.5px/1.5 inherit; resize: none; box-sizing: border-box; } .ds-composer-input:focus { outline: none; } .ds-composer-input::placeholder { color: var(--tk-fg-3, #6e6e78); } .ds-composer-bar { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 4px 6px 6px 12px; } .ds-composer-hint { color: var(--tk-fg-3, #6e6e78); font-size: 11.5px; } .ds-composer-hint strong { color: var(--tk-fg-2, #4f4f57); font-weight: 600; } .ds-send { display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 28px; border: none; border-radius: var(--tk-radius-sm, 6px); background: var(--tk-accent, #6430ab); color: var(--tk-accent-fg, #fff); cursor: pointer; transition: background-color 120ms ease; } .ds-send:hover { background: var(--tk-accent-hover, #55259a); } .ds-send:focus-visible { outline: 2px solid var(--tk-focus, rgba(100,48,171,0.4)); outline-offset: 2px; } .ds-send:disabled { background: var(--tk-bg-sunken, #f4f4f5); color: var(--tk-fg-4, #a1a1aa); cursor: default; }"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Familiar Workbench",
+    "overview": "TeamKit is a working tool its users already know how to drive. The board is Linear's quiet kanban and the task thread is Slack's thread pane, both played straight, because the user pinned that canon: familiar beats novel. The build lands as a neutral grey frame holding an inset content panel, white cards on 1px hairlines, one CopilotKit violet for action and focus, and Linear-style circle glyphs for status. Nothing is decorative; every color, line and weight carries a state or an action.\n\nDensity is a work tool's density: a 14px body, 13px controls, 30px rows, 8–12px gaps. Five columns fit at 1440px. Depth is tonal (frame, panel, raised card) with hairline borders; shadows exist only on things that float over the board. Light and dark follow the operating system through `prefers-color-scheme`; both themes share every token name, so components never branch on theme.\n\nThe build rejects the old glass-and-gradient look, monospace pills as decoration, eyebrow labels and boxed chat bubbles.",
+    "keyCharacteristics": [
+      "Linear's frame: a slightly darker sidebar ground, the content in an inset rounded panel.",
+      "Slack's messages: avatar, bold name, time, unboxed text, grouped follow-ups, typing dots.",
+      "One violet accent for primary actions and focus; the current nav item is a grey fill, not violet.",
+      "Status color stays small: a 14px glyph, one label line, a blocked card's 1px edge.",
+      "Inter for everything; mono only for ids, secrets and code.",
+      "No resting shadows; hover strengthens the border."
+    ],
+    "rules": [
+      {
+        "name": "The One Voice Rule",
+        "body": "Violet appears only on a primary action, the focus ring, the selected card and the brand mark. Never on navigation selection, headings or decoration.",
+        "section": "colors"
+      },
+      {
+        "name": "The Small Status Rule",
+        "body": "Status hue is limited to the glyph, one line of kind text, a dot, or a blocked card's 1px border. No status-tinted card fills or column backgrounds.",
+        "section": "colors"
+      },
+      {
+        "name": "The Shared Name Rule",
+        "body": "Light and dark are one token set swapped under `prefers-color-scheme`; components reference tokens, never theme-specific values.",
+        "section": "colors"
+      },
+      {
+        "name": "The Weight Not Size Rule",
+        "body": "Separate levels with weight and ink tone; the whole app spans 11.5px to 18px.",
+        "section": "typography"
+      },
+      {
+        "name": "The Mono Is Data Rule",
+        "body": "Monospace marks machine values (ids, codes, secrets, tool payloads). Never use it for pills, labels or decoration.",
+        "section": "typography"
+      },
+      {
+        "name": "The Border-Not-Shadow Rule",
+        "body": "Hover strengthens a border (hairline to strong hairline); it never adds a shadow or lifts a card.",
+        "section": "elevation"
+      },
+      {
+        "name": "The Only-Floaters-Cast Rule",
+        "body": "A shadow means the surface floats over the board (dialog, drawer, thread panel). Nothing in flow casts one.",
+        "section": "elevation"
+      }
+    ],
+    "dos": [
+      "Do follow Linear for board patterns and Slack for thread patterns before inventing anything; the user pinned that canon.",
+      "Do reserve violet for the one primary action per area, focus and the selected card (The One Voice Rule).",
+      "Do show who holds a task the same way for people and agents: an avatar, circle for a person, rounded square for an agent, with the amber live pulse while an agent works.",
+      "Do keep status to 14px glyphs, one kind line and a blocked card's 1px edge (The Small Status Rule).",
+      "Do signal hover by strengthening the border from hairline to strong hairline.",
+      "Do focus with the violet-line border plus a 3px violet-soft ring on fields and cards, and the 2px violet outline elsewhere.",
+      "Do use tokens only, so light and dark swap from the OS with no component branching."
+    ],
+    "donts": [
+      "Don't bring back glass, blur or gradient surfaces; the build refuses the old look.",
+      "Don't use monospace pills as decoration; mono is for ids, codes and payloads.",
+      "Don't add eyebrow or kicker labels above headings.",
+      "Don't box chat messages in bubbles; messages are unboxed Slack rows.",
+      "Don't fill the current nav item with violet; it takes the grey active wash.",
+      "Don't put resting shadows on cards or buttons; shadows belong to the dialog, drawer and thread panel.",
+      "Don't tint whole cards or columns with status color."
+    ]
+  }
+}

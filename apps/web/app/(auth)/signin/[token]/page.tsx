@@ -3,8 +3,8 @@
 import { useState } from "react";
 import { useParams } from "next/navigation";
 import { TeamkitError } from "@copilotkit/teamkit-client";
-import { postJson } from "../../../lib/api";
-import styles from "../../../components/auth.module.css";
+import { postJson } from "../../../../lib/api";
+import styles from "../../../../components/auth.module.css";
 
 type State =
   | { kind: "ready" }
@@ -36,10 +36,6 @@ export default function SignInPage() {
 
   return (
     <section className={`tk-glass ${styles.panel}`} aria-live="polite">
-      <div className={styles.label}>
-        <span>Sign in</span>
-        <div className={styles.line} />
-      </div>
       {state.kind === "invalid" ? (
         <p className={styles.text}>
           This sign-in link is invalid, used or expired. Ask an admin for a new one.

@@ -1,386 +1,423 @@
-/* Board styles. Danger red and the blocked amber are implementation defaults (not brand tokens). */
-.layout {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  gap: 16px;
-  align-items: start;
-}
-
-.content {
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-}
-
-.toolbar {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-
-.heading {
-  margin: 0;
-  font-size: 20px;
-  font-weight: 600;
-  line-height: 24px;
-  overflow-wrap: anywhere;
-}
+/* Header extras */
 
 .live {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  margin-left: auto;
-  font-family: var(--tk-font-mono);
+  margin-left: 6px;
+  padding: 0 8px;
+  height: 22px;
+  border-radius: var(--tk-radius-full);
+  color: var(--tk-fg-3);
   font-size: 12px;
   font-weight: 500;
-  color: var(--tk-text-secondary);
 }
 
 .liveDot {
-  width: 8px;
-  height: 8px;
+  width: 6px;
+  height: 6px;
   border-radius: 50%;
-  background: var(--tk-text-disabled);
+  background: var(--tk-done);
 }
 
-.live[data-connected="true"] .liveDot {
-  background: #1f8a4c;
+.live[data-connected="false"] .liveDot {
+  background: var(--tk-claimed);
 }
 
-/* Section label with an extending line (also used for column heads). */
-.columnHead {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 0 4px;
-  margin-bottom: 8px;
-  white-space: nowrap;
-}
-
-.columnTitle {
-  font-size: 10px;
-  font-weight: 500;
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
-  color: var(--tk-text-secondary);
-}
-
-.count {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 20px;
-  padding: 0 6px;
-  border-radius: var(--tk-radius-full);
-  background: var(--tk-glass-tag);
-  font-family: var(--tk-font-mono);
-  font-size: 12px;
-  font-weight: 500;
-  line-height: 18px;
-}
-
-.line {
+.headerSpacer {
   flex: 1;
-  height: 1px;
-  background: var(--tk-border-container);
 }
 
-/* Sidebar */
-.sidebar {
-  padding: 16px;
-  min-width: 0;
+.error {
+  margin: 12px 20px 0;
+  color: var(--tk-failed-text);
+  font-size: 13px;
 }
 
-.roomList {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
-}
+/* Columns */
 
-.roomLink {
-  display: block;
-  padding: 8px 12px;
-  border-radius: var(--tk-radius-xs);
-  color: var(--tk-text-primary);
-  font-size: 14px;
-  font-weight: 500;
-  line-height: 1.25;
-  text-decoration: none;
-  overflow-wrap: anywhere;
-}
-
-.roomLink:hover {
-  background: var(--tk-glass);
-}
-
-.roomLinkActive,
-.roomLinkActive:hover {
-  background: var(--tk-glass-selected);
-}
-
-.roomLink:focus-visible {
-  outline: 2px solid var(--tk-text-primary);
-  outline-offset: 1px;
-}
-
-/* Columns: stacked on phones */
 .columnsScroll {
-  min-width: 0;
+  flex: 1;
+  min-height: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
 }
 
 .columns {
   display: flex;
-  flex-direction: column;
-  gap: 24px;
+  gap: 12px;
+  width: 100%;
+  height: 100%;
+  padding: 12px 16px 0;
+}
+
+/* Keeps the right padding when the columns overflow and scroll. */
+.columns::after {
+  content: "";
+  flex: 0 0 4px;
 }
 
 .column {
-  min-width: 0;
+  display: flex;
+  flex: 1 0 220px;
+  flex-direction: column;
+  max-width: 360px;
+  min-height: 0;
+}
+
+.columnHead {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 36px;
+  padding: 0 6px;
+}
+
+.columnTitle {
+  color: var(--tk-fg);
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.count {
+  color: var(--tk-fg-3);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
 }
 
 .cards {
   display: flex;
   flex-direction: column;
   gap: 8px;
+  min-height: 0;
+  padding: 2px 2px 24px;
+  overflow-y: auto;
 }
 
 .empty {
   margin: 0;
-  padding: 12px 4px;
-  font-size: 12px;
-  line-height: 1.625;
-  color: var(--tk-text-disabled);
+  padding: 14px 12px;
+  border: 1px dashed var(--tk-line-strong);
+  border-radius: var(--tk-radius-md);
+  color: var(--tk-fg-3);
+  font-size: 12.5px;
+  line-height: 1.45;
 }
 
-/* Task card */
+.skeleton {
+  height: 84px;
+  border-radius: var(--tk-radius-md);
+  background: linear-gradient(90deg, var(--tk-bg-sunken), var(--tk-bg-hover), var(--tk-bg-sunken));
+  background-size: 200% 100%;
+  animation: shimmer 1.4s ease-in-out infinite;
+}
+
+@keyframes shimmer {
+  from {
+    background-position: 100% 0;
+  }
+  to {
+    background-position: -100% 0;
+  }
+}
+
+/* Card */
+
 .card {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  padding: 12px 16px;
-  background: var(--tk-glass);
-  border: 2px solid var(--tk-border);
-  border-radius: var(--tk-radius-sm);
-  -webkit-backdrop-filter: blur(12px);
-  backdrop-filter: blur(12px);
-  color: var(--tk-text-primary);
+  padding: 11px 12px 10px;
+  border: 1px solid var(--tk-line);
+  border-radius: var(--tk-radius-md);
+  background: var(--tk-bg-raised);
+  box-shadow: var(--tk-shadow-card);
+  color: var(--tk-fg);
   text-decoration: none;
-  min-width: 0;
-  transition: background 120ms ease, box-shadow 120ms ease;
+  transition:
+    border-color 120ms ease,
+    box-shadow 120ms ease;
 }
 
 .card:hover {
-  background: var(--tk-glass-selected);
-  box-shadow: var(--tk-shadow-md);
+  border-color: var(--tk-line-strong);
 }
 
 .card:focus-visible {
-  outline: 2px solid var(--tk-text-primary);
-  outline-offset: 2px;
+  outline: none;
+  border-color: var(--tk-accent-line);
+  box-shadow: 0 0 0 3px var(--tk-accent-soft);
 }
 
-.cardBlocked {
-  background: rgba(255, 236, 207, 0.8);
-  border-color: #ffac4d;
+.card[data-state="blocked"] {
+  border-color: var(--tk-blocked-line);
 }
 
-.cardBlocked:hover {
-  background: rgba(255, 236, 207, 0.95);
+.card[aria-current="true"] {
+  border-color: var(--tk-accent-line);
+  box-shadow: 0 0 0 3px var(--tk-accent-soft);
 }
 
-.brief {
-  margin: 0;
-  font-size: 14px;
-  font-weight: 500;
-  line-height: 1.375;
-  overflow-wrap: anywhere;
-}
-
-.pills {
+.cardTop {
   display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
+  align-items: flex-start;
+  gap: 8px;
 }
 
-.pills :global(.tk-pill) {
-  max-width: 100%;
-  overflow-wrap: anywhere;
+.cardTop .holder {
+  margin-top: 1px;
 }
 
-.status {
+.cardTitle {
+  flex: 1;
+  min-width: 0;
   margin: 0;
-  font-size: 12px;
-  line-height: 1.5;
-  color: var(--tk-text-secondary);
+  color: var(--tk-fg);
+  font-size: 13.5px;
+  font-weight: 500;
+  line-height: 1.4;
+  letter-spacing: -0.005em;
   overflow-wrap: anywhere;
 }
 
-.status strong {
-  font-weight: 600;
-  color: var(--tk-text-primary);
+.card[data-state="completed"] .cardTitle,
+.card[data-state="failed"] .cardTitle {
+  color: var(--tk-fg-2);
 }
 
-.danger {
-  color: #b42318;
-  font-weight: 600;
-}
-
-.blockedInfo {
+.cardBlock {
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  align-items: flex-start;
-}
-
-.blockedKind {
-  display: inline-flex;
-  padding: 2px 8px;
-  border-radius: var(--tk-radius-full);
-  background: var(--tk-text-primary);
-  color: var(--tk-text-invert);
-  font-family: var(--tk-font-mono);
-  font-size: 12px;
-  font-weight: 500;
+  gap: 1px;
+  margin: 0;
+  font-size: 12.5px;
   line-height: 1.4;
 }
 
-/* New task form */
-.formClosed {
+.cardBlockKind {
+  color: var(--tk-blocked-text);
+  font-weight: 600;
+}
+
+.cardBlockText {
+  color: var(--tk-fg-2);
+}
+
+.cardNeed,
+.cardFailed {
   display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin: 0;
+  color: var(--tk-fg-3);
+  font-size: 12px;
+  line-height: 1.4;
 }
 
-.form {
-  padding: 16px;
+.cardNeed > svg,
+.cardFailed > svg {
+  flex: none;
+  margin-top: 1.5px;
 }
 
-.formGrid {
+.cardNeedText {
+  min-width: 0;
+}
+
+.cardNeed[data-failed],
+.cardFailed {
+  color: var(--tk-failed-text);
+}
+
+.cardFoot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+}
+
+.cardFootSpacer {
+  flex: 1;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  height: 20px;
+  padding: 0 6px;
+  border: 1px solid var(--tk-line);
+  border-radius: var(--tk-radius-full);
+  color: var(--tk-fg-2);
+  font-size: 11.5px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.chip svg {
+  color: var(--tk-fg-3);
+}
+
+.cardMeta {
+  margin-right: 4px;
+  color: var(--tk-fg-3);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.holder {
+  display: inline-flex;
+}
+
+/* New task dialog */
+
+.dialog {
+  width: min(600px, calc(100vw - 32px));
+  max-height: calc(100dvh - 64px);
+  margin: max(10vh, 32px) auto auto;
+  padding: 0;
+  border: 1px solid var(--tk-line);
+  border-radius: var(--tk-radius-lg);
+  background: var(--tk-bg-raised);
+  box-shadow: var(--tk-shadow-pop);
+  color: var(--tk-fg);
+}
+
+.dialog::backdrop {
+  background: rgba(9, 9, 11, 0.32);
+}
+
+.dialog[open] {
+  animation: rise 180ms var(--tk-ease);
+}
+
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(6px) scale(0.99);
+  }
+}
+
+.dialogForm {
+  display: flex;
+  flex-direction: column;
+}
+
+.dialogHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 12px 0 18px;
+}
+
+.dialogTitle {
+  margin: 0;
+  color: var(--tk-fg-2);
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.briefInput {
+  min-height: 112px;
+  margin: 4px 0 0;
+  padding: 8px 18px;
+  border: none;
+  background: transparent;
+  color: var(--tk-fg);
+  font-size: 16px;
+  font-weight: 500;
+  line-height: 1.5;
+  resize: none;
+}
+
+.briefInput:focus {
+  outline: none;
+}
+
+.dialogFields {
   display: grid;
-  grid-template-columns: minmax(0, 1fr);
+  grid-template-columns: 1fr 1fr;
   gap: 12px;
+  padding: 4px 18px 16px;
 }
 
 .field {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 6px;
   min-width: 0;
 }
 
 .fieldLabel {
+  color: var(--tk-fg-2);
   font-size: 12px;
   font-weight: 500;
-  color: var(--tk-text-secondary);
 }
 
-.formInput {
-  width: 100%;
+.formError {
+  margin: 0;
+  padding: 0 18px 12px;
+  color: var(--tk-failed-text);
+  font-size: 13px;
 }
 
-.textarea {
-  width: 100%;
-  padding: 8px 12px;
-  border: 1px solid var(--tk-border-container);
-  border-radius: var(--tk-radius-xs);
-  background: var(--tk-surface-container);
-  color: var(--tk-text-primary);
-  font-family: var(--tk-font-sans);
-  font-size: 14px;
-  line-height: 1.5;
-  resize: vertical;
-}
-
-.textarea:focus-visible {
-  outline: 2px solid var(--tk-text-primary);
-  outline-offset: 1px;
-}
-
-.formActions {
+.dialogActions {
   display: flex;
+  align-items: center;
   gap: 8px;
-  margin-top: 12px;
+  padding: 12px 16px;
+  border-top: 1px solid var(--tk-line);
 }
 
-.primary {
-  background: var(--tk-text-primary);
-  color: var(--tk-text-invert);
+.dialogHint {
+  display: inline-flex;
+  flex: 1;
+  align-items: center;
+  gap: 3px;
+  color: var(--tk-fg-3);
+  font-size: 12px;
 }
 
-.primary:hover {
-  background: #2b2b2b;
+.dialogHint kbd {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 4px;
+  border: 1px solid var(--tk-line);
+  border-radius: 4px;
+  background: var(--tk-bg-sunken);
+  color: var(--tk-fg-2);
+  font-family: var(--tk-font-sans);
+  font-size: 11px;
 }
 
-.primary:disabled {
-  opacity: 0.6;
-  cursor: default;
-}
+/* Narrow screens: one column per screen width, snapping. */
 
-.error {
-  margin: 12px 0 0;
-  font-size: 14px;
-  line-height: 1.5;
-  color: #b42318;
-}
-
-@media (min-width: 768px) {
-  .roomList {
-    flex-wrap: wrap;
-  }
-
-  .formGrid {
-    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-  }
-
-  .fieldWide {
-    grid-column: 1 / -1;
-  }
-
-  /* Tablet: columns scroll sideways inside their own container. */
+@media (max-width: 899px) {
   .columnsScroll {
-    overflow-x: auto;
-    padding-bottom: 8px;
+    scroll-snap-type: x mandatory;
+    scroll-padding: 0 12px;
   }
 
   .columns {
-    flex-direction: row;
-    gap: 16px;
-    width: max-content;
-    min-width: 100%;
+    gap: 10px;
+    padding: 10px 12px 0;
   }
 
   .column {
-    width: 260px;
-    flex: 0 0 260px;
-  }
-}
-
-@media (min-width: 1200px) {
-  .layout {
-    grid-template-columns: 220px minmax(0, 1fr);
-  }
-
-  .roomList {
-    flex-direction: column;
-    flex-wrap: nowrap;
-  }
-
-  .columnsScroll {
-    overflow-x: visible;
-    padding-bottom: 0;
-  }
-
-  .columns {
-    display: grid;
-    grid-template-columns: repeat(5, minmax(0, 1fr));
-    width: auto;
-  }
-
-  .column {
-    width: auto;
     flex: none;
+    width: min(300px, calc(100vw - 48px));
+    scroll-snap-align: start;
+  }
+
+  .dialogFields {
+    grid-template-columns: 1fr;
+  }
+
+  .dialogHint {
+    visibility: hidden;
   }
 }

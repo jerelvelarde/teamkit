@@ -7,3 +7,6 @@ node_modules/
 dist/
 .next/
 *.log
+
+# Design review captures (local only)
+**/.impeccable/review/

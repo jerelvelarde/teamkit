@@ -1,13 +1,15 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useSearchParams } from "next/navigation";
+import type { ReactNode } from "react";
+import { usePathname, useSearchParams } from "next/navigation";
 import { EVENT_KINDS } from "@copilotkit/teamkit-protocol";
-import type { RoomSummary, Task, TaskState } from "@copilotkit/teamkit-protocol";
+import type { Task, TaskState } from "@copilotkit/teamkit-protocol";
 import { api } from "../lib/api";
 import { useBoardStream } from "../lib/stream";
+import { PageHeader, useShell } from "./AppShell";
+import { IconBoard, IconHash, IconPlus, StatusIcon } from "./Icons";
 import { NewTaskForm } from "./NewTaskForm";
-import { RoomSidebar } from "./RoomSidebar";
 import { SignedOut } from "./SignedOut";
 import { TaskCard } from "./TaskCard";
 import styles from "./board.module.css";
@@ -19,22 +21,35 @@ const CLOCK_MS = 30_000;
 
 type ColumnKey = "waiting" | "ready" | "claimed" | "blocked" | "done";
 
-const COLUMNS: Array<{ key: ColumnKey; title: string; states: TaskState[]; empty: string }> = [
-  { key: "waiting", title: "Waiting", states: ["waiting"], empty: "Nothing is waiting on another task." },
-  { key: "ready", title: "Ready", states: ["ready"], empty: "No tasks are ready to claim." },
-  { key: "claimed", title: "Claimed", states: ["claimed"], empty: "Nobody is working on a task right now." },
-  { key: "blocked", title: "Blocked", states: ["blocked"], empty: "No task needs an answer." },
-  { key: "done", title: "Done", states: ["completed", "failed"], empty: "Nothing has finished yet." },
+const COLUMNS: Array<{ key: ColumnKey; title: string; icon: TaskState; states: TaskState[]; empty: string }> = [
+  { key: "waiting", title: "Waiting", icon: "waiting", states: ["waiting"], empty: "Nothing is waiting on another task." },
+  { key: "ready", title: "Ready", icon: "ready", states: ["ready"], empty: "No tasks are ready to claim." },
+  { key: "claimed", title: "Claimed", icon: "claimed", states: ["claimed"], empty: "Nobody is working on a task right now." },
+  { key: "blocked", title: "Blocked", icon: "blocked", states: ["blocked"], empty: "No task needs an answer." },
+  { key: "done", title: "Done", icon: "completed", states: ["completed", "failed"], empty: "Nothing has finished yet." },
 ];
 
-export function Board() {
-  const params = useSearchParams();
-  const selected = params.get("room") || ALL_ROOMS;
+/** The query string that keeps the selected room when a task opens or closes. */
+export function roomQuery(room: string | null): string {
+  return room && room !== ALL_ROOMS ? `?room=${encodeURIComponent(room)}` : "";
+}
 
-  const [rooms, setRooms] = useState<RoomSummary[]>([]);
+function isTyping(target: EventTarget | null): boolean {
+  const el = target as HTMLElement | null;
+  return !!el && (el.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(el.tagName));
+}
+
+export function Board({ children }: { children?: ReactNode }) {
+  const params = useSearchParams();
+  const path = usePathname();
+  const selected = params.get("room") || ALL_ROOMS;
+  const openId = path.startsWith("/t/") ? decodeURIComponent(path.slice(3)) : null;
+  const { rooms, setRooms } = useShell();
+
   const [tasks, setTasks] = useState<Task[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [now, setNow] = useState(() => Date.now());
+  const [creating, setCreating] = useState(false);
   const lastJson = useRef("");
 
   const load = useCallback(async () => {
@@ -54,7 +69,7 @@ export function Board() {
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not load tasks.");
     }
-  }, [selected]);
+  }, [selected, setRooms]);
 
   useEffect(() => {
     lastJson.current = "";
@@ -83,6 +98,19 @@ export function Board() {
     return () => clearInterval(id);
   }, []);
 
+  // "c" opens the new task form, as it does in Linear.
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.key !== "c" || e.metaKey || e.ctrlKey || e.altKey || isTyping(e.target)) return;
+      e.preventDefault();
+      setCreating(true);
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
+  const briefs = useMemo(() => new Map((tasks ?? []).map((t) => [t.id, t.brief])), [tasks]);
+
   const columns = useMemo(
     () =>
       COLUMNS.map((c) => ({
@@ -96,46 +124,80 @@ export function Board() {
 
   if (signedOut) return <SignedOut hint="Your session ended. Open a new sign-in link to continue." />;
 
+  const allRooms = selected === ALL_ROOMS;
+  const query = roomQuery(selected);
+
   return (
-    <div className={styles.layout}>
-      <RoomSidebar rooms={rooms} selected={selected} />
-      <div className={styles.content}>
-        <div className={styles.toolbar}>
-          <h2 className={styles.heading}>{selected === ALL_ROOMS ? "All rooms" : selected}</h2>
-          <span className={styles.live} data-connected={connected}>
-            <span className={styles.liveDot} aria-hidden="true" />
-            {connected ? "Live" : "Reconnecting"}
-          </span>
-        </div>
-        <NewTaskForm rooms={rooms} selected={selected} onCreated={load} />
-        {error ? (
-          <p className={styles.error} role="alert">
-            {error}
-          </p>
-        ) : null}
-        <div className={styles.columnsScroll}>
-          <div className={styles.columns}>
-            {columns.map((c) => (
-              <section key={c.key} className={styles.column} aria-label={c.title}>
-                <div className={styles.columnHead}>
-                  <span className={styles.columnTitle}>{c.title}</span>
-                  <span className={styles.count}>{c.tasks.length}</span>
-                  <div className={styles.line} />
-                </div>
-                <div className={styles.cards}>
-                  {tasks === null ? (
-                    <p className={styles.empty}>Loading…</p>
-                  ) : c.tasks.length === 0 ? (
-                    <p className={styles.empty}>{c.empty}</p>
-                  ) : (
-                    c.tasks.map((t) => <TaskCard key={t.id} task={t} now={now} />)
-                  )}
-                </div>
-              </section>
-            ))}
-          </div>
+    <>
+      <PageHeader title={allRooms ? "All rooms" : selected} icon={allRooms ? <IconBoard /> : <IconHash />}>
+        <span className={styles.live} data-connected={connected} role="status">
+          <span className={styles.liveDot} aria-hidden="true" />
+          {connected ? "Live" : "Reconnecting"}
+        </span>
+        <div className={styles.headerSpacer} />
+        <button
+          type="button"
+          className="tk-button tk-button-primary"
+          onClick={() => setCreating(true)}
+          aria-keyshortcuts="c"
+          title="New task (C)"
+        >
+          <IconPlus size={14} />
+          New task
+        </button>
+      </PageHeader>
+
+      {error ? (
+        <p className={styles.error} role="alert">
+          {error}
+        </p>
+      ) : null}
+
+      <div className={styles.columnsScroll}>
+        <div className={styles.columns}>
+          {columns.map((c) => (
+            <section key={c.key} className={styles.column} aria-label={c.title}>
+              <div className={styles.columnHead}>
+                <StatusIcon state={c.icon} />
+                <span className={styles.columnTitle}>{c.title}</span>
+                <span className={styles.count}>{tasks === null ? "" : c.tasks.length}</span>
+              </div>
+              <div className={styles.cards}>
+                {tasks === null ? (
+                  <>
+                    <div className={styles.skeleton} />
+                    <div className={styles.skeleton} />
+                  </>
+                ) : c.tasks.length === 0 ? (
+                  <p className={styles.empty}>{c.empty}</p>
+                ) : (
+                  c.tasks.map((t) => (
+                    <TaskCard
+                      key={t.id}
+                      task={t}
+                      now={now}
+                      href={`/t/${encodeURIComponent(t.id)}${query}`}
+                      selected={t.id === openId}
+                      showRoom={allRooms}
+                      briefs={briefs}
+                    />
+                  ))
+                )}
+              </div>
+            </section>
+          ))}
         </div>
       </div>
-    </div>
+
+      {children}
+
+      <NewTaskForm
+        open={creating}
+        onClose={() => setCreating(false)}
+        rooms={rooms}
+        selected={selected}
+        onCreated={load}
+      />
+    </>
   );
 }

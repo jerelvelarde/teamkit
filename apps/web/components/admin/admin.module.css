@@ -1,203 +1,162 @@
-/* Admin page styles. Danger red is an implementation default (not a brand token). */
+/* Admin: Linear-style settings. One column, sections with a heading, tables with hairlines. */
+
+.scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
 .page {
   display: flex;
   flex-direction: column;
-  gap: 16px;
-  min-width: 0;
-}
-
-.heading {
-  margin: 0;
-  font-size: 20px;
-  font-weight: 600;
-  line-height: 24px;
-}
-
-.section {
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-  padding: 16px;
-  min-width: 0;
-}
-
-.sectionHead {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 10px;
-  font-weight: 500;
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
-  color: var(--tk-text-secondary);
-  white-space: nowrap;
-}
-
-.line {
-  flex: 1;
-  height: 1px;
-  background: var(--tk-border-container);
-}
-
-.note {
-  margin: 0;
-  font-size: 12px;
-  line-height: 1.5;
-  color: var(--tk-text-secondary);
+  gap: 40px;
+  width: min(820px, 100%);
+  margin: 0 auto;
+  padding: 32px 24px 64px;
 }
 
 .denied {
-  max-width: 560px;
+  width: min(480px, calc(100% - 32px));
   margin: 48px auto;
-  padding: 24px;
+  padding: 20px 24px;
 }
 
 .deniedText {
   margin: 0;
+  color: var(--tk-fg-2);
   font-size: 14px;
-  line-height: 22px;
-  color: var(--tk-text-secondary);
 }
 
-/* Tables scroll inside their own box. */
+/* Sections drop the card: a heading, a rule, then the content. */
+.section.section {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  border: none;
+  border-radius: 0;
+  background: none;
+}
+
+.sectionHead {
+  margin: 0;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--tk-line);
+  color: var(--tk-fg);
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: -0.005em;
+}
+
+.line {
+  display: none;
+}
+
+.muted {
+  color: var(--tk-fg-3);
+}
+
+.mono {
+  color: var(--tk-fg-2);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Tables */
+
 .tableBox {
   overflow-x: auto;
-  max-width: 100%;
-  border: 1px solid var(--tk-border-container);
-  border-radius: var(--tk-radius-xs);
-  background: var(--tk-glass-selected);
+  border: 1px solid var(--tk-line);
+  border-radius: var(--tk-radius-md);
+  background: var(--tk-bg-raised);
 }
 
 .table {
   width: 100%;
-  min-width: 520px;
   border-collapse: collapse;
-  font-size: 14px;
+  font-size: 13px;
 }
 
 .table th {
-  padding: 8px 12px;
-  text-align: left;
-  font-size: 10px;
+  padding: 8px 14px;
+  border-bottom: 1px solid var(--tk-line);
+  color: var(--tk-fg-3);
+  font-size: 12px;
   font-weight: 500;
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
-  color: var(--tk-text-secondary);
+  text-align: left;
   white-space: nowrap;
-  border-bottom: 1px solid var(--tk-border-container);
 }
 
 .table td {
-  padding: 8px 12px;
+  padding: 9px 14px;
+  border-bottom: 1px solid var(--tk-line);
+  color: var(--tk-fg);
   vertical-align: middle;
-  border-bottom: 1px solid var(--tk-border-container);
-  overflow-wrap: anywhere;
 }
 
-.table tr:last-child td {
+.table tbody tr:last-child td {
   border-bottom: none;
 }
 
-.mono {
-  font-family: var(--tk-font-mono);
-  font-size: 12px;
-  font-weight: 500;
+.table tbody tr:hover td {
+  background: var(--tk-bg-hover);
 }
 
-.muted {
-  color: var(--tk-text-disabled);
+.revoked td {
+  color: var(--tk-fg-3);
 }
 
 .rowActions {
   display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
   justify-content: flex-end;
-}
-
-.revoked {
-  color: var(--tk-text-disabled);
+  gap: 6px;
 }
 
 /* Forms */
+
 .form {
   display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  gap: 12px;
-  min-width: 0;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px 16px;
+  align-items: end;
 }
 
 .field {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 6px;
   min-width: 0;
 }
 
 .fieldLabel {
-  font-size: 12px;
+  color: var(--tk-fg-2);
+  font-size: 12.5px;
   font-weight: 500;
-  color: var(--tk-text-secondary);
 }
 
-.input {
-  width: 100%;
-  min-width: 0;
+.wide {
+  grid-column: 1 / -1;
 }
 
+.input,
 .select {
   width: 100%;
-  padding-right: 8px;
 }
 
 .check {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  font-size: 14px;
   min-height: 32px;
+  color: var(--tk-fg-2);
+  font-size: 13px;
 }
 
 .check input {
-  width: 16px;
-  height: 16px;
+  width: 15px;
+  height: 15px;
   margin: 0;
-  accent-color: var(--tk-text-primary);
+  accent-color: var(--tk-accent);
 }
 
-.formActions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
-.primary {
-  background: var(--tk-text-primary);
-  color: var(--tk-text-invert);
-}
-
-.primary:hover {
-  background: #2b2b2b;
-}
-
-.primary:disabled,
-.danger:disabled {
-  opacity: 0.6;
-  cursor: default;
-}
-
-.danger {
-  color: #b42318;
-}
-
-.error {
-  margin: 0;
-  font-size: 14px;
-  line-height: 1.5;
-  color: #b42318;
-}
-
-/* Grant rows */
 .grants {
   display: flex;
   flex-direction: column;
@@ -205,106 +164,116 @@
 }
 
 .grantRow {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  padding: 8px 12px;
-  border: 1px solid var(--tk-border-container);
-  border-radius: var(--tk-radius-xs);
-  background: var(--tk-glass-selected);
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 12px;
+  align-items: center;
 }
 
 .perms {
   display: flex;
   flex-wrap: wrap;
-  gap: 4px 16px;
+  gap: 2px 12px;
 }
 
-/* Shown-once secrets */
+.formActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.primary.primary {
+  border-color: transparent;
+  background: var(--tk-accent);
+  color: var(--tk-accent-fg);
+}
+
+.primary.primary:hover:not(:disabled) {
+  background: var(--tk-accent-hover);
+}
+
+.danger.danger {
+  border-color: transparent;
+  background: transparent;
+  box-shadow: none;
+  color: var(--tk-fg-2);
+}
+
+.danger.danger:hover:not(:disabled) {
+  background: var(--tk-bg-hover);
+  color: var(--tk-failed-text);
+}
+
+.error {
+  margin: 0;
+  color: var(--tk-failed-text);
+  font-size: 13px;
+}
+
+/* A secret shown once */
+
 .secret {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  padding: 12px 16px;
-  background: rgba(255, 236, 207, 0.8);
-  border: 2px solid #ffac4d;
-  border-radius: var(--tk-radius-sm);
-  min-width: 0;
+  gap: 6px;
+  padding: 14px 16px;
+  border: 1px solid var(--tk-blocked-line);
+  border-radius: var(--tk-radius-md);
+  background: var(--tk-blocked-soft);
 }
 
 .secretTitle {
   margin: 0;
+  color: var(--tk-fg);
   font-size: 14px;
   font-weight: 600;
-  line-height: 1.375;
 }
 
 .warn {
   margin: 0;
-  font-size: 12px;
-  font-weight: 600;
-  line-height: 1.5;
+  color: var(--tk-blocked-text);
+  font-size: 13px;
 }
 
 .secretRow {
   display: flex;
-  flex-direction: column;
+  flex-wrap: wrap;
   gap: 8px;
-  min-width: 0;
+  align-items: center;
+  margin-top: 4px;
 }
 
 .secretValue {
+  flex: 1;
+  min-width: 240px;
   margin: 0;
-  padding: 8px 12px;
-  border-radius: var(--tk-radius-xs);
-  background: var(--tk-surface-container);
-  font-family: var(--tk-font-mono);
+  padding: 8px 10px;
+  overflow-x: auto;
+  border: 1px solid var(--tk-line);
+  border-radius: var(--tk-radius-sm);
+  background: var(--tk-bg-raised);
+  color: var(--tk-fg);
   font-size: 12px;
-  font-weight: 500;
-  line-height: 1.5;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
-  word-break: break-all;
-  user-select: all;
 }
 
 .secretActions {
   display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
+  gap: 6px;
 }
 
-@media (min-width: 768px) {
-  .form {
-    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+@media (max-width: 899px) {
+  .page {
+    padding: 20px 16px 48px;
   }
 
-  .wide {
-    grid-column: 1 / -1;
+  .form {
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .grantRow {
-    flex-direction: row;
-    align-items: center;
-  }
-
-  .grantRow .input {
-    flex: 0 0 220px;
-    width: 220px;
-  }
-
-  .secretRow {
-    flex-direction: row;
-    align-items: flex-start;
-  }
-
-  .secretRow .secretValue {
-    flex: 1;
-  }
-}
-
-@media (min-width: 1200px) {
-  .page {
-    gap: 24px;
+    grid-template-columns: minmax(0, 1fr);
   }
 }
