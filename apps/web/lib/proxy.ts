@@ -1,3 +1,5 @@
+import { MAX_BODY_BYTES } from "@copilotkit/teamkit-protocol";
+
 const FORWARDED_REQUEST_HEADERS = ["authorization", "cookie", "content-type", "accept", "last-event-id"];
 
 // Hop-by-hop headers (RFC 9110 section 7.6.1) plus the framing headers that
@@ -23,6 +25,34 @@ function badGateway(): Response {
   );
 }
 
+function tooLarge(): Response {
+  return new Response(
+    JSON.stringify({ error: { code: "too_large", message: "request body too large" } }),
+    { status: 413, headers: { "content-type": "application/json" } },
+  );
+}
+
+/**
+ * Passes the body through chunk by chunk and errors the stream once more than
+ * `max` bytes have gone by, so a body with no Content-Length (chunked) is capped too.
+ */
+function capped(body: ReadableStream<Uint8Array>, max: number, onOver: () => void): ReadableStream<Uint8Array> {
+  let seen = 0;
+  return body.pipeThrough(
+    new TransformStream<Uint8Array, Uint8Array>({
+      transform(chunk, controller) {
+        seen += chunk.byteLength;
+        if (seen > max) {
+          onOver();
+          controller.error(new Error("request body too large"));
+          return;
+        }
+        controller.enqueue(chunk);
+      },
+    }),
+  );
+}
+
 export async function proxy(req: Request, path: string[], upstream: string): Promise<Response> {
   const target = `${upstream.replace(/\/+$/, "")}/v1/${path.map(encodeURIComponent).join("/")}${new URL(req.url).search}`;
 
@@ -32,17 +62,27 @@ export async function proxy(req: Request, path: string[], upstream: string): Pro
     if (value !== null) headers.set(name, value);
   }
 
-  const hasBody = req.method !== "GET" && req.method !== "HEAD";
+  // The body is streamed to the server, never buffered here: one large upload must not
+  // grow this process. A declared length over the limit is refused before reading a byte.
+  const hasBody = req.method !== "GET" && req.method !== "HEAD" && req.body !== null;
+  const declared = Number(req.headers.get("content-length") ?? "0");
+  if (hasBody && !(declared <= MAX_BODY_BYTES)) return tooLarge();
+  let over = false;
+  const body = hasBody ? capped(req.body!, MAX_BODY_BYTES, () => (over = true)) : undefined;
+
   let res: Response;
   try {
+    // `duplex: "half"` is required to send a stream body; the DOM RequestInit type lacks it.
     res = await fetch(target, {
       method: req.method,
       headers,
-      body: hasBody ? await req.arrayBuffer() : undefined,
+      body,
+      duplex: "half",
       redirect: "manual",
       signal: req.signal,
-    });
-  } catch (err) {
+    } as RequestInit);
+  } catch {
+    if (over) return tooLarge();
     // The browser went away: nobody is left to read a response.
     if (req.signal.aborted) return new Response(null, { status: 499 });
     return badGateway();

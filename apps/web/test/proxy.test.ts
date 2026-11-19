@@ -2,7 +2,31 @@ import assert from "node:assert/strict";
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { after, before, describe, it } from "node:test";
+import { MAX_BODY_BYTES } from "@copilotkit/teamkit-protocol";
 import { proxy } from "../lib/proxy.js";
+
+/** A request body that hands out `total` bytes in 64 KiB chunks and counts how many were pulled. */
+function counted(total: number): { stream: ReadableStream<Uint8Array>; pulled(): number } {
+  let sent = 0;
+  const stream = new ReadableStream<Uint8Array>({
+    pull(controller) {
+      if (sent >= total) return controller.close();
+      const n = Math.min(65_536, total - sent);
+      sent += n;
+      controller.enqueue(new Uint8Array(n).fill(120));
+    },
+  }, { highWaterMark: 0 }); // pull only when someone reads
+  return { stream, pulled: () => sent };
+}
+
+function streamed(body: ReadableStream<Uint8Array>, headers: Record<string, string> = {}): Request {
+  return new Request("http://web.test/v1/echo", {
+    method: "POST",
+    headers: { "content-type": "application/json", ...headers },
+    body,
+    duplex: "half",
+  } as RequestInit);
+}
 
 let server: Server;
 let upstream: string;
@@ -81,6 +105,32 @@ describe("proxy", () => {
     }
     const last = seen[seen.length - 1];
     assert.equal(last["x-evil"], undefined);
+  });
+
+  it("refuses a declared length over the limit with 413 before reading the body", async () => {
+    const before = seen.length;
+    const body = counted(MAX_BODY_BYTES * 4);
+    const res = await proxy(streamed(body.stream, { "content-length": String(MAX_BODY_BYTES + 1) }), ["echo"], upstream);
+    assert.equal(res.status, 413);
+    assert.deepEqual(await res.json(), { error: { code: "too_large", message: "request body too large" } });
+    assert.equal(body.pulled(), 0, "no byte of the body was read");
+    assert.equal(seen.length, before, "the server was never called");
+  });
+
+  it("cuts off a chunked body with no length once it passes the limit, with 413", async () => {
+    const body = counted(MAX_BODY_BYTES * 64);
+    const res = await proxy(streamed(body.stream), ["echo"], upstream);
+    assert.equal(res.status, 413);
+    assert.equal((await res.json()).error.code, "too_large");
+    assert.ok(body.pulled() < MAX_BODY_BYTES * 2, `stopped reading early (read ${body.pulled()} bytes)`);
+  });
+
+  it("forwards a streamed body of exactly the limit intact", async () => {
+    const res = await proxy(streamed(counted(MAX_BODY_BYTES).stream), ["echo"], upstream);
+    assert.equal(res.status, 200);
+    const got = (await res.json()) as { body: string };
+    assert.equal(got.body.length, MAX_BODY_BYTES);
+    assert.equal(got.body, "x".repeat(MAX_BODY_BYTES));
   });
 
   it("streams SSE without buffering, forwards Last-Event-ID, and sets no-buffer headers", async () => {
