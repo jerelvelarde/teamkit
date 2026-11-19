@@ -321,6 +321,13 @@ async function main(): Promise<void> {
     const on = page.getByRole("group", { name: "Agents on" });
     await on.getByText("ana-agent").waitFor();
     await on.getByText("copying invoices").waitFor();
+    // Playwright counts a clipped element as visible: check the list is what is drawn at its own center.
+    const listOnTop = await on.evaluate((el) => {
+      const r = el.getBoundingClientRect();
+      const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+      return hit !== null && el.contains(hit);
+    });
+    assert(listOnTop, "the agents-on list shows over the board, not clipped by the tab row");
     await page.keyboard.press("Escape");
 
     // A person starts a roll call beside the agents-on list; an agent's answer shows in its thread.
