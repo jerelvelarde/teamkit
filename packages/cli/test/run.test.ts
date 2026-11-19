@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { spawn, type ChildProcess } from "node:child_process";
+import { execFileSync, spawn, type ChildProcess } from "node:child_process";
 import { once } from "node:events";
 import { chmodSync, existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { createServer, type Socket } from "node:net";
@@ -138,9 +138,11 @@ function stallFirst(serverUrl: string, stallUrl: string, pattern: RegExp, next: 
 test("agent-ok completes the task with the fallback result and returns 0; signal listeners are removed", async () => {
   await withServer(async (s) => {
     const t = await s.client.createTask({ room: "build", brief: "ok" });
-    const before = { int: process.listenerCount("SIGINT"), term: process.listenerCount("SIGTERM") };
+    const listeners = () =>
+      ["SIGINT", "SIGTERM", "SIGHUP", "SIGTSTP", "SIGCONT"].map((sig) => process.listenerCount(sig as NodeJS.Signals));
+    const before = { signals: listeners(), stderr: process.stderr.listenerCount("error") };
     assert.equal(await run(s, { room: "build", waitMs: 0 }, "agent-ok.mjs", { handleSignals: true }), 0);
-    assert.deepEqual({ int: process.listenerCount("SIGINT"), term: process.listenerCount("SIGTERM") }, before);
+    assert.deepEqual({ signals: listeners(), stderr: process.stderr.listenerCount("error") }, before);
     const task = (await s.client.thread(t.id)).task;
     assert.equal(task?.state, "completed");
     assert.equal(task?.result, FALLBACK_RESULT);
@@ -354,6 +356,52 @@ test("SIGTERM to the bin stops every process of a compound sh -c agent", async (
       const [code] = (await w.closed) as [number | null];
       assert.equal(code, 130);
       assert.ok(Date.now() - sentAt < 5000, `run and its agent took ${Date.now() - sentAt} ms to stop`);
+      assert.equal(alive(pid), false, `agent ${pid} outlived run`);
+      assert.equal((await s.client.thread(t.id)).task?.state, "ready");
+    } finally {
+      child.kill("SIGKILL");
+    }
+  });
+});
+
+test("SIGHUP (the terminal closed) stops every process of the agent, releases the task and exits 129", async () => {
+  await withServer(async (s) => {
+    const t = await s.client.createTask({ room: "build", brief: "slow" });
+    const pidFile = tempFile("pid");
+    const child = spawnCli(["run", t.id, "--", ...compoundAgent()], { ...s.env, AGENT_PID_FILE: pidFile });
+    try {
+      const w = watch(s, child);
+      const pid = await readPid(pidFile);
+      const sentAt = Date.now();
+      child.kill("SIGHUP");
+      const [code] = (await w.closed) as [number | null];
+      assert.equal(code, 129);
+      assert.ok(Date.now() - sentAt < 5000, `run and its agent took ${Date.now() - sentAt} ms to stop`);
+      assert.equal(alive(pid), false, `agent ${pid} outlived run`);
+      assert.equal((await s.client.thread(t.id)).task?.state, "ready");
+    } finally {
+      child.kill("SIGKILL");
+    }
+  });
+});
+
+test("Ctrl-Z pauses the agent with run, and fg resumes both", async () => {
+  await withServer(async (s) => {
+    const t = await s.client.createTask({ room: "build", brief: "slow" });
+    const pidFile = tempFile("pid");
+    const child = spawnCli(["run", t.id, "--", "node", fixture("agent-slow.mjs")], { ...s.env, AGENT_PID_FILE: pidFile });
+    const stopped = (pid: number) => execFileSync("ps", ["-o", "stat=", "-p", String(pid)], { encoding: "utf8" }).includes("T");
+    try {
+      const w = watch(s, child);
+      const pid = await readPid(pidFile);
+      const runPid = child.pid as number;
+      child.kill("SIGTSTP");
+      await waitFor(() => (stopped(runPid) && stopped(pid) ? true : undefined));
+      child.kill("SIGCONT");
+      await waitFor(() => (!stopped(runPid) && !stopped(pid) ? true : undefined));
+      child.kill("SIGINT");
+      const [code] = (await w.closed) as [number | null];
+      assert.equal(code, 130);
       assert.equal(alive(pid), false, `agent ${pid} outlived run`);
       assert.equal((await s.client.thread(t.id)).task?.state, "ready");
     } finally {

@@ -33,7 +33,10 @@ const KILL_GRACE_MS = 10_000;
 const FORCED_RELEASE_MS = 1_000;
 const SETTLE_RETRIES = 3;
 const RETRY_BACKOFF_MS = 1_000;
-const SIGNALS = ["SIGINT", "SIGTERM"] as const;
+/** Signals that stop the agent and release the task. SIGHUP: the terminal closed. */
+const SIGNALS = ["SIGINT", "SIGTERM", "SIGHUP"] as const;
+/** `run`'s exit code after a stop signal: 129 when the terminal hung up, else 130. */
+const exitFor = (signal: NodeJS.Signals | null): number => (signal === "SIGHUP" ? 129 : EXIT.interrupted);
 /** What a shell exits with when the command was not executable (126) or not found (127). */
 const NOT_STARTED_CODES: ReadonlySet<number> = new Set([126, 127]);
 
@@ -74,8 +77,9 @@ async function acquire(client: TeamkitClient, target: RunTarget, signal: AbortSi
  * Claims a task, runs `command` on it with inherited stdio, renews the claim while the command runs,
  * and settles the task by the command's exit code. Returns the exit code for `teamkit run`.
  *
- * The command runs in its own process group (and session), so a terminal's Ctrl-C reaches only
- * `run`, which forwards each signal to the whole group once; a second signal kills the group.
+ * The command runs in its own process group (and session), so a terminal's Ctrl-C, hangup or
+ * Ctrl-Z reaches only `run`. It forwards each stop signal to the whole group once (a second one
+ * kills the group), and pauses and resumes the group with itself on Ctrl-Z and `fg`.
  */
 export async function runTask(opts: RunTaskOptions): Promise<number> {
   const { client, target, command } = opts;
@@ -123,6 +127,8 @@ export async function runTask(opts: RunTaskOptions): Promise<number> {
     const pid = c.pid as number;
     stopDeadline = Date.now() + killGraceMs;
     signalGroup(pid, signal);
+    // A paused (Ctrl-Z) agent only acts on the signal once it runs again.
+    signalGroup(pid, "SIGCONT");
     killTimer = setTimeout(() => signalGroup(pid, "SIGKILL"), killGraceMs);
   };
   const forceQuit = async (signal: NodeJS.Signals): Promise<void> => {
@@ -132,7 +138,7 @@ export async function runTask(opts: RunTaskOptions): Promise<number> {
     abortClaim.abort();
     if (child?.pid !== undefined && !agentDone) signalGroup(child.pid, "SIGKILL");
     if (release) await Promise.race([release(), sleep(FORCED_RELEASE_MS)]);
-    forceExit(EXIT.interrupted);
+    forceExit(exitFor(interrupted));
   };
   const onSignal = (signal: NodeJS.Signals): void => {
     if (++signalCount > 1) {
@@ -144,8 +150,23 @@ export async function runTask(opts: RunTaskOptions): Promise<number> {
     abortClaim.abort();
     stopAgent(signal);
   };
+  // Ctrl-Z: pause the agent's group, then this process the way the terminal would have; `fg` resumes both.
+  const onPause = (): void => {
+    if (child?.pid !== undefined && !agentDone) signalGroup(child.pid, "SIGSTOP");
+    process.kill(process.pid, "SIGSTOP");
+  };
+  const onResume = (): void => {
+    if (child?.pid !== undefined && !agentDone) signalGroup(child.pid, "SIGCONT");
+  };
+  // After a hangup the terminal is gone and writing to it fails; that must not stop the release.
+  const ignoreWriteError = (): void => {};
   const handleSignals = opts.handleSignals !== false;
-  if (handleSignals) for (const s of SIGNALS) process.on(s, onSignal);
+  if (handleSignals) {
+    for (const s of SIGNALS) process.on(s, onSignal);
+    process.on("SIGTSTP", onPause);
+    process.on("SIGCONT", onResume);
+    process.stderr.on("error", ignoreWriteError);
+  }
 
   const work = async (): Promise<number> => {
     if (room !== null) log(`teamkit run: looking for a ready task in ${room}`);
@@ -153,7 +174,7 @@ export async function runTask(opts: RunTaskOptions): Promise<number> {
     try {
       claim = await acquire(client, target, abortClaim.signal);
     } catch (e) {
-      if (interrupted) return EXIT.interrupted;
+      if (interrupted) return exitFor(interrupted);
       throw e;
     }
     if (!claim) {
@@ -172,7 +193,7 @@ export async function runTask(opts: RunTaskOptions): Promise<number> {
     };
     if (interrupted || forcing) {
       await release();
-      return EXIT.interrupted;
+      return exitFor(interrupted);
     }
 
     log(`teamkit run: claimed ${taskId} (${claimId}), starting ${command.join(" ")}`);
@@ -247,7 +268,7 @@ export async function runTask(opts: RunTaskOptions): Promise<number> {
     }
     if (interrupted) {
       await release();
-      return EXIT.interrupted;
+      return exitFor(interrupted);
     }
     if (lost) return EXIT.error;
 
@@ -291,7 +312,12 @@ export async function runTask(opts: RunTaskOptions): Promise<number> {
   } finally {
     clearTimeout(renewTimer);
     clearTimeout(killTimer);
-    if (handleSignals) for (const s of SIGNALS) process.off(s, onSignal);
+    if (handleSignals) {
+      for (const s of SIGNALS) process.off(s, onSignal);
+      process.off("SIGTSTP", onPause);
+      process.off("SIGCONT", onResume);
+      process.stderr.off("error", ignoreWriteError);
+    }
   }
 }
 
