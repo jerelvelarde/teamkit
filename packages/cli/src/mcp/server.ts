@@ -1,6 +1,7 @@
 import { McpServer } from "@modelcontextprotocol/server";
 import { TeamkitError } from "@copilotkit/teamkit-client";
 import { NotSignedInError } from "./session.js";
+import { coordinationTools } from "./coordination-tools.js";
 import { taskTools, type McpTool, type ToolDeps } from "./tools.js";
 
 export const SERVER_INSTRUCTIONS =
@@ -20,7 +21,7 @@ export function toolErrorText(e: unknown): string {
 
 export function createMcpServer(deps: ToolDeps, opts: { version: string; tools?: McpTool[] }): McpServer {
   const server = new McpServer({ name: "teamkit", version: opts.version }, { instructions: SERVER_INSTRUCTIONS });
-  for (const tool of opts.tools ?? taskTools) {
+  for (const tool of opts.tools ?? [...taskTools, ...coordinationTools]) {
     server.registerTool(tool.name, { description: tool.description, inputSchema: tool.inputSchema }, async (input: unknown) => {
       try {
         return { content: [{ type: "text" as const, text: await tool.run(deps, input) }] };
