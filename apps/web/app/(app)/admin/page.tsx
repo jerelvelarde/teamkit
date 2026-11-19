@@ -1,6 +1,7 @@
 "use client";
 
 import { PageHeader, useShell } from "../../../components/AppShell";
+import { JoinLinks } from "../../../components/admin/JoinLinks";
 import { People } from "../../../components/admin/People";
 import { Rooms } from "../../../components/admin/Rooms";
 import { Tokens } from "../../../components/admin/Tokens";
@@ -20,6 +21,7 @@ export default function AdminPage() {
         ) : (
           <div className={styles.page}>
             <People />
+            <JoinLinks />
             <Tokens />
             <Rooms />
           </div>

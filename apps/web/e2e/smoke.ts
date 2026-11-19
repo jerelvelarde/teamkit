@@ -308,6 +308,32 @@ async function main(): Promise<void> {
     await rcEvents.getByText("Roll call by sam").waitFor();
     await rcEvents.getByText("Roll call: ben-agent").waitFor();
 
+    // An admin creates a join link, sees it once, and revokes it.
+    await page.goto(`${base}/admin`);
+    const joinLinks = page.getByRole("region", { name: "Join links" });
+    await joinLinks.getByLabel("Email domains").fill("billing.example.com");
+    await joinLinks.getByRole("button", { name: "Create join link" }).click();
+    const shown = (await joinLinks.locator("pre").innerText()).trim();
+    assert(/\/join\/\S+$/.test(shown), `the new join link is shown once (got ${JSON.stringify(shown)})`);
+    await joinLinks.getByRole("button", { name: "Done" }).click();
+    const linkRow = joinLinks.getByRole("row").filter({ hasText: "billing.example.com" });
+    await linkRow.getByText("active", { exact: true }).waitFor();
+    page.once("dialog", (d) => void d.accept());
+    await linkRow.getByRole("button", { name: "Revoke" }).click();
+    await linkRow.getByText("revoked", { exact: true }).waitFor();
+    await page.reload();
+    await joinLinks.waitFor();
+    assert(!(await page.content()).includes(shown), "the join link is never shown again");
+
+    // An invite can carry an email, so ben can later get a sign-in link by email.
+    const people = page.getByRole("region", { name: "People" });
+    await people.getByLabel("Invite by name").fill("ben");
+    await people.getByLabel("Email (optional)").fill("Ben@Example.com");
+    await people.getByRole("button", { name: "Invite", exact: true }).click();
+    await people.getByRole("status").waitFor();
+    const [benRow] = await srv.db`select email from actors where name = 'ben'`;
+    assert(benRow?.email === "ben@example.com", `ben's invite stored his email (got ${JSON.stringify(benRow?.email)})`);
+
     for (const vp of VIEWPORTS) {
       await page.setViewportSize(vp);
       for (const [name, path] of [

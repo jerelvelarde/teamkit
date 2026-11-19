@@ -277,3 +277,15 @@
     grid-template-columns: minmax(0, 1fr);
   }
 }
+
+/* One line under a section head that says what the section is for. */
+.lead {
+  margin: -6px 0 0;
+  color: var(--tk-fg-3);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.num {
+  font-variant-numeric: tabular-nums;
+}
