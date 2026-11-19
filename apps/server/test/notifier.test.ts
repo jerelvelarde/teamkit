@@ -17,8 +17,8 @@ test("two callbacks both receive the payload", async () => {
   await withTestDb(async (db) => {
     const n = await createNotifier(db);
     try {
-      const a: string[] = [];
-      const b: string[] = [];
+      const a: (string | null)[] = [];
+      const b: (string | null)[] = [];
       n.onEvent((c) => a.push(c));
       n.onEvent((c) => b.push(c));
       await db`select pg_notify('teamkit_events', '1')`;
@@ -37,7 +37,7 @@ test("a throwing callback does not stop the others", async () => {
     const origErr = console.error;
     console.error = () => {};
     try {
-      const got: string[] = [];
+      const got: (string | null)[] = [];
       n.onEvent(() => {
         throw new Error("boom");
       });
@@ -56,8 +56,8 @@ test("unsubscribed callback no longer fires; the other still does", async () => 
   await withTestDb(async (db) => {
     const n = await createNotifier(db);
     try {
-      const a: string[] = [];
-      const b: string[] = [];
+      const a: (string | null)[] = [];
+      const b: (string | null)[] = [];
       const offA = n.onEvent((c) => a.push(c));
       n.onEvent((c) => b.push(c));
       await db`select pg_notify('teamkit_events', '1')`;
@@ -77,7 +77,7 @@ test("notify inside a transaction is delivered only after commit; rollback deliv
   await withTestDb(async (db) => {
     const n = await createNotifier(db);
     try {
-      const got: string[] = [];
+      const got: (string | null)[] = [];
       n.onEvent((c) => got.push(c));
 
       let release!: () => void;
@@ -111,13 +111,44 @@ test("notify inside a transaction is delivered only after commit; rollback deliv
 test("close stops delivery and is safe to call twice", async () => {
   await withTestDb(async (db) => {
     const n = await createNotifier(db);
-    const got: string[] = [];
+    const got: (string | null)[] = [];
     n.onEvent((c) => got.push(c));
     await n.close();
     await db`select pg_notify('teamkit_events', '1')`;
     await sleep(300);
     assert.deepEqual(got, []);
     await n.close();
+  });
+});
+
+test("after the listener's connection drops, subscribers are woken with null and delivery resumes", async () => {
+  await withTestDb(async (db) => {
+    const n = await createNotifier(db);
+    try {
+      const a: (string | null)[] = [];
+      const b: (string | null)[] = [];
+      n.onEvent((c) => a.push(c));
+      n.onEvent((c) => b.push(c));
+      // The first LISTEN does not wake anyone.
+      await sleep(100);
+      assert.deepEqual(a, []);
+
+      const killed = await db`
+        select pg_terminate_backend(pid) from pg_stat_activity
+        where datname = current_database() and query ilike 'listen%' and pid <> pg_backend_pid()`;
+      assert.equal(killed.length, 1, "expected exactly one listener backend");
+
+      await until(() => a.length === 1 && b.length === 1);
+      assert.deepEqual(a, [null]);
+      assert.deepEqual(b, [null]);
+
+      await db`select pg_notify('teamkit_events', '5')`;
+      await until(() => a.length === 2 && b.length === 2);
+      assert.deepEqual(a, [null, "5"]);
+      assert.deepEqual(b, [null, "5"]);
+    } finally {
+      await n.close();
+    }
   });
 });
 
