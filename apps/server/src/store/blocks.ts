@@ -117,6 +117,10 @@ export async function answer(
     } else {
       await requirePerm(tx, auth, task.room, "post");
     }
+    // With options, the answer is the choice; text is only a comment on it.
+    if (blk.options && choice === undefined) {
+      throw new BoardError("invalid_input", `answer needs a choice, one of: ${blk.options.join(", ")}`);
+    }
     if (choice !== undefined && !(blk.options ?? []).includes(choice)) {
       throw new BoardError("invalid_input", `choice "${choice}" is not one of the options`);
     }

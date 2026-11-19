@@ -118,6 +118,19 @@ test("a choice outside the options, or with no options, is invalid_input", async
   });
 });
 
+test("with options an answer needs a choice; text alone is refused and rides along as a comment", async () => {
+  await withTestDb(async (db) => {
+    const a = await blockedTask(db, "needs_input", ["a", "b"]);
+    const p = await personAuth(db, "pat");
+    await assert.rejects(answer(db, p, a.t.id, { text: "a, I think" }), code("invalid_input"));
+    const r = await answer(db, p, a.t.id, { choice: "a", text: "because" });
+    assert.equal(r.state, "ready");
+    assert.deepEqual(r.pendingResume![0]!.payload, { text: "because", choice: "a" });
+    const [row] = await db`select pending_resume from tasks where thread_id = ${a.t.id}`;
+    assert.equal((row!.pending_resume as { payload: { choice: string } }[])[0]!.payload.choice, "a");
+  });
+});
+
 test("an option with NUL or a lone surrogate is invalid_input", async () => {
   await withTestDb(async (db) => {
     const bot = await agentAuth(db, "bot");
