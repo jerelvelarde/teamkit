@@ -35,7 +35,7 @@ function toInfo(r: Record<string, unknown>): RoomInfo {
 /** Rooms the actor can read (people see all), sorted by name. */
 export async function listRooms(db: Db, auth: AuthContext): Promise<RoomSummary[]> {
   const rows = await db`select name, created_at from rooms order by name`;
-  let visible = rows;
+  let visible: readonly { name: unknown; created_at: unknown }[] = rows;
   if (auth.actor.kind !== "person") {
     const grants = await db`select room_pattern, perms from grants where actor_id = ${auth.actor.id}`;
     const readable = grants
