@@ -107,3 +107,91 @@ export async function setServiceCursor(q: Q, name: string, cursor: string): Prom
       cursor = greatest(service_cursors.cursor, excluded.cursor),
       updated_at = now()`;
 }
+
+/** The pinned status message for a room linked to Slack. `editedAt` is epoch ms. */
+export interface StatusMessageRow {
+  room: string;
+  channel: string;
+  ts: string;
+  pinned: boolean;
+  bodyHash: string;
+  editedAt: number;
+}
+
+export async function getStatusMessage(q: Q, room: string): Promise<StatusMessageRow | null> {
+  const [r] = await q`select room, channel, ts, pinned, body_hash, edited_at from slack_status_messages where room = ${room}`;
+  if (!r) return null;
+  return {
+    room: r.room as string,
+    channel: r.channel as string,
+    ts: r.ts as string,
+    pinned: r.pinned as boolean,
+    bodyHash: r.body_hash as string,
+    editedAt: (r.edited_at as Date).getTime(),
+  };
+}
+
+/** Upserts the room's status message. */
+export async function saveStatusMessage(q: Q, row: StatusMessageRow): Promise<void> {
+  await q`
+    insert into slack_status_messages (room, channel, ts, pinned, body_hash, edited_at)
+    values (${row.room}, ${row.channel}, ${row.ts}, ${row.pinned}, ${row.bodyHash}, ${new Date(row.editedAt)})
+    on conflict (room) do update set
+      channel = excluded.channel, ts = excluded.ts, pinned = excluded.pinned,
+      body_hash = excluded.body_hash, edited_at = excluded.edited_at`;
+}
+
+/** The top-level Slack message for a decision or an alert. */
+export interface SlackPostRow {
+  kind: "decision" | "alert";
+  refId: string;
+  channel: string;
+  ts: string;
+  loud: boolean;
+}
+
+export async function getSlackPost(q: Q, kind: SlackPostRow["kind"], refId: string): Promise<SlackPostRow | null> {
+  const [r] = await q`select kind, ref_id, channel, ts, loud from slack_posts where kind = ${kind} and ref_id = ${refId}`;
+  if (!r) return null;
+  return { kind: r.kind as SlackPostRow["kind"], refId: r.ref_id as string, channel: r.channel as string, ts: r.ts as string, loud: r.loud as boolean };
+}
+
+/** Upserts a post. `loud` never goes from true back to false: a channel is pinged at most once. */
+export async function saveSlackPost(q: Q, row: SlackPostRow): Promise<void> {
+  await q`
+    insert into slack_posts (kind, ref_id, channel, ts, loud)
+    values (${row.kind}, ${row.refId}, ${row.channel}, ${row.ts}, ${row.loud})
+    on conflict (kind, ref_id) do update set
+      channel = excluded.channel, ts = excluded.ts, loud = slack_posts.loud or excluded.loud`;
+}
+
+/** A room that posts to a Slack channel. */
+export interface LinkedRoom {
+  room: string;
+  channel: string;
+  announce: "blocked" | "all";
+  approvers: string[] | null;
+}
+
+/** Rooms with a Slack channel whose announce mode is not `none`, by name. */
+export async function linkedRooms(q: Q): Promise<LinkedRoom[]> {
+  const rows = await q`
+    select name, slack_channel, slack_announce, approvers from rooms
+    where slack_channel is not null and slack_announce <> 'none'
+    order by name`;
+  return rows.map((r) => ({
+    room: r.name as string,
+    channel: r.slack_channel as string,
+    announce: r.slack_announce as LinkedRoom["announce"],
+    approvers: (r.approvers as string[] | null) ?? null,
+  }));
+}
+
+/** The Slack user most recently linked to the person named `personName`, or null. */
+export async function slackUserOf(q: Q, personName: string): Promise<string | null> {
+  const [r] = await q`
+    select l.slack_user_id from slack_links l join actors a on a.id = l.actor_id
+    where a.name = ${personName} and a.kind = 'person'
+    order by l.created_at desc limit 1`;
+  return r ? (r.slack_user_id as string) : null;
+}
