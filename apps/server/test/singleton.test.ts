@@ -56,7 +56,16 @@ test("one instance holds the lock; another takes over after the holder stops", a
     await b.stop();
     assert.equal(b.held(), false);
     // The server drops the backend a moment after the client hangs up.
-    await waitFor("the lock to be freed", async () => (await t.db`select 1 from pg_locks where locktype = 'advisory'`).length === 0);
+    // Only this test database's locks: other test files and servers share the cluster.
+    await waitFor(
+      "the lock to be freed",
+      async () =>
+        (
+          await t.db`
+            select 1 from pg_locks l join pg_database d on d.oid = l.database
+            where l.locktype = 'advisory' and d.datname = current_database()`
+        ).length === 0,
+    );
   } finally {
     await t.drop();
   }
