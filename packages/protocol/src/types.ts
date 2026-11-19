@@ -16,7 +16,17 @@ export type EventKind =
   | "task.ready"
   | "task.completed"
   | "task.failed"
-  | "run.event";
+  | "run.event"
+  | "task.handed_off"
+  | "decision.posted"
+  | "decision.acked"
+  | "rollcall.started"
+  | "rollcall.answered"
+  | "change.logged"
+  | "change.updated"
+  | "alert.raised"
+  | "alert.confirmed"
+  | "alert.resolved";
 
 export const TASK_STATES = ["waiting", "ready", "claimed", "blocked", "completed", "failed"] as const satisfies readonly TaskState[];
 export const BLOCK_KINDS = ["needs_input", "awaiting_approval"] as const satisfies readonly BlockKind[];
@@ -35,6 +45,16 @@ export const EVENT_KINDS = [
   "task.completed",
   "task.failed",
   "run.event",
+  "task.handed_off",
+  "decision.posted",
+  "decision.acked",
+  "rollcall.started",
+  "rollcall.answered",
+  "change.logged",
+  "change.updated",
+  "alert.raised",
+  "alert.confirmed",
+  "alert.resolved",
 ] as const satisfies readonly EventKind[];
 
 export const MAX_TEXT_LENGTH = 32_000;
@@ -64,6 +84,8 @@ export interface TaskBlock {
   question: string;
   options: string[] | null;
   blockedBy: ActorRef;
+  /** People named to answer; null means the room's approvers (an approval) or anyone allowed (a question). */
+  approvers: string[] | null;
 }
 
 export interface PendingResume {
@@ -84,6 +106,9 @@ export interface Task {
   claim: TaskClaim | null;
   block: TaskBlock | null;
   pendingResume: PendingResume[] | null;
+  /** A hold: the task is kept for this actor until reservedUntil (a handoff, or an answered ask). */
+  reservedFor: ActorRef | null;
+  reservedUntil: string | null;
   attempts: number;
   result: string | null;
   createdBy: ActorRef;
@@ -141,6 +166,8 @@ export interface RoomInfo extends RoomSummary {
   approvers: string[] | null;
   slackChannel: string | null;
   slackAnnounce: "blocked" | "all" | "none";
+  /** How long a handoff or an answered ask is held for one actor, in minutes. */
+  reservationMinutes: number;
 }
 
 export interface ThreadInfo {
@@ -176,7 +203,7 @@ export interface PersonInfo { actor: ActorRef; role: Role; createdAt: string; la
 export interface Invite { person: ActorRef; role: Role; link: string }
 export interface TokenInfo { id: string; actorId: string; actorName: string; scope: "agent" | "admin"; createdAt: string; revokedAt: string | null }
 export interface CreatedToken { actor: ActorRef; token: string; tokenId: string }
-export interface RoomSettingsInput { agent?: string | null; approvers?: string[] | null; slackChannel?: string | null; slackAnnounce?: "blocked" | "all" | "none" }
+export interface RoomSettingsInput { agent?: string | null; approvers?: string[] | null; slackChannel?: string | null; slackAnnounce?: "blocked" | "all" | "none"; reservationMinutes?: number }
 export interface DeviceStart { deviceCode: string; userCode: string; verifyUrl: string; expiresAt: string; intervalMs: number }
 export type DevicePoll = { status: "pending" } | { status: "expired" } | { status: "approved"; token: string; actor: ActorRef };
 export interface AgentRegistration { name: string; url: string; rooms: string[]; headers?: Record<string, string> }
@@ -206,3 +233,31 @@ export interface JoinLinkInput {
   expiresInDays?: number;
   domains?: string[];
 }
+
+export type ChangeStatus = "active" | "done" | "restored";
+export const CHANGE_STATUSES = ["active", "done", "restored"] as const satisfies readonly ChangeStatus[];
+export type AlertLevel = "suspected" | "confirmed";
+export const ALERT_LEVELS = ["suspected", "confirmed"] as const satisfies readonly AlertLevel[];
+export const RESERVATION_MINUTES_DEFAULT = 30;
+export const RESERVATION_MINUTES_MAX = 1440;
+/** How often a running agent tells the server it is on. */
+export const HEARTBEAT_EVERY_MS = 30_000;
+/** An agent counts as on when one of its sessions was seen within this long. */
+export const PRESENCE_ON_MS = 90_000;
+/** A roll call shows as waiting for this long. */
+export const ROLLCALL_OPEN_MS = 3_600_000;
+export const MAX_APPROVERS = 10;
+
+export interface DecisionAck { actor: ActorRef; at: string }
+/** A decision a person made, posted for the room's agents to acknowledge. It grants no authority. */
+export interface Decision { id: string; room: string; threadId: string; text: string; decidedBy: ActorRef; postedBy: ActorRef; createdAt: string; acks: DecisionAck[] }
+export interface RollCallAnswer { actor: ActorRef; status: string; at: string }
+export interface RollCall { id: string; room: string; threadId: string; askedBy: ActorRef; createdAt: string; answers: RollCallAnswer[] }
+export interface PresenceSession { tokenId: string; watching: string[]; status: string | null; lastSeenAt: string }
+export interface Presence { actor: ActorRef; owner: ActorRef | null; sessions: PresenceSession[] }
+/** A change someone made, with how to undo it. Names and short identifiers only, never secret values. */
+export interface ChangeEntry { id: string; room: string; threadId: string | null; what: string; where: string; at: string; person: ActorRef; agent: ActorRef | null; undo: string; undoWhen: string | null; status: ChangeStatus; createdAt: string; updatedAt: string }
+export interface ChangeInput { room: string; threadId?: string; what: string; where: string; at?: string; undo: string; undoWhen?: string }
+export interface Alert { id: string; room: string; threadId: string; text: string; level: AlertLevel; raisedBy: ActorRef; confirmedBy: ActorRef | null; source: ActorRef | null; resolvedBy: ActorRef | null; resolvedSource: ActorRef | null; resolvedAt: string | null; createdAt: string }
+/** What is waiting on the caller. */
+export interface Pending { handoffs: Task[]; answered: Task[]; decisions: Decision[]; rollCalls: RollCall[]; asks: Task[] }

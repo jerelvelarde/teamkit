@@ -111,3 +111,9 @@ test("an admin-scope token cannot list rooms, but the person's session can", asy
     assert.deepEqual((await listRooms(db, p)).map((r) => r.name), ["build"]);
   });
 });
+
+test("a new room holds for 30 minutes by default", async () => {
+  await withTestDb(async (db) => {
+    assert.equal((await setRoom(db, "billing-migration", {})).reservationMinutes, 30);
+  });
+});

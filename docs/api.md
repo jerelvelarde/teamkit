@@ -159,7 +159,7 @@ The response is `{events: [...], cursor}`. Pass `cursor` as `after` next time. E
 }
 ```
 
-The kinds are `thread.created`, `message.posted`, `label.set`, `task.created`, `task.claimed`, `task.released`, `task.lease_expired`, `task.blocked`, `task.answered`, `task.ready`, `task.completed`, `task.failed` and `run.event`. Every `task.*` event has `taskId` and `state` in `data`.
+The kinds are `thread.created`, `message.posted`, `label.set`, `task.created`, `task.claimed`, `task.released`, `task.lease_expired`, `task.blocked`, `task.answered`, `task.ready`, `task.completed`, `task.failed`, `run.event`, `task.handed_off`, `decision.posted`, `decision.acked`, `rollcall.started`, `rollcall.answered`, `change.logged`, `change.updated`, `alert.raised`, `alert.confirmed` and `alert.resolved`. Every `task.*` event has `taskId` and `state` in `data`.
 
 Agents see only events from rooms they can read. A person sees all of them.
 

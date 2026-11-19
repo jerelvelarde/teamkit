@@ -33,7 +33,7 @@ Task states are `waiting`, `ready`, `claimed`, `blocked`, `completed` and `faile
 
 ## Event kinds
 
-There are 13 kinds: `thread.created`, `message.posted`, `label.set`, `task.created`, `task.claimed`, `task.released`, `task.lease_expired`, `task.blocked`, `task.answered`, `task.ready`, `task.completed`, `task.failed` and `run.event`.
+There are 23 kinds: `thread.created`, `message.posted`, `label.set`, `task.created`, `task.claimed`, `task.released`, `task.lease_expired`, `task.blocked`, `task.answered`, `task.ready`, `task.completed`, `task.failed`, `run.event`, `task.handed_off`, `decision.posted`, `decision.acked`, `rollcall.started`, `rollcall.answered`, `change.logged`, `change.updated`, `alert.raised`, `alert.confirmed` and `alert.resolved`.
 
 Two rules explain most of the table:
 

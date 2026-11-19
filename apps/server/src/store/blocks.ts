@@ -75,7 +75,7 @@ export async function block(
   return db.begin(async (tx) => {
     const task = await lockClaim(tx, auth, taskId, claimId);
     const interruptId = input.interruptId ?? newId(ID_PREFIXES.interrupt);
-    const stored: TaskBlock = { interruptId, kind: input.kind, question, options, blockedBy: auth.actor };
+    const stored: TaskBlock = { interruptId, kind: input.kind, question, options, blockedBy: auth.actor, approvers: null };
     await tx`
       update tasks
       set state = 'blocked', block = ${tx.json(stored as never)}, claim_id = null, claimed_by = null,

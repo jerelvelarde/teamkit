@@ -30,6 +30,7 @@ function toInfo(r: Record<string, unknown>): RoomInfo {
     approvers: (r.approvers as string[] | null) ?? null,
     slackChannel: (r.slack_channel as string | null) ?? null,
     slackAnnounce: r.slack_announce as RoomInfo["slackAnnounce"],
+    reservationMinutes: r.reservation_minutes as number,
   };
 }
 

@@ -18,6 +18,8 @@ function task(over: Partial<Task> = {}): Task {
     claim: null,
     block: null,
     pendingResume: null,
+    reservedFor: null,
+    reservedUntil: null,
     attempts: 0,
     result: null,
     createdBy: actor,
@@ -50,7 +52,7 @@ test("formatTask blocked", () => {
   const s = formatTask(
     task({
       state: "blocked",
-      block: { interruptId: "i1", kind: "needs_input", question: "Which env?", options: null, blockedBy: actor },
+      block: { interruptId: "i1", kind: "needs_input", question: "Which env?", options: null, blockedBy: actor, approvers: null },
     }),
   );
   assert.match(s, /\[blocked\].*blocked \(needs_input\): Which env\?$/);
@@ -101,7 +103,7 @@ test("formatThread and formatRoom include names and contents", () => {
   assert.ok(out.includes("assistant: hi back"));
 
   const rv: RoomView = {
-    room: { name: "eng", createdAt: "t", agent: null, approvers: null, slackChannel: null, slackAnnounce: "none" },
+    room: { name: "eng", createdAt: "t", agent: null, approvers: null, slackChannel: null, slackAnnounce: "none", reservationMinutes: 30 },
     threads: [{ ...info, state: "ready", brief: "Fix the build" }, { ...info, id: "th_2", isTask: false, state: null, brief: null }],
     cursor: "3",
   };
@@ -113,7 +115,7 @@ test("formatThread and formatRoom include names and contents", () => {
 
 test("formatThread prints labels, needs, block, result and cursor; formatTask shows kind and options", () => {
   const info = { id: "th_1", room: "eng", isTask: true, labels: {}, createdBy: actor, createdAt: "t" };
-  const block = { interruptId: "i", kind: "needs_input" as const, question: "which?", options: ["a", "b"], blockedBy: actor };
+  const block = { interruptId: "i", kind: "needs_input" as const, question: "which?", options: ["a", "b"], blockedBy: actor, approvers: null };
   const blocked = task({ state: "blocked", labels: { role: "worker" }, needs: ["th_0"], needStates: { th_0: "completed" }, block });
   const out = formatThread({ thread: info, task: blocked, messages: [], cursor: "7" } as ThreadView);
   assert.ok(out.includes("labels: role=worker"));
