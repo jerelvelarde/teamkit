@@ -1,11 +1,12 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { withTestDb } from "./helpers/db.js";
-import { agentAuth } from "./helpers/actors.js";
+import { agentAuth, personAuth } from "./helpers/actors.js";
 import { assertAguiValid } from "./helpers/agui.js";
 import { createTask } from "../src/store/tasks.js";
 import { claimNext, claimTask, complete, fail, leaseMs, release, renew } from "../src/store/claims.js";
 import { listEvents } from "../src/store/events.js";
+import { loadTask } from "../src/store/task-load.js";
 
 const code = (c: string) => (e: unknown) => (e as { code?: string }).code === c;
 
@@ -59,6 +60,21 @@ test("without a claim grant: claimNext is null, claimTask is forbidden", async (
     assert.equal(await claimNext(db, ro, { room: "*" }), null);
     await assert.rejects(claimTask(db, ro, t.id), code("forbidden"));
     await assert.rejects(claimTask(db, bot, "th_nope"), code("not_found"));
+  });
+});
+
+test("claimNext refuses an admin-scope token, a person's included", async () => {
+  await withTestDb(async (db) => {
+    const bot = await agentAuth(db, "bot");
+    const t = await createTask(db, bot, { room: "build", brief: "x" });
+    const p = await personAuth(db, "ada", "admin");
+    const adminPerson = { ...p, via: "token" as const, scope: "admin" as const };
+    const adminAgent = { ...(await agentAuth(db, "ops")), scope: "admin" as const };
+    for (const auth of [adminPerson, adminAgent]) {
+      await assert.rejects(claimNext(db, auth, { room: "*" }), code("forbidden"));
+    }
+    assert.equal((await loadTask(db, t.id))!.state, "ready");
+    assert.equal((await claimNext(db, p, { room: "*" }))?.task.id, t.id);
   });
 });
 

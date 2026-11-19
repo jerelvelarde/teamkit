@@ -113,6 +113,10 @@ export async function claimNext(
   input: { room: string; labels?: Record<string, string>; opensRun?: boolean },
 ): Promise<Claim | null> {
   const labels = input.labels ?? {};
+  // Checked before the person shortcut below: an admin-scope token holds no board permission.
+  if (auth.scope === "admin") {
+    throw new BoardError("forbidden", `${auth.actor.name} uses an admin token, which cannot claim in ${input.room}`);
+  }
   return db.begin(async (tx) => {
     const grantCheck =
       auth.actor.kind === "person"
