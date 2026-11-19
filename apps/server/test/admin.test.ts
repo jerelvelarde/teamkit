@@ -126,10 +126,11 @@ test("people invite prints one sign-in link and people list shows the person", a
     assert.equal(l.code, 0, l.err);
     assert.equal(l.out, "ada\tadmin\tnever\n");
 
-    assert.equal((await consumeSignInLink(db, secret)).role, "admin");
     // Re-inviting without --admin kept the existing role.
     const again = custom.out.trim().split("/signin/")[1]!;
     assert.equal((await consumeSignInLink(db, again)).role, "admin");
+    // Signing in with one link cancelled the other.
+    await assert.rejects(consumeSignInLink(db, secret), (e: unknown) => (e as { code?: string }).code === "unauthorized");
   });
 });
 

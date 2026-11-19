@@ -96,16 +96,45 @@ test("listPeople shows lastSignInAt", async () => {
   });
 });
 
-test("ensureBootstrapLink issues links until someone signs in", async () => {
+test("ensureBootstrapLink issues links until someone signs in; only the latest works", async () => {
   await withTestDb(async (db) => {
-    const a = await ensureBootstrapLink(db);
-    const b = await ensureBootstrapLink(db);
-    assert.ok(a && b);
-    assert.notEqual(a, b);
-    const s = await consumeSignInLink(db, a);
+    const boots = [await ensureBootstrapLink(db), await ensureBootstrapLink(db), await ensureBootstrapLink(db)];
+    assert.ok(boots.every((l) => l !== null));
+    assert.equal(new Set(boots).size, 3);
+    const [first, second, last] = boots as string[];
+    await assert.rejects(consumeSignInLink(db, first!), code("unauthorized"));
+    await assert.rejects(consumeSignInLink(db, second!), code("unauthorized"));
+    const s = await consumeSignInLink(db, last!);
     assert.equal(s.role, "admin");
     assert.equal(s.actor.name, "admin");
     assert.equal(await ensureBootstrapLink(db), null);
+    for (const l of boots) await assert.rejects(consumeSignInLink(db, l!), code("unauthorized"));
+  });
+});
+
+test("signing in cancels the person's other links, and no one else's", async () => {
+  await withTestDb(async (db) => {
+    const boot = (await ensureBootstrapLink(db))!;
+    const ana = await invitePerson(db, { name: "ana", role: "member" });
+    const again = await createSignInLink(db, ana.person.id);
+    const bob = await invitePerson(db, { name: "bob", role: "member" });
+    assert.equal((await consumeSignInLink(db, again)).actor.name, "ana");
+    await assert.rejects(consumeSignInLink(db, ana.secret), code("unauthorized"));
+    assert.equal((await consumeSignInLink(db, bob.secret)).actor.name, "bob");
+    assert.equal((await consumeSignInLink(db, boot)).actor.name, "admin");
+  });
+});
+
+test("two links of one person used at once: one signs in, the other is refused", async () => {
+  await withTestDb(async (db) => {
+    const ana = await invitePerson(db, { name: "ana", role: "member" });
+    const links = [ana.secret, ...(await Promise.all([1, 2, 3].map(() => createSignInLink(db, ana.person.id))))];
+    const results = await Promise.allSettled(links.map((l) => consumeSignInLink(db, l)));
+    assert.equal(results.filter((r) => r.status === "fulfilled").length, 1);
+    for (const r of results) {
+      if (r.status === "rejected") assert.equal((r.reason as { code?: string }).code, "unauthorized");
+    }
+    assert.equal((await db`select 1 from sessions`).length, 1);
   });
 });
 

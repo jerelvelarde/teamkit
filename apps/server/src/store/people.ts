@@ -67,20 +67,33 @@ export async function invitePerson(
   return { person, role: input.role, secret };
 }
 
+/** Marks every unused link of the actor used, so none of them signs in any more. */
+async function cancelLinks(q: Q, actorId: string): Promise<void> {
+  await q`update signin_links set used_at = clock_timestamp() where actor_id = ${actorId} and used_at is null`;
+}
+
+/** Signs in with a link. Every other unused link of the same person stops working with it. */
 export async function consumeSignInLink(
   db: Db,
   secret: string,
 ): Promise<{ actor: ActorRef; role: Role; sessionSecret: string; expiresAt: string }> {
   const invalid = () => new BoardError("unauthorized", "sign-in link is invalid, used or expired");
   if (typeof secret !== "string" || secret === "") throw invalid();
+  const hash = hashToken(secret);
   return db.begin(async (tx) => {
+    // Lock the person first: two of their links used at once then take turns, and the
+    // second finds itself cancelled by the first.
+    const [owner] = await tx`select actor_id from signin_links where hash = ${hash}`;
+    if (!owner) throw invalid();
+    const [a] = await tx`
+      select id, name, kind, role from actors where id = ${owner.actor_id as string} for no key update`;
+    if (!a || a.kind !== "person") throw invalid();
     const [link] = await tx`
       update signin_links set used_at = clock_timestamp()
-      where hash = ${hashToken(secret)} and used_at is null and expires_at > clock_timestamp()
+      where hash = ${hash} and used_at is null and expires_at > clock_timestamp()
       returning actor_id`;
     if (!link) throw invalid();
-    const [a] = await tx`select id, name, kind, role from actors where id = ${link.actor_id as string}`;
-    if (!a || a.kind !== "person") throw invalid();
+    await cancelLinks(tx, a.id as string);
     const sessionSecret = newSessionSecret();
     const [s] = await tx`
       insert into sessions (id, actor_id, hash, expires_at)
@@ -142,13 +155,20 @@ export async function listPeople(db: Db): Promise<PersonInfo[]> {
   }));
 }
 
+/**
+ * Until someone has signed in, a new sign-in link for the first admin (created if missing)
+ * on every boot. Only the latest one works: minting it cancels the admin's unused links.
+ */
 export async function ensureBootstrapLink(db: Db): Promise<string | null> {
   return db.begin(async (tx) => {
     await tx`select pg_advisory_xact_lock(${BOOTSTRAP_LOCK})`;
+    // Locked like a sign-in locks it: a sign-in in flight either commits first, and its
+    // session is seen below, or waits and finds its link cancelled.
+    const [admin] = await tx`
+      select id from actors where kind = 'person' and role = 'admin' order by created_at, id limit 1
+      for no key update`;
     const [anySession] = await tx`select 1 as x from sessions limit 1`;
     if (anySession) return null;
-    const [admin] = await tx`
-      select id from actors where kind = 'person' and role = 'admin' order by created_at, id limit 1`;
     let adminId = admin?.id as string | undefined;
     if (!adminId) {
       const [agentTaken] = await tx`select 1 as x from actors where name = 'admin' and kind = 'agent'`;
@@ -156,6 +176,7 @@ export async function ensureBootstrapLink(db: Db): Promise<string | null> {
       adminId = newId("ac");
       await tx`insert into actors (id, kind, name, role) values (${adminId}, 'person', ${name}, 'admin')`;
     }
+    await cancelLinks(tx, adminId);
     return insertLink(tx, adminId, SIGNIN_LINK_TTL_MS);
   });
 }
