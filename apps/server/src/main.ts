@@ -41,7 +41,10 @@ if (config.mail) {
 } else {
   console.log("email sign-in off (set TEAMKIT_SMTP_URL and TEAMKIT_MAIL_FROM)");
 }
-const app = createApp({ db, notifier, publicUrl: config.publicUrl, mailer }, { trustedProxy: config.trustedProxy });
+const app = createApp(
+  { db, notifier, publicUrl: config.publicUrl, mailer, slackSigningSecret: config.slack.signingSecret },
+  { trustedProxy: config.trustedProxy },
+);
 
 const reaper = setInterval(() => {
   reapExpired(db)

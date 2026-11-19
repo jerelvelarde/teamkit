@@ -23,6 +23,8 @@ export interface AppDeps {
   publicUrl?: string;
   /** Sends emailed sign-in links; without it, email sign-in is off. */
   mailer?: Mailer;
+  /** The Slack app's signing secret; without it, /v1/slack/commands is off (404). */
+  slackSigningSecret?: string;
 }
 
 export interface AppOptions {

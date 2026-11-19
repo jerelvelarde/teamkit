@@ -32,8 +32,11 @@ test("loadConfig defaults and validation", () => {
       },
       botToken: undefined,
       apiBase: "https://slack.com/api",
+      signingSecret: undefined,
     },
   });
+  assert.equal(loadConfig({ SLACK_SIGNING_SECRET: "test-secret" }).slack.signingSecret, "test-secret");
+  assert.equal(loadConfig({ SLACK_SIGNING_SECRET: "" }).slack.signingSecret, undefined);
   assert.equal(loadConfig({ TEAMKIT_PUBLIC_URL: "https://b.example.com/" }).publicUrl, "https://b.example.com");
   assert.equal(loadConfig({ PORT: "0" }).port, 0);
   assert.equal(loadConfig({ TEAMKIT_TRUSTED_PROXY: "1" }).trustedProxy, true);

@@ -23,6 +23,8 @@ export interface Config {
     /** SLACK_BOT_TOKEN; Slack outbound starts only when it is set. */
     botToken?: string;
     apiBase: string;
+    /** SLACK_SIGNING_SECRET; turns on /teamkit at /v1/slack/commands. Empty counts as unset. */
+    signingSecret?: string;
   };
 }
 
@@ -79,6 +81,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
       bridge: slackBridgeConfigFromEnv(env, publicUrl),
       botToken: env.SLACK_BOT_TOKEN || undefined,
       apiBase: env.SLACK_API_BASE || "https://slack.com/api",
+      signingSecret: env.SLACK_SIGNING_SECRET || undefined,
     },
   };
 }
