@@ -6,42 +6,17 @@ import { loadTask } from "../store/task-load.js";
 import { toSlackMessage } from "./blocks.js";
 import { BlockedCard, OutcomeCard, type CardTask } from "./cards.js";
 import { getServiceCursor, getSlackThread, saveSlackThread, setServiceCursor, slackRoomSettings } from "./mirror.js";
+import { startPassLoop } from "./pass-loop.js";
+import { callSlack, type SlackApi } from "./web-api.js";
 
 const CURSOR_NAME = "slack-outbound";
 const PAGE = 100;
 const DEFAULT_POLL_MS = 5000;
-/** First wait after a failed pass with no Retry-After; it doubles per failure up to the maximum. */
-const BASE_BACKOFF_MS = 1000;
-export const MAX_BACKOFF_MS = 60_000;
-/** A post that hangs this long counts as a network failure. */
-const POST_TIMEOUT_MS = 15_000;
-
-/**
- * Slack error codes that say nothing about the one post: a rate limit or an outage, or a token
- * or app setup problem that fails every post the same way until it is fixed. The event stays
- * and is posted once Slack accepts it. Any other Slack error is about this post (the channel is
- * gone, the bot was removed) and will not go away by retrying.
- */
-const RETRYABLE_SLACK_ERRORS: ReadonlySet<string> = new Set([
-  "ratelimited",
-  "rate_limited",
-  "internal_error",
-  "fatal_error",
-  "service_unavailable",
-  "request_timeout",
-  "not_authed",
-  "invalid_auth",
-  "account_inactive",
-  "token_revoked",
-  "token_expired",
-  "missing_scope",
-  "ekm_access_denied",
-]);
 
 export interface OutboundOptions {
   db: Db;
   notifier: Notifier;
-  slack: { token: string; apiBase?: string; fetch?: typeof fetch };
+  slack: SlackApi;
   publicUrl: string;
   pollMs?: number;
   /** Longest wait between passes after a failure, including a longer Retry-After (default 60 s). */
@@ -56,56 +31,6 @@ export interface OutboundPass {
 }
 
 type Message = { blocks: unknown[]; text: string };
-
-type PostResult =
-  | { kind: "ok"; ts: string }
-  | { kind: "retry"; reason: string; afterMs: number | null }
-  | { kind: "permanent"; reason: string };
-
-function retryAfterMs(res: Response): number | null {
-  const raw = res.headers.get("retry-after");
-  if (raw === null || !/^\d+$/.test(raw.trim())) return null;
-  return Number(raw.trim()) * 1000;
-}
-
-/**
- * One chat.postMessage. The token only goes into the Authorization header; reasons carry the
- * HTTP status or Slack's error code, never the token.
- */
-async function postMessage(o: OutboundOptions, body: { channel: string; thread_ts?: string } & Message): Promise<PostResult> {
-  const doFetch = o.slack.fetch ?? fetch;
-  const url = `${o.slack.apiBase ?? "https://slack.com/api"}/chat.postMessage`;
-  let res: Response;
-  try {
-    res = await doFetch(url, {
-      method: "POST",
-      headers: {
-        authorization: `Bearer ${o.slack.token}`,
-        "content-type": "application/json; charset=utf-8",
-      },
-      body: JSON.stringify(body),
-      signal: AbortSignal.timeout(POST_TIMEOUT_MS),
-    });
-  } catch (err) {
-    return { kind: "retry", reason: `request failed (${err instanceof Error ? err.name : "error"})`, afterMs: null };
-  }
-  if (res.status === 429 || res.status >= 500) {
-    return { kind: "retry", reason: `http ${res.status}`, afterMs: retryAfterMs(res) };
-  }
-  if (!res.ok) return { kind: "permanent", reason: `http ${res.status}` };
-  let json: { ok?: boolean; ts?: string; error?: string };
-  try {
-    json = (await res.json()) as typeof json;
-  } catch {
-    return { kind: "retry", reason: "unreadable response", afterMs: null };
-  }
-  if (json.ok === true && typeof json.ts === "string") return { kind: "ok", ts: json.ts };
-  const error = typeof json.error === "string" ? json.error : "unknown";
-  if (RETRYABLE_SLACK_ERRORS.has(error)) {
-    return { kind: "retry", reason: `slack error ${error}`, afterMs: retryAfterMs(res) };
-  }
-  return { kind: "permanent", reason: `slack error ${error}` };
-}
 
 /** Posts what one event calls for. "retry" leaves the event for the next pass. */
 async function handleEvent(
@@ -160,12 +85,19 @@ async function handleEvent(
   }
 
   const channel = inThread ? (mirror.channel as string) : settings.channel;
-  const result = await postMessage(o, {
+  const sent = await callSlack(o.slack, "chat.postMessage", {
     channel,
     ...(inThread ? { thread_ts: mirror.ts as string } : {}),
     ...message,
   });
-  if (result.kind === "retry") return result;
+  if (sent.kind === "retry") return sent;
+  // An ok with no ts cannot start or join a thread: treat it as a refusal of this one post.
+  const result: { kind: "ok"; ts: string } | { kind: "permanent"; reason: string } =
+    sent.kind === "ok"
+      ? sent.ts === null
+        ? { kind: "permanent", reason: "slack error no_ts" }
+        : { kind: "ok", ts: sent.ts }
+      : sent;
   if (result.kind === "permanent") {
     o.log?.(`slack-outbound: dropped the ${e.kind} post for task ${taskId} to ${channel}: ${result.reason}`);
     return skip;
@@ -212,86 +144,14 @@ export async function processOutboundOnce(o: OutboundOptions): Promise<OutboundP
   }
 }
 
-/**
- * Runs passes on every board event and every `pollMs`. After a failed pass it waits (Slack's
- * Retry-After, else 1 s doubling per failure, capped at `maxBackoffMs`) before the next one, and
- * events and polls in that time only mark work as pending. A failure streak is logged once.
- */
+/** Runs outbound passes on every board event and every `pollMs`, backing off after a failed pass. */
 export async function startOutbound(o: OutboundOptions): Promise<{ stop(): Promise<void> }> {
-  const maxBackoffMs = o.maxBackoffMs ?? MAX_BACKOFF_MS;
-  let stopped = false;
-  let dirty = true;
-  let running: Promise<void> | null = null;
-  let pausedUntil = 0;
-  let wake: ReturnType<typeof setTimeout> | null = null;
-  let failures = 0;
-  let streakReason: string | null = null;
-
-  const loop = async () => {
-    while (dirty && !stopped) {
-      dirty = false;
-      let retry: OutboundPass["retry"];
-      try {
-        retry = (await processOutboundOnce(o)).retry;
-      } catch (err) {
-        retry = { reason: `pass failed: ${err instanceof Error ? err.message : String(err)}`, afterMs: null };
-      }
-      if (retry) {
-        failures++;
-        const backoff = retry.afterMs ?? BASE_BACKOFF_MS * 2 ** Math.min(failures - 1, 20);
-        const delay = Math.min(backoff, maxBackoffMs);
-        pausedUntil = Date.now() + delay;
-        if (retry.reason !== streakReason) {
-          o.log?.(`slack-outbound: paused, ${retry.reason}; retrying in ${Math.ceil(delay / 1000)} s`);
-          streakReason = retry.reason;
-        }
-        dirty = true;
-        return;
-      }
-      if (failures > 0) o.log?.(`slack-outbound: resumed after ${failures} failed pass(es)`);
-      failures = 0;
-      streakReason = null;
-    }
-  };
-
-  const pass = () => {
-    if (stopped) return;
-    if (running) {
-      dirty = true;
-      return;
-    }
-    const wait = pausedUntil - Date.now();
-    if (wait > 0) {
-      dirty = true;
-      wake ??= setTimeout(() => {
-        wake = null;
-        pass();
-      }, wait);
-      return;
-    }
-    running = loop().finally(() => {
-      running = null;
-      if (dirty) pass();
-    });
-  };
-
-  const unsubscribe = o.notifier.onEvent(() => {
-    dirty = true;
-    pass();
+  return startPassLoop({
+    label: "slack-outbound",
+    notifier: o.notifier,
+    pollMs: o.pollMs ?? DEFAULT_POLL_MS,
+    ...(o.maxBackoffMs === undefined ? {} : { maxBackoffMs: o.maxBackoffMs }),
+    ...(o.log === undefined ? {} : { log: o.log }),
+    pass: () => processOutboundOnce(o),
   });
-  const timer = setInterval(() => {
-    dirty = true;
-    pass();
-  }, o.pollMs ?? DEFAULT_POLL_MS);
-  pass();
-
-  return {
-    async stop() {
-      stopped = true;
-      unsubscribe();
-      clearInterval(timer);
-      if (wake) clearTimeout(wake);
-      await running;
-    },
-  };
 }

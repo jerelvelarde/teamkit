@@ -1,6 +1,4 @@
 import assert from "node:assert/strict";
-import { createServer, type Server } from "node:http";
-import type { AddressInfo } from "node:net";
 import { test } from "node:test";
 import type { Db } from "../src/db/pool.js";
 import { createNotifier, type Notifier } from "../src/notifier.js";
@@ -12,61 +10,9 @@ import { setRoom } from "../src/store/rooms.js";
 import { createTask } from "../src/store/tasks.js";
 import { agentAuth as makeAgent, personAuth } from "./helpers/actors.js";
 import { withTestDb } from "./helpers/db.js";
+import { fakeSlack, idleNotifier } from "./helpers/fake-slack.js";
 
 const TOKEN = "fake-bot-token-for-tests";
-
-interface Recorded {
-  auth: string | undefined;
-  contentType: string | undefined;
-  body: any;
-}
-
-interface FakeReply {
-  status?: number;
-  headers?: Record<string, string>;
-  body?: unknown;
-}
-
-/**
- * A chat.postMessage stand-in. Each request takes the next scripted reply; once the script runs
- * out, every post succeeds with ts "1.000", "2.000", ... in order of success.
- */
-async function fakeSlack(script: FakeReply[] = []) {
-  const requests: Recorded[] = [];
-  let n = 0;
-  const queue = [...script];
-  const server: Server = createServer((req, res) => {
-    let raw = "";
-    req.on("data", (c) => (raw += c));
-    req.on("end", () => {
-      requests.push({
-        auth: req.headers.authorization,
-        contentType: req.headers["content-type"],
-        body: JSON.parse(raw),
-      });
-      const next = queue.shift();
-      if (next) {
-        res.writeHead(next.status ?? 200, { "content-type": "application/json", ...next.headers });
-        res.end(JSON.stringify(next.body ?? {}));
-        return;
-      }
-      n++;
-      res.setHeader("content-type", "application/json");
-      res.end(JSON.stringify({ ok: true, ts: `${n}.000` }));
-    });
-  });
-  await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
-  const apiBase = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
-  return {
-    requests,
-    apiBase,
-    close: () =>
-      new Promise<void>((r) => {
-        server.closeAllConnections();
-        server.close(() => r());
-      }),
-  };
-}
 
 const bots = new WeakMap<Db, ReturnType<typeof makeAgent>>();
 /** One "bot" agent per database; agentAuth creates a new actor on every call. */
@@ -75,8 +21,6 @@ const agentAuth = (db: Db, _name: string) => {
   if (!bot) bots.set(db, (bot = makeAgent(db, "bot")));
   return bot;
 };
-
-const idleNotifier: Notifier = { onEvent: () => () => {}, close: async () => {} };
 
 const opts = (db: Db, apiBase: string, notifier: Notifier = idleNotifier) => ({
   db,
