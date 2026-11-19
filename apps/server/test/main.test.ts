@@ -190,6 +190,7 @@ test("main.ts logs that the Slack bridge is off, and no outbound line, without S
   try {
     assert.match(s.out, /slack bridge off \(set CPK_INTELLIGENCE_API_KEY and TEAMKIT_SLACK_CHANNEL_NAME\)/);
     assert.doesNotMatch(s.out, /slack outbound started/);
+    assert.doesNotMatch(s.out, /slack status started/);
   } finally {
     await s.stop();
     await t.drop();
@@ -252,6 +253,7 @@ test("main.ts boots with every loop on, stops them before the db, and leaves no 
     assert.match(s.out, /dispatcher started/);
     assert.match(s.out, /triggers started/);
     assert.match(s.out, /slack outbound started/);
+    assert.match(s.out, /slack status started/);
     assert.equal(await s.exitCode(), 0);
     // Both locks and their connections went with the process. Only this database's locks:
     // test files running alongside hold their own.

@@ -123,20 +123,25 @@ if (config.triggers) {
 const { botToken } = config.slack;
 if (botToken) {
   const { startOutbound } = await import("./slack/outbound.js");
+  const { startSlackStatus } = await import("./slack/status.js");
   outbound = startSingleton({
     url: config.databaseUrl,
     name: SLACK_OUTBOUND_LOCK,
     log: (line) => console.warn(line),
     start: async () => {
-      const started = await startOutbound({
-        db,
-        notifier,
-        slack: { token: botToken, apiBase: config.slack.apiBase },
-        publicUrl: config.publicUrl,
-        log: (line) => console.warn(line),
-      });
+      const slack = { token: botToken, apiBase: config.slack.apiBase };
+      const log = (line: string) => console.warn(line);
+      const started = await startOutbound({ db, notifier, slack, publicUrl: config.publicUrl, log });
       console.log("slack outbound started");
-      return started;
+      // The status worker runs in the same singleton: one process edits each room's status message.
+      const status = await startSlackStatus({ db, notifier, slack, publicUrl: config.publicUrl, log });
+      console.log("slack status started");
+      return {
+        async stop() {
+          await status.stop();
+          await started.stop();
+        },
+      };
     },
   });
   await outbound.ready;
