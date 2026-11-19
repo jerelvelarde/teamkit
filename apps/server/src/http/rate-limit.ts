@@ -61,3 +61,8 @@ export function clientAddress(c: Context, trustProxy = false): string {
   const env = c.env as { incoming?: IncomingMessage } | undefined;
   return env?.incoming?.socket?.remoteAddress ?? "unknown";
 }
+
+/** A 429 that says when to try again. */
+export function rateLimited(c: Context, waitMs: number, message: string): Response {
+  return c.json({ error: { code: "rate_limited", message } }, 429, { "retry-after": String(Math.ceil(waitMs / 1000)) });
+}

@@ -5,12 +5,12 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import type { BoardEvent, ThreadView as ThreadData } from "@copilotkit/teamkit-protocol";
 import { api } from "../lib/api";
+import { parseTab, reservationLeft, roomQuery } from "../lib/coord";
 import { foldEvents } from "../lib/fold";
 import type { ViewItem } from "../lib/fold";
 import { cursorAfter, useBoardStream } from "../lib/stream";
 import { AnswerForm } from "./AnswerForm";
 import { Avatar } from "./Avatar";
-import { roomQuery } from "./Board";
 import { EventRenderer } from "./EventRenderer";
 import { IconHash, IconLink, IconX, STATE_LABEL, StatusIcon } from "./Icons";
 import { ReplyBox } from "./ReplyBox";
@@ -56,7 +56,8 @@ export function ThreadView({ id }: { id: string }) {
   const stick = useRef(false);
   const router = useRouter();
   const params = useSearchParams();
-  const closeHref = `/${roomQuery(params.get("room"))}`;
+  const query = roomQuery(params.get("room"), parseTab(params.get("view")));
+  const closeHref = `/${query}`;
 
   const merge = useCallback((incoming: BoardEvent[]) => {
     const fresh = incoming.filter((e) => cursorAfter(e.cursor, lastRef.current === "0" ? undefined : lastRef.current));
@@ -175,7 +176,8 @@ export function ThreadView({ id }: { id: string }) {
   const labels = thread ? Object.entries(thread.labels) : [];
   const needs = task ? task.needs : [];
   const briefLines = task ? task.brief.trim().split("\n") : [];
-  const title = task ? firstLine(task.brief, 400) : "Conversation thread";
+  const title = task ? firstLine(task.brief, 400) : (model.headline ?? "Conversation thread");
+  const held = task ? reservationLeft(task, Date.now()) : null;
   const description = briefLines.length > 1 ? briefLines.slice(1).join("\n").trim() : "";
 
   return (
@@ -236,6 +238,16 @@ export function ThreadView({ id }: { id: string }) {
                     </dd>
                   </div>
                 ) : null}
+                {held && task?.reservedFor ? (
+                  <div className={styles.prop}>
+                    <dt>Held for</dt>
+                    <dd>
+                      <Avatar name={task.reservedFor.name} kind={task.reservedFor.kind} size={18} />
+                      {task.reservedFor.name}
+                      <span className={styles.propMuted}>· {held} left</span>
+                    </dd>
+                  </div>
+                ) : null}
                 {task?.state === "blocked" && task.block && !task.claim ? (
                   <div className={styles.prop}>
                     <dt>Asked by</dt>
@@ -264,7 +276,7 @@ export function ThreadView({ id }: { id: string }) {
                         return (
                           <Link
                             key={n}
-                            href={`/t/${encodeURIComponent(n)}${roomQuery(params.get("room"))}`}
+                            href={`/t/${encodeURIComponent(n)}${query}`}
                             scroll={false}
                             className={`tk-pill ${styles.needLink}`}
                           >

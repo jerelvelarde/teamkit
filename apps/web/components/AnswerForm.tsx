@@ -3,6 +3,8 @@
 import { useEffect, useState } from "react";
 import type { RoomView, Task } from "@copilotkit/teamkit-protocol";
 import { api, getJson } from "../lib/api";
+import { approverList, mayAnswer, namesText } from "../lib/coord";
+import { useShell } from "./AppShell";
 import { IconSend, StatusIcon } from "./Icons";
 import styles from "./thread.module.css";
 
@@ -20,14 +22,18 @@ function errorText(err: unknown): string {
 /** The agent's question as an interactive message: its options are one click each. */
 export function AnswerForm({ task, onAnswered }: { task: Task; onAnswered(): void }) {
   const block = task.block;
+  const { who } = useShell();
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // The room's approvers: undefined while loading. Needed only for an approval that names nobody.
   const [approvers, setApprovers] = useState<string[] | null | undefined>(undefined);
   const approval = block?.kind === "awaiting_approval";
+  const named = block?.approvers && block.approvers.length > 0 ? block.approvers : null;
+  const needsRoom = approval && named === null;
 
   useEffect(() => {
-    if (!approval) return;
+    if (!needsRoom) return;
     let live = true;
     getJson<RoomView>("/v1/room?name=" + encodeURIComponent(task.room)).then(
       (r) => live && setApprovers(r.room.approvers),
@@ -36,10 +42,14 @@ export function AnswerForm({ task, onAnswered }: { task: Task; onAnswered(): voi
     return () => {
       live = false;
     };
-  }, [approval, task.room]);
+  }, [needsRoom, task.room]);
 
   if (!block) return null;
   const options = block.options && block.options.length > 0 ? block.options : null;
+  const roomApprovers = needsRoom ? approvers : null;
+  // Who may answer: the named people, else (for an approval) the room's list; null means anyone.
+  const list = named ?? (approval && roomApprovers !== undefined ? approverList(block, roomApprovers) : null);
+  const allowed = mayAnswer(block, roomApprovers, who);
 
   async function submit(input: { text?: string; choice?: string }) {
     if (busy) return;
@@ -66,12 +76,10 @@ export function AnswerForm({ task, onAnswered }: { task: Task; onAnswered(): voi
       <p className={styles.askQuestion}>{block.question}</p>
       {approval ? (
         <p className={styles.askMeta}>
-          {approvers === undefined
-            ? "Approvers: loading"
-            : approvers && approvers.length > 0
-              ? `Approvers: ${approvers.join(", ")}`
-              : "Approvers: any member"}
+          {list ? `Approvers: ${list.join(", ")}` : roomApprovers === undefined ? "Approvers: loading" : "Approvers: any member"}
         </p>
+      ) : named ? (
+        <p className={styles.askMeta}>{`Asked of ${namesText(named, "or")}`}</p>
       ) : null}
       {options ? (
         <div className={styles.choices} role="group" aria-label="Choices">
@@ -80,7 +88,7 @@ export function AnswerForm({ task, onAnswered }: { task: Task; onAnswered(): voi
               key={o}
               type="button"
               className={`tk-button ${approval && i === 0 ? "tk-button-primary" : ""}`}
-              disabled={busy}
+              disabled={busy || !allowed}
               onClick={() => submit({ choice: o })}
             >
               {approval ? sentence(o) : o}
@@ -92,7 +100,7 @@ export function AnswerForm({ task, onAnswered }: { task: Task; onAnswered(): voi
           className={styles.askForm}
           onSubmit={(e) => {
             e.preventDefault();
-            if (text.trim()) void submit({ text: text.trim() });
+            if (allowed && text.trim()) void submit({ text: text.trim() });
           }}
         >
           <label className="tk-visually-hidden" htmlFor="tk-answer">
@@ -104,13 +112,15 @@ export function AnswerForm({ task, onAnswered }: { task: Task; onAnswered(): voi
             value={text}
             onChange={(e) => setText(e.target.value)}
             placeholder="Type your answer"
+            disabled={!allowed}
           />
-          <button type="submit" className="tk-button tk-button-primary" disabled={busy || text.trim() === ""}>
+          <button type="submit" className="tk-button tk-button-primary" disabled={busy || !allowed || text.trim() === ""}>
             <IconSend size={14} />
             {busy ? "Sending…" : "Send answer"}
           </button>
         </form>
       )}
+      {!allowed && list ? <p className={styles.askOnly}>{`Only ${namesText([...list, "an admin"], "or")} can answer this.`}</p> : null}
       {error ? (
         <p className={styles.error} role="alert">
           {error}

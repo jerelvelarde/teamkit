@@ -1,12 +1,8 @@
 import type { Command } from "commander";
-import {
-  createAdminClient,
-  startDeviceLogin,
-  TeamkitError,
-  waitForDeviceLogin,
-} from "@copilotkit/teamkit-client";
+import { createAdminClient, TeamkitError, waitForDeviceLogin } from "@copilotkit/teamkit-client";
 import { clearConfigKeys, readConfigFile, refuseInsideRun, resolveLogoutTargets, writeConfigFile } from "../config.js";
 import { globalOpts, type CliContext } from "../context.js";
+import { startDeviceOrExit } from "../device.js";
 import { CliExit, UsageError } from "../errors.js";
 
 export function registerLogin(program: Command, ctx: CliContext): void {
@@ -20,21 +16,7 @@ export function registerLogin(program: Command, ctx: CliContext): void {
       if (!raw || typeof raw !== "string") throw new UsageError("set TEAMKIT_URL or --url");
       const url = raw.replace(/\/$/, "");
 
-      let start;
-      try {
-        start = await startDeviceLogin(url);
-      } catch (e) {
-        if (e instanceof TeamkitError && e.status === 429 && e.code === "rate_limited") {
-          const wait = e.retryAfterSeconds;
-          throw new CliExit(
-            1,
-            wait === undefined
-              ? "Too many login attempts; try again shortly."
-              : `Too many login attempts; try again in ${wait} s.`,
-          );
-        }
-        throw e;
-      }
+      const start = await startDeviceOrExit(url, "admin");
       ctx.err(`To sign in, open ${start.verifyUrl} and confirm code ${start.userCode}`);
       if (json) ctx.out(JSON.stringify({ userCode: start.userCode, verifyUrl: start.verifyUrl }));
 

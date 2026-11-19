@@ -132,7 +132,7 @@ test("an approval interrupt blocks; only a listed person answers; the resumed ru
       const blocked = await task();
       assert.equal(blocked.state, "blocked");
       const { blockedBy, ...blk } = blocked.block!;
-      assert.deepEqual(blk, { interruptId: "int1", kind: "awaiting_approval", question: "ship it?", options: ["approve", "reject"] });
+      assert.deepEqual(blk, { interruptId: "int1", kind: "awaiting_approval", question: "ship it?", options: ["approve", "reject"], approvers: null });
       assert.equal(blockedBy.id, agent.actor.id);
       const [ev] = settled(await events(), "task.blocked");
       assert.equal(ev!.agui.some((a) => a.type === "RUN_FINISHED"), false);

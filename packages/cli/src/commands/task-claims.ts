@@ -9,7 +9,7 @@ import { firstLine } from "../format.js";
 const MAX_SLICE_MS = 25_000;
 
 /** Runs a claims-file update after the server call succeeded; a failure only warns, on stderr. */
-function bestEffort(ctx: CliContext, what: string, fn: () => unknown): void {
+export function bestEffort(ctx: CliContext, what: string, fn: () => unknown): void {
   try {
     if (fn() !== false) return;
   } catch {
@@ -104,9 +104,15 @@ export function registerTaskClaims(tasks: Command, ctx: CliContext): void {
     .description("block a claimed task on a question")
     .option("--kind <k>", `block kind: ${BLOCK_KINDS.join(" or ")}`, "needs_input")
     .option("--options <a,b,c>", "comma-separated answer choices")
+    .option("--approvers <a,b>", "comma-separated people who must answer")
     .option("--claim <c>", "claim id (default: the stored claim)")
     .action(
-      async (id: string, question: string, o: { kind: string; options?: string; claim?: string }, cmd: Command) => {
+      async (
+        id: string,
+        question: string,
+        o: { kind: string; options?: string; approvers?: string; claim?: string },
+        cmd: Command,
+      ) => {
         if (!(BLOCK_KINDS as readonly string[]).includes(o.kind)) {
           throw new UsageError(`--kind must be ${BLOCK_KINDS.join(" or ")}`);
         }
@@ -114,10 +120,15 @@ export function registerTaskClaims(tasks: Command, ctx: CliContext): void {
           ?.split(",")
           .map((s) => s.trim())
           .filter(Boolean);
+        const approvers = o.approvers
+          ?.split(",")
+          .map((s) => s.trim())
+          .filter(Boolean);
         const task = await clientFor(cmd, ctx).block(id, resolveClaimId(id, o, ctx.env), {
           question,
           kind: o.kind as BlockKind,
           ...(options && options.length > 0 ? { options } : {}),
+          ...(approvers && approvers.length > 0 ? { approvers } : {}),
         });
         finish(task, cmd);
         bestEffort(ctx, "forget the claim", () => forgetClaim(id, ctx.env));

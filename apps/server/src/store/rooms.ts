@@ -1,5 +1,6 @@
 import {
   BoardError,
+  RESERVATION_MINUTES_MAX,
   roomMatches,
   type RoomInfo,
   type RoomSummary,
@@ -20,6 +21,8 @@ export interface RoomSettings {
   approvers?: string[] | null;
   slackChannel?: string | null;
   slackAnnounce?: "blocked" | "all" | "none";
+  /** How long a handoff or an answered ask is held for one actor: 1 to 1440 minutes. */
+  reservationMinutes?: number;
 }
 
 function toInfo(r: Record<string, unknown>): RoomInfo {
@@ -30,6 +33,7 @@ function toInfo(r: Record<string, unknown>): RoomInfo {
     approvers: (r.approvers as string[] | null) ?? null,
     slackChannel: (r.slack_channel as string | null) ?? null,
     slackAnnounce: r.slack_announce as RoomInfo["slackAnnounce"],
+    reservationMinutes: r.reservation_minutes as number,
   };
 }
 
@@ -127,6 +131,12 @@ export async function setRoom(db: Db, name: string, settings: RoomSettings): Pro
   if (s.slackAnnounce !== undefined && !SLACK_ANNOUNCE.includes(s.slackAnnounce)) {
     throw new BoardError("invalid_input", `slackAnnounce must be one of ${SLACK_ANNOUNCE.join(", ")}`);
   }
+  if (s.reservationMinutes !== undefined) {
+    const v: unknown = s.reservationMinutes;
+    if (!(typeof v === "number" && Number.isInteger(v) && v >= 1 && v <= RESERVATION_MINUTES_MAX)) {
+      throw new BoardError("invalid_input", `reservationMinutes must be a whole number from 1 to ${RESERVATION_MINUTES_MAX}`);
+    }
+  }
   return db.begin(async (tx) => {
     await ensureRoom(tx, name);
     const cols: Record<string, unknown> = {};
@@ -134,6 +144,7 @@ export async function setRoom(db: Db, name: string, settings: RoomSettings): Pro
     if (s.approvers !== undefined) cols.approvers = s.approvers;
     if (s.slackChannel !== undefined) cols.slack_channel = s.slackChannel;
     if (s.slackAnnounce !== undefined) cols.slack_announce = s.slackAnnounce;
+    if (s.reservationMinutes !== undefined) cols.reservation_minutes = s.reservationMinutes;
     if (Object.keys(cols).length > 0) {
       await tx`update rooms set ${tx(cols as never, ...Object.keys(cols))} where name = ${name}`;
     }

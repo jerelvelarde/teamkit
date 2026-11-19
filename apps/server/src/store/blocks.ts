@@ -2,6 +2,7 @@ import {
   BLOCK_KINDS,
   BoardError,
   ID_PREFIXES,
+  MAX_APPROVERS,
   choiceSchema,
   custom,
   newId,
@@ -16,6 +17,7 @@ import type { Db, Q } from "../db/pool.js";
 import { requirePerm, type AuthContext } from "./actors.js";
 import { appendEvent } from "./events.js";
 import { lockClaim, type SettleOptions } from "./claims.js";
+import { reserve } from "./reservations.js";
 import { getRoomInfo } from "./rooms.js";
 import { appendMessage, assertCleanString, assertText, messageFor } from "./rows.js";
 import { loadTask } from "./task-load.js";
@@ -44,6 +46,35 @@ function validateOptions(options: unknown): string[] | null {
   return options as string[];
 }
 
+/**
+ * The people a block names to answer it: null when none are named. Each must be a person; for an
+ * approval in a room with an approver list, each must be on that list, so naming narrows who may
+ * approve and never widens it.
+ */
+async function checkApprovers(q: Q, room: string, kind: BlockKind, raw: unknown): Promise<string[] | null> {
+  if (raw === undefined || raw === null) return null;
+  if (!Array.isArray(raw) || raw.length === 0 || raw.length > MAX_APPROVERS) {
+    throw new BoardError("invalid_input", `approvers must be 1 to ${MAX_APPROVERS} person names`);
+  }
+  const names: string[] = [];
+  for (const n of raw) {
+    if (typeof n !== "string" || n === "") throw new BoardError("invalid_input", "approver names must be non-empty strings");
+    if (!names.includes(n)) names.push(n);
+  }
+  const people = new Set(
+    (await q`select name from actors where kind = 'person' and name = any(${names})`).map((r) => r.name as string),
+  );
+  const unknown = names.filter((n) => !people.has(n));
+  if (unknown.length > 0) throw new BoardError("invalid_input", `not a person on this team: ${unknown.join(", ")}`);
+  if (kind === "awaiting_approval") {
+    const list = (await getRoomInfo(q, room))?.approvers ?? null;
+    if (list !== null && list.length > 0 && names.some((n) => !list.includes(n))) {
+      throw new BoardError("invalid_input", `approvers of an approval in ${room} must be on its approver list: ${list.join(", ")}`);
+    }
+  }
+  return names;
+}
+
 /** The thread message a block leaves, so the question stays in the thread after it is answered. */
 export function questionText(kind: BlockKind, question: string, options: string[] | null): string {
   return `Question (${kind}): ${question}${options ? ` [options: ${options.join("|")}]` : ""}`;
@@ -58,7 +89,7 @@ export async function block(
   auth: AuthContext,
   taskId: string,
   claimId: string,
-  input: { question: string; kind: BlockKind; options?: string[]; interruptId?: string },
+  input: { question: string; kind: BlockKind; options?: string[]; approvers?: string[]; interruptId?: string },
   opts?: SettleOptions,
 ): Promise<Task> {
   if (!(BLOCK_KINDS as readonly unknown[]).includes(input.kind)) {
@@ -74,8 +105,9 @@ export async function block(
   }
   return db.begin(async (tx) => {
     const task = await lockClaim(tx, auth, taskId, claimId);
+    const approvers = await checkApprovers(tx, task.room, input.kind, input.approvers);
     const interruptId = input.interruptId ?? newId(ID_PREFIXES.interrupt);
-    const stored: TaskBlock = { interruptId, kind: input.kind, question, options, blockedBy: auth.actor };
+    const stored: TaskBlock = { interruptId, kind: input.kind, question, options, blockedBy: auth.actor, approvers };
     await tx`
       update tasks
       set state = 'blocked', block = ${tx.json(stored as never)}, claim_id = null, claimed_by = null,
@@ -92,7 +124,7 @@ export async function block(
       agui: [
         ...textMessage({ messageId, role: "assistant", text: said, actor: auth.actor }),
         opts?.closesRun === false
-          ? custom("teamkit.task.blocked", { interruptId, kind: input.kind, question, options })
+          ? custom("teamkit.task.blocked", { interruptId, kind: input.kind, question, options, approvers })
           : runFinishedInterrupt(taskId, claimId, {
               id: interruptId,
               reason: input.kind,
@@ -100,7 +132,7 @@ export async function block(
               responseSchema: options ? choiceSchema(options) : undefined,
             }),
       ],
-      data: { taskId, state: "blocked", interruptId, kind: input.kind, question, options, messageId },
+      data: { taskId, state: "blocked", interruptId, kind: input.kind, question, options, approvers, messageId },
     });
     return mustLoad(tx, taskId);
   });
@@ -133,11 +165,20 @@ export async function answer(
     if (opts?.expectedInterruptId !== undefined && blk.interruptId !== opts.expectedInterruptId) {
       throw new BoardError("invalid_state", `task ${taskId} is blocked on a different question`);
     }
-    if (blk.kind === "awaiting_approval") {
+    const isPerson = auth.via === "session" && auth.actor.kind === "person";
+    const isAdmin = isPerson && auth.role === "admin";
+    if (blk.approvers) {
+      // Named people (or an admin, signed in) answer, whatever the kind.
+      if (!isPerson || !(isAdmin || blk.approvers.includes(auth.actor.name))) {
+        throw new BoardError(
+          "approval_requires_person",
+          `${auth.actor.name} cannot answer ${taskId}: it is waiting on ${blk.approvers.join(", ")}`,
+        );
+      }
+    } else if (blk.kind === "awaiting_approval") {
       const approvers = (await getRoomInfo(tx, task.room))?.approvers ?? null;
-      const isPerson = auth.via === "session" && auth.actor.kind === "person";
       const isApprover = approvers === null || approvers.length === 0 || approvers.includes(auth.actor.name);
-      if (!isPerson || !isApprover) {
+      if (!isPerson || !(isAdmin || isApprover)) {
         throw new BoardError(
           "approval_requires_person",
           `${auth.actor.name} cannot answer an approval on ${taskId}: it needs a listed person signed in`,
@@ -162,6 +203,8 @@ export async function answer(
       update tasks
       set state = 'ready', block = null, pending_resume = ${tx.json(resume as never)}, updated_at = now()
       where thread_id = ${taskId}`;
+    // The answer goes back to the agent that asked: nobody else may claim it for a while.
+    const reservedUntil = await reserve(tx, taskId, blk.blockedBy.id, "answer");
     const messageId = newId(ID_PREFIXES.message);
     const said = (text ?? choice) as string;
     await appendMessage(tx, taskId, messageFor({ messageId, role: "user", text: said, actor: auth.actor }));
@@ -174,7 +217,15 @@ export async function answer(
         custom("teamkit.interrupt.answered", { interruptId: blk.interruptId, by: auth.actor, payload }),
         ...textMessage({ messageId, role: "user", text: said, actor: auth.actor }),
       ],
-      data: { taskId, state: "ready", interruptId: blk.interruptId, kind: blk.kind, ...payload },
+      data: {
+        taskId,
+        state: "ready",
+        interruptId: blk.interruptId,
+        kind: blk.kind,
+        ...payload,
+        reservedFor: blk.blockedBy,
+        reservedUntil,
+      },
     });
     return mustLoad(tx, taskId);
   });

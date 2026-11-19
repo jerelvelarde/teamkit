@@ -2,7 +2,7 @@
 
 import { createContext, Suspense, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
-import type { RoomSummary, Whoami } from "@copilotkit/teamkit-protocol";
+import { HEARTBEAT_EVERY_MS, type Presence, type RoomSummary, type Whoami } from "@copilotkit/teamkit-protocol";
 import { api } from "../lib/api";
 import { useWhoami } from "../lib/session";
 import { AuthFrame } from "./AuthFrame";
@@ -16,6 +16,9 @@ interface Shell {
   rooms: RoomSummary[];
   setRooms(rooms: RoomSummary[]): void;
   openNav(): void;
+  /** Each room's agent sessions, polled; and when they were last polled. */
+  presence: ReadonlyMap<string, Presence[]>;
+  presenceAt: number;
 }
 
 const ShellContext = createContext<Shell | null>(null);
@@ -31,6 +34,9 @@ export function AppShell({ children }: { children: ReactNode }) {
   const { state, who, refresh } = useWhoami();
   const [rooms, setRoomsState] = useState<RoomSummary[]>([]);
   const [navOpen, setNavOpen] = useState(false);
+  const [presence, setPresence] = useState<ReadonlyMap<string, Presence[]>>(new Map());
+  const [presenceAt, setPresenceAt] = useState(() => Date.now());
+  const roomNames = useMemo(() => rooms.map((r) => r.name).join("\n"), [rooms]);
 
   // The board refetches rooms with every task change; replace the list only when it changed.
   const setRooms = useCallback((next: RoomSummary[]) => {
@@ -49,9 +55,42 @@ export function AppShell({ children }: { children: ReactNode }) {
     };
   }, [state, setRooms]);
 
+  // Presence is polled, not streamed: every room at once, right away, then every heartbeat while
+  // the tab is visible, and once more when it becomes visible. A room that fails keeps its last list.
+  useEffect(() => {
+    if (state !== "signed_in" || roomNames === "") return;
+    const names = roomNames.split("\n");
+    let live = true;
+    const poll = async () => {
+      const results = await Promise.allSettled(names.map((n) => api.presence(n)));
+      if (!live) return;
+      setPresence((prev) => {
+        const next = new Map(prev);
+        results.forEach((r, i) => {
+          if (r.status === "fulfilled") next.set(names[i]!, r.value);
+        });
+        return next;
+      });
+      setPresenceAt(Date.now());
+    };
+    void poll();
+    const id = setInterval(() => {
+      if (!document.hidden) void poll();
+    }, HEARTBEAT_EVERY_MS);
+    const onVisible = () => {
+      if (!document.hidden) void poll();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      live = false;
+      clearInterval(id);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
+  }, [state, roomNames]);
+
   const value = useMemo<Shell | null>(
-    () => (who ? { who, rooms, setRooms, openNav: () => setNavOpen(true) } : null),
-    [who, rooms, setRooms],
+    () => (who ? { who, rooms, setRooms, openNav: () => setNavOpen(true), presence, presenceAt } : null),
+    [who, rooms, setRooms, presence, presenceAt],
   );
 
   if (state === "loading") return <div className={styles.blank} />;

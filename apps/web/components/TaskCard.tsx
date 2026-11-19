@@ -1,5 +1,6 @@
 import Link from "next/link";
 import type { Task } from "@copilotkit/teamkit-protocol";
+import { heldText, namesText, shortDuration } from "../lib/coord";
 import { Avatar } from "./Avatar";
 import { IconHash, StatusIcon } from "./Icons";
 import styles from "./board.module.css";
@@ -17,11 +18,7 @@ export function leaseText(expiresAt: string, now: number): string {
   const ms = new Date(expiresAt).getTime() - now;
   if (!Number.isFinite(ms)) return "";
   if (ms <= 0) return "Lease expired";
-  const mins = Math.max(1, Math.ceil(ms / 60_000));
-  if (mins < 60) return `${mins}m left`;
-  const h = Math.floor(mins / 60);
-  const m = mins % 60;
-  return m === 0 || h >= 3 ? `${h}h left` : `${h}h ${m}m left`;
+  return `${shortDuration(ms)} left`;
 }
 
 const NEED_STATE: Record<string, string> = {
@@ -53,7 +50,9 @@ export function TaskCard({
   const working = task.state === "claimed" && holder?.kind === "agent";
   const waitingOn = task.state === "waiting" ? task.needs.filter((id) => task.needStates[id] !== "completed") : [];
   const lease = task.state === "claimed" && task.claim ? leaseText(task.claim.leaseExpiresAt, now) : "";
-  const hasFoot = showRoom || labels.length > 0 || lease !== "";
+  const held = heldText(task, now);
+  const named = task.state === "blocked" && task.block?.approvers && task.block.approvers.length > 0 ? task.block.approvers : null;
+  const hasFoot = showRoom || labels.length > 0 || lease !== "" || held !== "";
 
   return (
     <Link
@@ -81,6 +80,7 @@ export function TaskCard({
             {task.block.kind === "awaiting_approval" ? "Needs approval" : "Question"}
           </span>
           <span className={styles.cardBlockText}>{firstLine(task.block.question, BRIEF_MAX)}</span>
+          {named ? <span className={styles.cardWaitsOn}>Waiting on {namesText(named, "or")}</span> : null}
         </p>
       ) : null}
 
@@ -118,6 +118,7 @@ export function TaskCard({
           ))}
           <span className={styles.cardFootSpacer} />
           {lease ? <span className={styles.cardMeta}>{lease}</span> : null}
+          {held ? <span className={styles.cardMeta}>{held}</span> : null}
         </div>
       ) : null}
     </Link>

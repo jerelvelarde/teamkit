@@ -9,7 +9,6 @@ import { setRoom } from "../src/store/rooms.js";
 import { loadTask } from "../src/store/task-load.js";
 import { createSlackLinkCode, previewSlackLinkCode, redeemSlackLinkCode } from "../src/slack/links.js";
 import { createSlackAnswerHandler, type SlackAnswerThread } from "../src/slack/answer.js";
-import { toSlackMessage } from "../src/slack/blocks.js";
 
 function stubThread() {
   const posts: unknown[] = [];
@@ -58,7 +57,7 @@ test("a linked approver's click answers the task as that person", async () => {
     const after = await loadTask(db, t.id);
     assert.equal(after!.state, "ready");
     assert.equal(after!.pendingResume?.[0]?.payload?.choice, "approve");
-    assert.deepEqual(s.posts, ["ada answered: approve"]);
+    assert.equal(s.posts.length, 0);
     assert.equal(s.ephemerals.length, 0);
   });
 });
@@ -84,7 +83,7 @@ test("a linked non-approver cannot answer an approval", async () => {
     const { t, value, handler } = await setup(db);
     const s = stubThread();
     await handler.onAnswer(click(s, "UBOB", value));
-    assert.match(String(s.ephemerals[0]!.ui), /^Only a listed approver/);
+    assert.equal(s.ephemerals[0]!.ui, "This waits on ada. Only ada or an admin can answer it.");
     assert.equal(s.posts.length, 0);
     assert.equal((await loadTask(db, t.id))!.state, "blocked");
   });
@@ -101,7 +100,7 @@ test("a stale interrupt id is rejected", async () => {
     await handler.onAnswer(click(s, "UADA", value));
     await handler.onAnswer(click(s, "UADA", value));
     assert.equal(s.ephemerals[1]!.ui, "This question was already answered.");
-    assert.equal(s.posts.length, 1);
+    assert.equal(s.posts.length, 0);
   });
 });
 
@@ -135,12 +134,7 @@ test("the choice, the name and error messages are escaped before they reach Slac
 
     await handler.onAnswer(click(s, "UADA", value));
     assert.equal((await loadTask(db, t.id))!.pendingResume?.[0]?.payload?.choice, evil);
-    const said = String(s.posts[0]);
-    assert.equal(said, "ada answered: &lt;!channel&gt; [x]​(http://evil.test)");
-    // Rendered the way Channels renders a string post: no mention, no link.
-    const rendered = JSON.stringify(toSlackMessage(said));
-    assert.ok(!rendered.includes("<!channel>"), rendered);
-    assert.ok(!rendered.includes("<http://evil.test"), rendered);
+    assert.equal(s.posts.length, 0);
   });
 });
 
@@ -160,6 +154,6 @@ test("the value as a JSON string works like the object", async () => {
     const s = stubThread();
     await handler.onAnswer(click(s, "UADA", JSON.stringify(value)));
     assert.equal((await loadTask(db, t.id))!.state, "ready");
-    assert.deepEqual(s.posts, ["ada answered: approve"]);
+    assert.equal(s.posts.length, 0);
   });
 });

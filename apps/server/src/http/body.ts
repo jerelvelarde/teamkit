@@ -1,5 +1,5 @@
 import type { Context } from "hono";
-import { BoardError, type EventKind, type EventQuery } from "@copilotkit/teamkit-protocol";
+import { BoardError, isValidRoom, type EventKind, type EventQuery } from "@copilotkit/teamkit-protocol";
 import { assertCleanString } from "../store/rows.js";
 
 type Body = Record<string, unknown>;
@@ -104,4 +104,30 @@ export function eventQueryFromRequest(c: Context): EventQuery {
     q.limit = Number(limit);
   }
   return q;
+}
+
+/**
+ * Public routes that set a cookie only take application/json: a cross-site form can't send it
+ * without passing CORS, so a form post can't sign a victim in as someone else (login CSRF).
+ */
+export function requireJsonMediaType(c: Context, message: string): void {
+  const type = (c.req.header("content-type") ?? "").split(";")[0]!.trim().toLowerCase();
+  if (type !== "application/json") throw invalid(message);
+}
+
+/** The required `?room=` of a room-scoped list route: a valid room name (it may contain `/`). */
+export function roomQuery(c: Context): string {
+  const room = c.req.query("room");
+  if (room === undefined || room === "") throw invalid("room is required");
+  assertCleanString("room", room);
+  if (!isValidRoom(room)) throw invalid(`invalid room name "${room}"`);
+  return room;
+}
+
+/** The optional `?limit=`: digits only. */
+export function limitQuery(c: Context): number | undefined {
+  const raw = c.req.query("limit");
+  if (raw === undefined || raw === "") return undefined;
+  if (!/^\d+$/.test(raw)) throw invalid("limit must be a whole number");
+  return Number(raw);
 }

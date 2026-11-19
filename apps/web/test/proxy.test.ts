@@ -84,6 +84,21 @@ after(() => {
 });
 
 describe("proxy", () => {
+  it("forwards Slack's signature headers and the body unchanged for a slash command", async () => {
+    const body = "command=%2Fteamkit&text=decide+Freeze+writes";
+    await proxy(
+      new Request("http://web.test/v1/echo", {
+        method: "POST",
+        headers: { "content-type": "application/x-www-form-urlencoded", "x-slack-signature": "v0=abc", "x-slack-request-timestamp": "1763560000" },
+        body,
+      }),
+      ["echo"],
+      upstream,
+    );
+    const h = seen[seen.length - 1]!;
+    assert.deepEqual([h["x-slack-signature"], h["x-slack-request-timestamp"]], ["v0=abc", "1763560000"]);
+  });
+
   it("forwards method, query, cookie and body, keeps set-cookie, drops framing headers", async () => {
     const req = new Request("http://web.test/v1/echo?x=1", {
       method: "POST",

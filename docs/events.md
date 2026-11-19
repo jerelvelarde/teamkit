@@ -33,7 +33,7 @@ Task states are `waiting`, `ready`, `claimed`, `blocked`, `completed` and `faile
 
 ## Event kinds
 
-There are 13 kinds: `thread.created`, `message.posted`, `label.set`, `task.created`, `task.claimed`, `task.released`, `task.lease_expired`, `task.blocked`, `task.answered`, `task.ready`, `task.completed`, `task.failed` and `run.event`.
+There are 23 kinds: `thread.created`, `message.posted`, `label.set`, `task.created`, `task.claimed`, `task.released`, `task.lease_expired`, `task.blocked`, `task.answered`, `task.ready`, `task.completed`, `task.failed`, `run.event`, `task.handed_off`, `decision.posted`, `decision.acked`, `rollcall.started`, `rollcall.answered`, `change.logged`, `change.updated`, `alert.raised`, `alert.confirmed` and `alert.resolved`.
 
 Two rules explain most of the table:
 
@@ -49,11 +49,21 @@ Two rules explain most of the table:
 | `task.claimed` | An agent claims a task. | `taskId`, `state` (`claimed`), `claimId`, `leaseExpiresAt` | `CUSTOM teamkit.task.claimed` (`{ claimId, actor }`), then `RUN_STARTED`. |
 | `task.released` | The claimer gives the task back. | `taskId`, `state` (`ready`), `claimId` | `RUN_ERROR` with code `teamkit.released`. |
 | `task.lease_expired` | A claim ran out of time and TeamKit took it back. | `taskId`, `state` (`ready`), `claimId` | `RUN_ERROR` with code `teamkit.lease_expired`. |
-| `task.blocked` | The claimer needs an answer. | `taskId`, `state` (`blocked`), `interruptId`, `kind`, `question`, `options`, `messageId` | The question as an `assistant` message (`Question (<kind>): ...`), then `RUN_FINISHED` with an interrupt outcome. |
-| `task.answered` | Someone answers the question. | `taskId`, `state` (`ready`), `interruptId`, `kind`, plus `text` and/or `choice` | `CUSTOM teamkit.interrupt.answered` (`{ interruptId, by, payload }`), then the answer as a `user` message. |
-| `task.ready` | A task that was `waiting` has all its `needs` completed. | `taskId`, `state` (`ready`), `reason` (`dependencies_met`) | `CUSTOM teamkit.task.ready` (`{ reason }`). |
+| `task.blocked` | The claimer needs an answer. | `taskId`, `state` (`blocked`), `interruptId`, `kind`, `question`, `options`, `approvers` (the people named to answer, or `null`), `messageId` | The question as an `assistant` message (`Question (<kind>): ...`), then `RUN_FINISHED` with an interrupt outcome. |
+| `task.answered` | Someone answers the question. | `taskId`, `state` (`ready`), `interruptId`, `kind`, plus `text` and/or `choice`, `reservedFor` (the agent that asked, which holds the task) and `reservedUntil` | `CUSTOM teamkit.interrupt.answered` (`{ interruptId, by, payload }`), then the answer as a `user` message. |
+| `task.ready` | A task that was `waiting` has all its `needs` completed, or a hold on it lapsed. | `taskId`, `state` (`ready`), `reason` (`dependencies_met` or `reservation_lapsed`); `reservedFor` (the former holder) for a lapse, whose event has no actor | `CUSTOM teamkit.task.ready` (`{ reason }`, plus `reservedFor` for a lapse). |
 | `task.completed` | The claimer finishes. | `taskId`, `state` (`completed`), `claimId` | `RUN_FINISHED` with `outcome: { "type": "success" }` and `result` (when there is one). |
 | `task.failed` | The claimer gives up. | `taskId`, `state` (`failed`), `claimId`, `reason` | `RUN_ERROR` with code `teamkit.failed` and the reason as `message`. |
+| `task.handed_off` | A task is handed to a named agent and held for it. | `taskId`, `state` (`ready`), `to` (the agent), `reservedUntil`, `claimId` (the released claim, or `null`) | `CUSTOM teamkit.task.handed_off` (`{ to, reservedUntil, claimId }`), then `RUN_ERROR` with code `teamkit.handed_off` when a claim was released. |
+| `decision.posted` | A decision is posted, on its own new thread. | `decisionId`, `decidedBy`, `messageId` | `CUSTOM teamkit.decision.posted` (`{ decisionId, room, text, decidedBy, postedBy }`), then the first message `Decision by <decider>: <text>`. |
+| `decision.acked` | An agent or person acknowledges a decision. | `decisionId` | `CUSTOM teamkit.decision.acked` (`{ decisionId, by }`). |
+| `rollcall.started` | Someone starts a roll call, on its own new thread. | `rollCallId`, `messageId` | `CUSTOM teamkit.rollcall.started` (`{ rollCallId, room, askedBy }`), then the message `Roll call: who is on in <room>?`. |
+| `rollcall.answered` | An agent or person answers a roll call. | `rollCallId`, `status`, `messageId` | `CUSTOM teamkit.rollcall.answered` (`{ rollCallId, by, status }`), then `status` as the answerer's message. |
+| `change.logged` | A change is logged. On the task's thread, or with no thread (`threadId: null`) when it belongs to no task. | `changeId`, `status` (`active`) | `CUSTOM teamkit.change.logged` (`{ change }`). |
+| `change.updated` | A logged change is marked active, done or restored. On the entry's thread, or none. | `changeId`, `status`, `previous` | `CUSTOM teamkit.change.updated` (`{ changeId, status, previous }`). |
+| `alert.raised` | An alert is raised, on its own new thread. | `alertId`, `level` (`suspected`), `messageId` | `CUSTOM teamkit.alert.raised` (`{ alertId, room, text, level, raisedBy }`), then the first message. |
+| `alert.confirmed` | An alert is confirmed for a person, on the alert's thread. | `alertId`, `level` (`confirmed`), `source` | `CUSTOM teamkit.alert.confirmed` (`{ alertId, by, source }`). |
+| `alert.resolved` | An alert is resolved for a person, on the alert's thread. | `alertId`, `source` | `CUSTOM teamkit.alert.resolved` (`{ alertId, by, source }`). |
 | `run.event` | A service agent (one TeamKit calls itself) streams an event. | `runId`, `agent`, `round`, and `claimId`, `taskId` on a claimed task | Exactly one AG-UI event per row. See [Service agents](#service-agents-and-runevent). |
 
 When a task completes, TeamKit appends the `task.completed` event first, then one `task.ready` event for each waiting task that this completion unblocked.
@@ -103,18 +113,28 @@ Every `CUSTOM` event TeamKit writes has a `name` starting with `teamkit.` and a 
 | `teamkit.label` | `key`, `value` | `label.set` |
 | `teamkit.task.created` | `taskId`, `room`, `brief`, `labels`, `needs`, `target` | `task.created` |
 | `teamkit.task.claimed` | `claimId`, `actor` | `task.claimed` |
-| `teamkit.task.ready` | `reason` | `task.ready` |
+| `teamkit.task.ready` | `reason`, and `reservedFor` for `reservation_lapsed` | `task.ready` |
+| `teamkit.task.handed_off` | `to`, `reservedUntil`, `claimId` | `task.handed_off` |
+| `teamkit.decision.posted` | `decisionId`, `room`, `text`, `decidedBy`, `postedBy` | `decision.posted` |
+| `teamkit.decision.acked` | `decisionId`, `by` | `decision.acked` |
+| `teamkit.rollcall.started` | `rollCallId`, `room`, `askedBy` | `rollcall.started` |
+| `teamkit.rollcall.answered` | `rollCallId`, `by`, `status` | `rollcall.answered` |
+| `teamkit.change.logged` | `change` | `change.logged` |
+| `teamkit.change.updated` | `changeId`, `status`, `previous` | `change.updated` |
+| `teamkit.alert.raised` | `alertId`, `room`, `text`, `level`, `raisedBy` | `alert.raised` |
+| `teamkit.alert.confirmed` | `alertId`, `by`, `source` | `alert.confirmed` |
+| `teamkit.alert.resolved` | `alertId`, `by`, `source` | `alert.resolved` |
 | `teamkit.interrupt.answered` | `interruptId`, `by`, `payload` | `task.answered` |
 | `teamkit.trigger.fired` | `triggerId`, `cursor`, `kind` | `message.posted` (see below) |
 | `teamkit.task.completed` | `claimId`, `result` | `task.completed`, only when a run already closed itself |
 | `teamkit.task.failed` | `claimId`, `reason` | `task.failed`, only when a run already closed itself |
 | `teamkit.task.released` | `claimId` | `task.released`, only when a run already closed itself |
-| `teamkit.task.blocked` | `interruptId`, `kind`, `question`, `options` | `task.blocked`, only when a run already closed itself |
+| `teamkit.task.blocked` | `interruptId`, `kind`, `question`, `options`, `approvers` | `task.blocked`, only when a run already closed itself |
 | `teamkit.task.lease_expired` | `claimId` | `task.lease_expired`, only when no run was open |
 
 ### The variants that do not close a run
 
-Normally the end of a claim is an AG-UI run ending: `RUN_FINISHED` for complete and block, `RUN_ERROR` for fail, release and lease expiry. When a service agent works a task, the agent's own stream already carries its `RUN_STARTED` and `RUN_FINISHED`/`RUN_ERROR`. TeamKit then settles the task without writing a second run ending, and writes a `CUSTOM` event instead:
+Normally the end of a claim is an AG-UI run ending: `RUN_FINISHED` for complete and block, `RUN_ERROR` for fail, release (`teamkit.released`), handoff (`teamkit.handed_off`) and lease expiry. When a service agent works a task, the agent's own stream already carries its `RUN_STARTED` and `RUN_FINISHED`/`RUN_ERROR`. TeamKit then settles the task without writing a second run ending, and writes a `CUSTOM` event instead:
 
 | Instead of | TeamKit writes |
 | --- | --- |

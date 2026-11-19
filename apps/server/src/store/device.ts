@@ -1,9 +1,11 @@
-import { BoardError, newId, newTokenSecret, type DevicePoll } from "@copilotkit/teamkit-protocol";
+import { BoardError, isValidRoom, newId, newTokenSecret, type ActorRef, type DeviceMode, type DevicePoll } from "@copilotkit/teamkit-protocol";
 import { hashToken } from "@copilotkit/teamkit-protocol/server";
 import type { Db } from "../db/pool.js";
-import type { AuthContext } from "./actors.js";
+import { ensureOwnedAgent, type AuthContext } from "./actors.js";
 
 export const DEVICE_POLL_INTERVAL_MS = 2000;
+/** Rooms one agent-mode approval may pick. */
+export const MAX_AGENT_ROOMS = 50;
 const DEVICE_TTL_MS_DEFAULT = 600_000;
 const USER_CODE_ALPHABET = "BCDFGHJKLMNPQRSTVWXZ";
 const USER_CODE_ATTEMPTS = 5;
@@ -51,7 +53,8 @@ function isUniqueViolation(e: unknown): boolean {
 
 export async function startDevice(
   db: Db,
-): Promise<{ deviceCode: string; userCode: string; expiresAt: string }> {
+  mode: DeviceMode = "admin",
+): Promise<{ deviceCode: string; userCode: string; expiresAt: string; mode: DeviceMode }> {
   const ms = deviceTtlMs();
   const deviceCode = randomDeviceCode();
   // device/start is public, so every start also clears out codes long past their expiry.
@@ -62,32 +65,62 @@ export async function startDevice(
     const userCode = randomUserCode();
     try {
       const [row] = await db`
-        insert into device_codes (code, user_code, expires_at)
-        values (${hashToken(deviceCode)}, ${userCode}, now() + (${ms}::double precision / 1000) * interval '1 second')
+        insert into device_codes (code, user_code, expires_at, mode)
+        values (${hashToken(deviceCode)}, ${userCode}, now() + (${ms}::double precision / 1000) * interval '1 second', ${mode})
         returning expires_at`;
-      return { deviceCode, userCode, expiresAt: new Date(row!.expires_at as Date).toISOString() };
+      return { deviceCode, userCode, expiresAt: new Date(row!.expires_at as Date).toISOString(), mode };
     } catch (e) {
       if (!isUniqueViolation(e) || attempt >= USER_CODE_ATTEMPTS) throw e;
     }
   }
 }
 
-export async function approveDevice(db: Db, auth: AuthContext, userCode: string): Promise<void> {
+/** The rooms an agent-mode approval grants, deduplicated; invalid_input unless one to 50 valid names. */
+function agentRooms(rooms: string[] | undefined): string[] {
+  if (rooms === undefined || rooms.length === 0) throw new BoardError("invalid_input", "choose at least one room for your agent");
+  const out: string[] = [];
+  for (const room of rooms) {
+    if (typeof room !== "string" || !isValidRoom(room)) throw new BoardError("invalid_input", `not a room name: ${room}`);
+    if (!out.includes(room)) out.push(room);
+  }
+  if (out.length > MAX_AGENT_ROOMS) throw new BoardError("invalid_input", `an agent takes at most ${MAX_AGENT_ROOMS} rooms`);
+  return out;
+}
+
+/**
+ * A signed-in person approves a code. An admin-mode code becomes their command-line admin
+ * login; an agent-mode code becomes their own agent (`ana-agent`), with the rooms they picked.
+ */
+export async function approveDevice(
+  db: Db,
+  auth: AuthContext,
+  userCode: string,
+  rooms?: string[],
+): Promise<{ mode: DeviceMode; agent: ActorRef | null }> {
   if (auth.via !== "session" || auth.actor.kind !== "person") {
     throw new BoardError("forbidden", "approving a command-line login needs a signed-in person");
   }
   const normalized = normalizeUserCode(userCode);
   if (!normalized) throw new BoardError("invalid_input", "that is not a valid login code");
-  await db.begin(async (tx) => {
+  return db.begin(async (tx) => {
     const [row] = await tx`
-      select approved_at from device_codes
+      select approved_at, mode from device_codes
       where user_code = ${normalized} and expires_at > now() and consumed_at is null
       for update`;
     if (!row) throw new BoardError("not_found", "unknown or expired code");
     if (row.approved_at) throw new BoardError("invalid_state", "this code was already approved");
-    await tx`
-      update device_codes set actor_id = ${auth.actor.id}, approved_at = now()
-      where user_code = ${normalized}`;
+    const mode = row.mode as DeviceMode;
+    if (mode === "admin") {
+      // Rooms mean the person thinks they approve an agent; refuse rather than mint an admin login.
+      if (rooms !== undefined) {
+        throw new BoardError("invalid_input", "this code signs in a command-line admin login, which takes no rooms");
+      }
+      await tx`update device_codes set actor_id = ${auth.actor.id}, approved_at = now() where user_code = ${normalized}`;
+      return { mode, agent: null };
+    }
+    const agent = await ensureOwnedAgent(tx, auth.actor, agentRooms(rooms));
+    await tx`update device_codes set actor_id = ${agent.id}, approved_at = now() where user_code = ${normalized}`;
+    return { mode, agent };
   });
 }
 
@@ -95,24 +128,26 @@ export async function pollDevice(db: Db, deviceCode: string): Promise<DevicePoll
   const hash = typeof deviceCode === "string" ? hashToken(deviceCode) : "";
   return db.begin(async (tx): Promise<DevicePoll> => {
     const [row] = await tx`
-      select d.actor_id, d.approved_at, d.consumed_at, d.expires_at <= now() as expired,
-             a.name, a.kind
-      from device_codes d left join actors a on a.id = d.actor_id
-      where d.code = ${hash}
-      for update of d`;
+      select actor_id, approved_at, consumed_at, expires_at <= now() as expired, mode
+      from device_codes where code = ${hash}
+      for update`;
     if (!row) throw new BoardError("not_found", "unknown device code");
     // An approved code is collectable once, and only until it expires.
     if (row.consumed_at || row.expired) return { status: "expired" };
     if (!row.approved_at) return { status: "pending" };
+    // Read the actor in its own statement: a poll that waited on the approval's row lock would
+    // otherwise join against a snapshot from before the approval created the person's agent.
+    const [a] = await tx`select name, kind from actors where id = ${row.actor_id as string}`;
+    if (!a) throw new BoardError("not_found", "unknown device code");
     const token = newTokenSecret();
     const tokenId = newId("tok");
     await tx`insert into tokens (id, actor_id, hash, scope)
-             values (${tokenId}, ${row.actor_id}, ${hashToken(token)}, 'admin')`;
+             values (${tokenId}, ${row.actor_id}, ${hashToken(token)}, ${row.mode as DeviceMode})`;
     await tx`update device_codes set consumed_at = now(), token_id = ${tokenId} where code = ${hash}`;
     return {
       status: "approved",
       token,
-      actor: { id: row.actor_id as string, name: row.name as string, kind: row.kind as "agent" | "person" },
+      actor: { id: row.actor_id as string, name: a.name as string, kind: a.kind as "agent" | "person" },
     };
   });
 }

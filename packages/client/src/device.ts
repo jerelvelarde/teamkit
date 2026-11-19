@@ -1,9 +1,14 @@
-import type { ActorRef, DevicePoll, DeviceStart } from "@copilotkit/teamkit-protocol";
+import type { ActorRef, DeviceMode, DevicePoll, DeviceStart } from "@copilotkit/teamkit-protocol";
 import { TeamkitError, toError } from "./client.js";
 
 export interface DeviceOptions {
   fetch?: typeof fetch;
   signal?: AbortSignal;
+}
+
+export interface StartDeviceOptions extends DeviceOptions {
+  /** `agent` signs in as the approving person's own agent; the default is an admin login. */
+  mode?: DeviceMode;
 }
 
 export interface WaitForDeviceOptions extends DeviceOptions {
@@ -37,8 +42,8 @@ async function post<T>(
 }
 
 /** Asks the server for a login code. Show `userCode` and `verifyUrl` to the person. */
-export function startDeviceLogin(url: string, opts: DeviceOptions = {}): Promise<DeviceStart> {
-  return post<DeviceStart>(url, "/v1/device/start", {}, opts);
+export function startDeviceLogin(url: string, opts: StartDeviceOptions = {}): Promise<DeviceStart> {
+  return post<DeviceStart>(url, "/v1/device/start", opts.mode === undefined ? {} : { mode: opts.mode }, opts);
 }
 
 /** One check of a login code: pending, expired, or approved (the token is handed out once). */

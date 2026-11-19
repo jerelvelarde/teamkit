@@ -9,7 +9,7 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TEAMKIT="${TEAMKIT:-teamkit}"
 ROOM="${ROOM:-build}"
 PLAN="${PLAN:-$HERE/plan.json}"
-LEAD_PROMPT="${LEAD_PROMPT:-$HERE/../../skills/teamkit/prompts/lead.md}"
+LEAD_PROMPT="${LEAD_PROMPT:-$HERE/../../plugins/teamkit/skills/teamkit/prompts/lead.md}"
 # LEAD_CMD runs for each blocked task with TEAMKIT_TASK (the blocked thread), TEAMKIT_ROOM and LEAD_TEXT set.
 # The lead only needs teamkit and reading; `claude -p` cannot ask for tools, so they are approved up front.
 # shellcheck disable=SC2016

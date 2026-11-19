@@ -16,11 +16,15 @@ export interface Config {
   dispatchConcurrency: number;
   /** A reverse proxy sets X-Forwarded-For; key the login-code limiter on it (TEAMKIT_TRUSTED_PROXY=1). */
   trustedProxy: boolean;
+  /** SMTP for emailed sign-in links; null (email sign-in off) unless TEAMKIT_SMTP_URL is set. */
+  mail: { smtpUrl: string; from: string } | null;
   slack: {
     bridge: SlackBridgeConfig;
     /** SLACK_BOT_TOKEN; Slack outbound starts only when it is set. */
     botToken?: string;
     apiBase: string;
+    /** SLACK_SIGNING_SECRET; turns on /teamkit at /v1/slack/commands. Empty counts as unset. */
+    signingSecret?: string;
   };
 }
 
@@ -32,6 +36,16 @@ function intVar(env: NodeJS.ProcessEnv, name: string, fallback: number, min: num
     throw new Error(`${name} must be an integer >= ${min}, got "${raw}"`);
   }
   return n;
+}
+
+function mailVar(env: NodeJS.ProcessEnv): { smtpUrl: string; from: string } | null {
+  const smtpUrl = env.TEAMKIT_SMTP_URL;
+  if (smtpUrl === undefined || smtpUrl === "") return null;
+  // The URL may hold a password, so the error never repeats it.
+  if (!/^smtps?:\/\//i.test(smtpUrl)) throw new Error("TEAMKIT_SMTP_URL must be an smtp:// or smtps:// URL");
+  const from = env.TEAMKIT_MAIL_FROM;
+  if (from === undefined || from.trim() === "") throw new Error("TEAMKIT_MAIL_FROM is required when TEAMKIT_SMTP_URL is set");
+  return { smtpUrl, from };
 }
 
 function publicUrlVar(env: NodeJS.ProcessEnv): string {
@@ -62,10 +76,12 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     triggers: env.TEAMKIT_TRIGGERS !== "off",
     dispatchConcurrency: intVar(env, "TEAMKIT_DISPATCH_CONCURRENCY", 4, 1),
     trustedProxy: env.TEAMKIT_TRUSTED_PROXY === "1",
+    mail: mailVar(env),
     slack: {
       bridge: slackBridgeConfigFromEnv(env, publicUrl),
       botToken: env.SLACK_BOT_TOKEN || undefined,
       apiBase: env.SLACK_API_BASE || "https://slack.com/api",
+      signingSecret: env.SLACK_SIGNING_SECRET || undefined,
     },
   };
 }

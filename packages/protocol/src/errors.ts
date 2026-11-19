@@ -7,7 +7,11 @@ export type ErrorCode =
   | "claim_lost"
   | "invalid_state"
   | "approval_requires_person"
-  | "too_large";
+  | "too_large"
+  | "join_link_invalid"
+  | "email_domain_not_allowed"
+  | "name_taken"
+  | "email_taken";
 
 export const ERROR_STATUS = {
   unauthorized: 401,
@@ -19,6 +23,10 @@ export const ERROR_STATUS = {
   invalid_state: 409,
   approval_requires_person: 403,
   too_large: 413,
+  join_link_invalid: 404,
+  email_domain_not_allowed: 403,
+  name_taken: 409,
+  email_taken: 409,
 } as const satisfies Record<ErrorCode, number>;
 
 export class BoardError extends Error {

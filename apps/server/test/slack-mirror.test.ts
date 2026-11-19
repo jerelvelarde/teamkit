@@ -4,14 +4,21 @@ import {
   findTaskByConversation,
   findTaskByCoordinates,
   getServiceCursor,
+  getSlackPost,
   getSlackThread,
+  getStatusMessage,
+  linkedRooms,
   roomForSlackChannel,
+  saveSlackPost,
+  saveStatusMessage,
   saveSlackThread,
   setServiceCursor,
   slackRoomSettings,
+  slackUserOf,
 } from "../src/slack/mirror.js";
 import { setRoom } from "../src/store/rooms.js";
 import { withTestDb } from "./helpers/db.js";
+import { CHANNEL, SLACK_USER, seedBilling } from "./helpers/billing.js";
 import { agentAuth } from "./helpers/actors.js";
 
 test("saveSlackThread keeps columns a later save leaves null", async () => {
@@ -74,5 +81,47 @@ test("service cursors only move forward", async () => {
     assert.equal(await getServiceCursor(db, "slack-outbound"), "10");
     await setServiceCursor(db, "slack-outbound", "11");
     assert.equal(await getServiceCursor(db, "slack-outbound"), "11");
+  });
+});
+
+test("status message rows upsert by room and keep edited_at to the millisecond", async () => {
+  await withTestDb(async (db) => {
+    await seedBilling(db, { linkSlack: false });
+    assert.equal(await getStatusMessage(db, "billing-migration"), null);
+    const row = { room: "billing-migration", channel: CHANNEL.migration, ts: "1.000", pinned: true, bodyHash: "h1", editedAt: 1_763_560_000_123 };
+    await saveStatusMessage(db, row);
+    await saveStatusMessage(db, { ...row, bodyHash: "h2", editedAt: row.editedAt + 10_000 });
+    assert.deepEqual(await getStatusMessage(db, "billing-migration"), { ...row, bodyHash: "h2", editedAt: row.editedAt + 10_000 });
+  });
+});
+
+test("a decision's or alert's Slack post is kept by id, and loud never goes back", async () => {
+  await withTestDb(async (db) => {
+    await saveSlackPost(db, { kind: "alert", refId: "alr_1", channel: CHANNEL.prod, ts: "3.000", loud: true });
+    await saveSlackPost(db, { kind: "alert", refId: "alr_1", channel: CHANNEL.prod, ts: "3.000", loud: false });
+    assert.equal((await getSlackPost(db, "alert", "alr_1"))?.loud, true);
+    assert.equal(await getSlackPost(db, "decision", "alr_1"), null);
+  });
+});
+
+test("linkedRooms lists rooms that post to a channel, by name, with their approvers", async () => {
+  await withTestDb(async (db) => {
+    await seedBilling(db, { linkSlack: false });
+    assert.deepEqual(await linkedRooms(db), [
+      { room: "billing-migration", channel: CHANNEL.migration, announce: "blocked", approvers: null },
+      { room: "billing-prod", channel: CHANNEL.prod, announce: "blocked", approvers: ["sam"] },
+    ]);
+    await setRoom(db, "billing-migration", { slackAnnounce: "none" });
+    await setRoom(db, "billing-prod", { slackChannel: null });
+    assert.deepEqual(await linkedRooms(db), []);
+  });
+});
+
+test("slackUserOf finds a person's linked Slack user, or null", async () => {
+  await withTestDb(async (db) => {
+    await seedBilling(db);
+    assert.equal(await slackUserOf(db, "sam"), SLACK_USER.sam);
+    assert.equal(await slackUserOf(db, "ben-agent"), null);
+    assert.equal(await slackUserOf(db, "nobody"), null);
   });
 });

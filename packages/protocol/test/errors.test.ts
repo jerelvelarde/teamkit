@@ -12,6 +12,10 @@ const expected: Record<ErrorCode, number> = {
   invalid_state: 409,
   approval_requires_person: 403,
   too_large: 413,
+  join_link_invalid: 404,
+  email_domain_not_allowed: 403,
+  name_taken: 409,
+  email_taken: 409,
 };
 
 test("every code maps to its status", () => {
@@ -23,7 +27,7 @@ test("every code maps to its status", () => {
     assert.equal(e.name, "BoardError");
     assert.ok(e instanceof Error);
   }
-  assert.equal(Object.keys(ERROR_STATUS).length, 9);
+  assert.equal(Object.keys(ERROR_STATUS).length, 13);
 });
 
 test("errorBody shape", () => {

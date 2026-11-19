@@ -7,6 +7,11 @@ export const ID_PREFIXES = {
   run: "run",
   trigger: "tr",
   message: "msg",
+  joinLink: "jl",
+  decision: "dec",
+  rollCall: "rc",
+  change: "chg",
+  alert: "alr",
 } as const;
 
 export function newId(prefix: string): string {

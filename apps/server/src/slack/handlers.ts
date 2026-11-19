@@ -1,19 +1,25 @@
 import { isBoardError, newId, type ActorRef, type Task } from "@copilotkit/teamkit-protocol";
 import type { Db } from "../db/pool.js";
 import { TaskCard } from "./cards.js";
+import { isNotAnswererError, refusalFor } from "./coordination.js";
 import { findLinkedPerson } from "./links.js";
 import {
+  NOT_MAPPED,
   findTaskByConversation,
   findTaskByCoordinates,
   isUniqueViolation,
   roomForSlackChannel,
   saveSlackThread,
 } from "./mirror.js";
+
 import type { AuthContext } from "../store/actors.js";
 import { answer } from "../store/blocks.js";
 import { loadTask } from "../store/task-load.js";
 import { createTask } from "../store/tasks.js";
 import { reply } from "../store/threads.js";
+
+/** Re-exported for callers that already import it from here. */
+export { NOT_MAPPED };
 
 export interface SlackThreadLike {
   conversationKey: string;
@@ -38,8 +44,7 @@ export interface SlackHandlerDeps {
 
 const GUEST_NAME = "slack-guest";
 const NATIVE_KEY_RE = /^([CDG][A-Z0-9]+)::(\d+\.\d+)$/;
-const NOT_MAPPED =
-  "This Slack channel isn't mapped to a TeamKit room. An admin can run `teamkit rooms set <room> --slack-channel <channel id>`.";
+
 
 /** The agent actor that acts for Slack users who have not linked a TeamKit account. No token. */
 export async function ensureSlackGuest(db: Db): Promise<AuthContext> {
@@ -178,7 +183,8 @@ export function createSlackHandlers(d: SlackHandlerDeps): {
    * Tries to answer a blocked task from a linked person's reply. True when it was handled.
    * needs_input takes an option in any case, or free text when it has no options. An approval
    * takes only an option's exact text: a casual "ok" or "yes" is a plain reply, and an approval
-   * with no options is answered only with a button or on the board.
+   * with no options is answered only with a button or on the board. Someone the ask does not
+   * wait on gets a private note; their free text still goes to the task as a plain reply.
    */
   async function tryAnswer(t: SlackTurn, auth: AuthContext, task: Task, text: string): Promise<boolean> {
     const block = task.state === "blocked" ? task.block : null;
@@ -199,11 +205,11 @@ export function createSlackHandlers(d: SlackHandlerDeps): {
       await answer(d.db, auth, task.id, input, { expectedInterruptId: block.interruptId });
       return true;
     } catch (e) {
-      if (isBoardError(e) && e.code === "approval_requires_person") {
-        await t.thread.postEphemeral(t.slackUserId, "Only a listed approver can answer this approval.", {
-          fallbackToDM: false,
-        });
-        return true;
+      if (isNotAnswererError(e)) {
+        await t.thread.postEphemeral(t.slackUserId, await refusalFor(d.db, task.id), { fallbackToDM: false });
+        // An option's exact text was meant as the answer, so it stops here. Free text may be
+        // anything ("sam has the count"), so it still reaches the task as a plain reply.
+        return "choice" in input;
       }
       // Someone else answered between the read and the write: treat this as a plain reply.
       if (isBoardError(e) && e.code === "invalid_state") return false;

@@ -203,6 +203,12 @@
   color: var(--tk-fg-2);
 }
 
+/* Who a blocked card's ask names. Plain ink: the blocked edge already carries the status. */
+.cardWaitsOn {
+  color: var(--tk-fg-3);
+  font-size: 12px;
+}
+
 .cardNeed,
 .cardFailed {
   display: flex;

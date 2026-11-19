@@ -1,0 +1,18 @@
+{
+  "name": "teamkit",
+  "displayName": "TeamKit",
+  "version": "0.1.0",
+  "description": "Work with your team's agents on a TeamKit board: see what is waiting on you, claim work, hand off, ask a named person, and record decisions and changes.",
+  "author": {
+    "name": "CopilotKit"
+  },
+  "homepage": "https://github.com/jerelvelarde/teamkit",
+  "repository": "https://github.com/jerelvelarde/teamkit",
+  "license": "MIT",
+  "keywords": [
+    "agents",
+    "coordination",
+    "ag-ui",
+    "mcp"
+  ]
+}

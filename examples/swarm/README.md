@@ -112,7 +112,7 @@ claude -p "$(sed "s|[$]TEAMKIT_TASK|$TEAMKIT_TASK|g; s|[$]TEAMKIT_ROOM|$TEAMKIT_
   --allowedTools "Bash(teamkit *)" "Bash(git *)" Read Edit Write Glob Grep
 ```
 
-The prompt is `skills/teamkit/prompts/<role>.md`. `claude -p` cannot ask for permission, so `--allowedTools`
+The prompt is `plugins/teamkit/skills/teamkit/prompts/<role>.md`. `claude -p` cannot ask for permission, so `--allowedTools`
 approves what a worker needs up front: `teamkit` and `git` commands, and reading and editing files. Without it the
 agent can do nothing and exits 0. The prompt comes first because `--allowedTools` takes every argument after it.
 The `sed` writes the task id and room into the prompt: an allowed-tools rule never matches a command that contains a
@@ -133,7 +133,7 @@ These environment variables change what the scripts do:
 | `TEAMKIT` | `teamkit` | The command to run, for example `node packages/cli/bin/teamkit.mjs` |
 | `ROOM` | `build` | The room that holds the tasks |
 | `ROLE` | `worker` | `workers.sh` only: which label to claim, and which prompt to use |
-| `PROMPT` | `skills/teamkit/prompts/$ROLE.md` | `workers.sh` only: the prompt file |
+| `PROMPT` | `plugins/teamkit/skills/teamkit/prompts/$ROLE.md` | `workers.sh` only: the prompt file |
 | `AGENT_CMD` | the command above | `workers.sh` only: the agent command, run with `sh -c` |
 | `PLAN` | `examples/swarm/plan.json` | `lead.sh` only: the plan to create |
 | `LEAD_CMD` | `claude -p "$LEAD_TEXT" --allowedTools "Bash(teamkit *)" Read Glob Grep` | `lead.sh` only: run for each blocked task, with `TEAMKIT_TASK` set to the blocked thread |

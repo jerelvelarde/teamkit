@@ -8,6 +8,7 @@ import { getRoomInfo, setRoom, type RoomSettings } from "./store/rooms.js";
 import { listAgents, registerAgent, toAgentInfo } from "./dispatch/registry.js";
 import { addTrigger, listTriggers, removeTrigger } from "./triggers/store.js";
 import { DEFAULT_PUBLIC_URL, invitePerson, listPeople, signInUrl } from "./store/people.js";
+import { createJoinLink, joinUrl, listJoinLinks, revokeJoinLink } from "./store/join.js";
 
 const DEFAULT_DATABASE_URL = "postgres://teamkit@127.0.0.1:54329/teamkit";
 
@@ -125,11 +126,12 @@ function buildProgram(): Command {
     .option("--approvers <names>", "comma-separated approver names")
     .option("--slack-channel <id>", "Slack channel id")
     .option("--slack-announce <mode>", "blocked, all or none")
+    .option("--reservation-minutes <n>", "how long a handoff or an answered ask is held for one agent (1 to 1440)")
     .exitOverride()
     .action(
       async (
         name: string,
-        opts: { agent?: string; approvers?: string; slackChannel?: string; slackAnnounce?: string },
+        opts: { agent?: string; approvers?: string; slackChannel?: string; slackAnnounce?: string; reservationMinutes?: string },
       ) => {
         const settings: RoomSettings = {};
         if (opts.agent !== undefined) settings.agent = opts.agent;
@@ -143,6 +145,7 @@ function buildProgram(): Command {
         if (opts.slackAnnounce !== undefined) {
           settings.slackAnnounce = opts.slackAnnounce as RoomSettings["slackAnnounce"];
         }
+        if (opts.reservationMinutes !== undefined) settings.reservationMinutes = Number(opts.reservationMinutes);
         const info = await withDb(async (db) => {
           await setRoom(db, name, settings);
           return getRoomInfo(db, name);
@@ -156,9 +159,12 @@ function buildProgram(): Command {
     .command("invite <name>")
     .description("create a person if needed and print a one-time sign-in link (valid 24 hours)")
     .option("--admin", "make a new person an admin")
+    .option("--email <e>", "the person's email, so they can get a sign-in link by email later")
     .exitOverride()
-    .action(async (name: string, opts: { admin?: boolean }) => {
-      const { secret } = await withDb((db) => invitePerson(db, { name, role: opts.admin ? "admin" : "member" }));
+    .action(async (name: string, opts: { admin?: boolean; email?: string }) => {
+      const { secret } = await withDb((db) =>
+        invitePerson(db, { name, role: opts.admin ? "admin" : "member", ...(opts.email === undefined ? {} : { email: opts.email }) }),
+      );
       process.stdout.write(`${signInUrl(process.env.TEAMKIT_PUBLIC_URL || DEFAULT_PUBLIC_URL, secret)}\n`);
     });
   people
@@ -169,6 +175,39 @@ function buildProgram(): Command {
       for (const p of await withDb(listPeople)) {
         process.stdout.write(`${p.actor.name}\t${p.role}\t${p.lastSignInAt ?? "never"}\n`);
       }
+    });
+
+  const joinLinks = program.command("join-links").exitOverride();
+  joinLinks
+    .command("create")
+    .description("make a team join link and print it (the only time it is shown)")
+    .option("--days <n>", "the link expires after this many days (1 to 365); default never", (v: string) => Number(v))
+    .option("--domain <d>", "only accept emails at this domain; repeat for more", (v: string, acc: string[] = []) => [...acc, v])
+    .exitOverride()
+    .action(async (opts: { days?: number; domain?: string[] }) => {
+      const { secret } = await withDb((db) =>
+        createJoinLink(db, { createdBy: null, expiresInDays: opts.days, domains: opts.domain }),
+      );
+      process.stdout.write(`${joinUrl(process.env.TEAMKIT_PUBLIC_URL || DEFAULT_PUBLIC_URL, secret)}\n`);
+    });
+  joinLinks
+    .command("list")
+    .description("list join links as id, uses, expiry, domains, state")
+    .exitOverride()
+    .action(async () => {
+      const now = Date.now();
+      for (const l of await withDb(listJoinLinks)) {
+        const state = l.revokedAt ? "revoked" : l.expiresAt && Date.parse(l.expiresAt) <= now ? "expired" : "active";
+        const domains = l.domains && l.domains.length > 0 ? l.domains.join(",") : "any";
+        process.stdout.write(`${l.id}\t${l.uses}\t${l.expiresAt ?? "never"}\t${domains}\t${state}\n`);
+      }
+    });
+  joinLinks
+    .command("revoke <id>")
+    .description("revoke a join link; people who already joined keep their accounts")
+    .exitOverride()
+    .action(async (id: string) => {
+      await withDb((db) => revokeJoinLink(db, id));
     });
 
   const triggers = program.command("triggers").exitOverride();

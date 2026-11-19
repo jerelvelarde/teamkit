@@ -1,8 +1,16 @@
 import type {
   BlockKind,
   BoardEvent,
+  Alert,
+  Pending,
+  ChangeEntry,
+  ChangeInput,
+  ChangeStatus,
   Claim,
+  Decision,
   EventQuery,
+  Presence,
+  RollCall,
   PlanItem,
   RoomSummary,
   RoomView,
@@ -72,9 +80,32 @@ export interface TeamkitClient {
   block(
     taskId: string,
     claimId: string,
-    input: { question: string; kind?: BlockKind; options?: string[] },
+    input: { question: string; kind?: BlockKind; options?: string[]; approvers?: string[] },
   ): Promise<Task>;
   answer(taskId: string, input: { text?: string; choice?: string }): Promise<Task>;
+  /** Hands the task to a named agent and holds it for them. */
+  handoff(taskId: string, to: string): Promise<Task>;
+  /** Posts a decision a person made; an agent passes its owner as `decidedBy`. */
+  postDecision(input: { room: string; text: string; decidedBy?: string }): Promise<Decision>;
+  ackDecision(id: string): Promise<Decision>;
+  decisions(room: string, opts?: { limit?: number }): Promise<Decision[]>;
+  startRollCall(room: string): Promise<RollCall>;
+  answerRollCall(id: string, status: string): Promise<RollCall>;
+  rollCalls(room: string, opts?: { limit?: number }): Promise<RollCall[]>;
+  /** An agent install says it is on. Only agent tokens may call it. */
+  heartbeat(input: { watching: string[]; status?: string }): Promise<void>;
+  presence(room: string): Promise<Presence[]>;
+  logChange(input: ChangeInput): Promise<ChangeEntry>;
+  updateChange(id: string, status: ChangeStatus): Promise<ChangeEntry>;
+  changes(room: string, opts?: { status?: ChangeStatus; limit?: number }): Promise<ChangeEntry[]>;
+  raiseAlert(input: { room: string; text: string }): Promise<Alert>;
+  /** Confirm for a person: yourself, or (an agent) your owner named as `source`. */
+  confirmAlert(id: string, opts?: { source?: string }): Promise<Alert>;
+  /** Resolve for a person: yourself, or (an agent) your owner named as `source`. */
+  resolveAlert(id: string, opts?: { source?: string }): Promise<Alert>;
+  alerts(room: string, opts?: { open?: boolean; limit?: number }): Promise<Alert[]>;
+  /** What is waiting on the caller: holds, decisions to ack, roll calls to answer, asks to answer. */
+  pending(): Promise<Pending>;
   events(q?: EventQuery): Promise<{ events: BoardEvent[]; cursor: string }>;
   stream(q: EventQuery, opts?: { signal?: AbortSignal }): AsyncIterable<BoardEvent>;
 }
@@ -86,6 +117,13 @@ function eventParams(q: EventQuery | undefined): URLSearchParams {
   if (q?.thread !== undefined) params.set("thread", q.thread);
   for (const k of q?.kinds ?? []) params.append("kind", k);
   if (q?.limit !== undefined) params.set("limit", String(q.limit));
+  return params;
+}
+
+/** `?room=` (and `limit`) for the room-scoped coordination lists; a room may contain `/`. */
+function roomParams(room: string, extra: Record<string, string | number | undefined> = {}): URLSearchParams {
+  const params = new URLSearchParams({ room });
+  for (const [k, v] of Object.entries(extra)) if (v !== undefined) params.set(k, String(v));
   return params;
 }
 
@@ -216,6 +254,43 @@ export function createClient(opts: ClientOptions): TeamkitClient {
       (await json<{ task: Task }>("POST", `/tasks/${enc(taskId)}/block`, { claimId, ...input })).task,
     answer: async (taskId, input) =>
       (await json<{ task: Task }>("POST", `/tasks/${enc(taskId)}/answer`, input)).task,
+    handoff: async (taskId, to) =>
+      (await json<{ task: Task }>("POST", `/tasks/${enc(taskId)}/handoff`, { to })).task,
+    postDecision: async (input) => (await json<{ decision: Decision }>("POST", "/decisions", input)).decision,
+    ackDecision: async (id) => (await json<{ decision: Decision }>("POST", `/decisions/${enc(id)}/ack`, {})).decision,
+    decisions: async (room, opts) =>
+      (await json<{ decisions: Decision[] }>("GET", withQuery("/decisions", roomParams(room, { limit: opts?.limit })))).decisions,
+    startRollCall: async (room) => (await json<{ rollCall: RollCall }>("POST", "/rollcalls", { room })).rollCall,
+    answerRollCall: async (id, status) =>
+      (await json<{ rollCall: RollCall }>("POST", `/rollcalls/${enc(id)}/answer`, { status })).rollCall,
+    rollCalls: async (room, opts) =>
+      (await json<{ rollCalls: RollCall[] }>("GET", withQuery("/rollcalls", roomParams(room, { limit: opts?.limit })))).rollCalls,
+    heartbeat: async (input) => {
+      await json("POST", "/presence", input);
+    },
+    presence: async (room) => (await json<{ presence: Presence[] }>("GET", withQuery("/presence", roomParams(room)))).presence,
+    logChange: async (input) => (await json<{ change: ChangeEntry }>("POST", "/changes", input)).change,
+    updateChange: async (id, status) => (await json<{ change: ChangeEntry }>("POST", `/changes/${enc(id)}`, { status })).change,
+    changes: async (room, opts) =>
+      (
+        await json<{ changes: ChangeEntry[] }>(
+          "GET",
+          withQuery("/changes", roomParams(room, { status: opts?.status, limit: opts?.limit })),
+        )
+      ).changes,
+    raiseAlert: async (input) => (await json<{ alert: Alert }>("POST", "/alerts", input)).alert,
+    confirmAlert: async (id, opts) =>
+      (await json<{ alert: Alert }>("POST", `/alerts/${enc(id)}/confirm`, { ...(opts?.source === undefined ? {} : { source: opts.source }) })).alert,
+    resolveAlert: async (id, opts) =>
+      (await json<{ alert: Alert }>("POST", `/alerts/${enc(id)}/resolve`, { ...(opts?.source === undefined ? {} : { source: opts.source }) })).alert,
+    alerts: async (room, opts) =>
+      (
+        await json<{ alerts: Alert[] }>(
+          "GET",
+          withQuery("/alerts", roomParams(room, { open: opts?.open ? "true" : undefined, limit: opts?.limit })),
+        )
+      ).alerts,
+    pending: () => json<Pending>("GET", "/me/pending"),
     events: (q) => json("GET", withQuery("/events", eventParams(q))),
     stream: (q, o) => streamEvents(q, o?.signal),
   };

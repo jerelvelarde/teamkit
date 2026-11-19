@@ -253,6 +253,8 @@ Admin is a single 820px column with 40px between sections. Sign-in pages are a c
 
 Rhythm is a 4px base with 8, 12, 16, 20 and 24px steps; 20px is the panel's horizontal inset, 12–16px the board's.
 
+When one room is selected, a 40px room tab row sits under the header (Board · Decisions · Changes on the left; the agents-on pile, Start roll call and Raise alert on the right), and the room's alert banner, when it has open alerts, sits between that row and the content.
+
 **Below 900px:** the sidebar becomes a 280px (max 86vw) drawer over a 32% black scrim, opened from a menu button; the content panel loses its margin, border and radius and fills the screen; board columns become snapping cards of min(300px, 100vw − 48px); the thread panel goes full-screen; the dialog's two fields stack; keyboard hints hide.
 
 ## Elevation & Depth
@@ -327,6 +329,24 @@ Quiet and compact; violet only when it is the action.
 
 ### New Task Dialog
 A Linear-style create sheet: 600px, 12px radius, raised white, pop shadow over a 32% scrim, rising 6px over 180ms. A 13px/500 ink-2 title, a borderless 16px/500 brief textarea, two field selects in a grid, and a hairline-topped action row with a kbd hint (18px kbd chips, 4px radius, sans) and Create task primary.
+
+### Room Tabs
+A 40px row with a bottom hairline and the header's 20px inset (12px below 900px). Three 26px links at 13px/500 ink-3, 6px radius; hover takes the hover wash; the current view takes the grey active wash and full ink, never violet. The right side holds the agents-on pile and two ghost buttons, Start roll call and Raise alert, which drop to 28×28 icon buttons below 900px. The row scrolls sideways rather than wrap.
+
+### Alert Banner
+A list of 40px rows on raised white with hairline dividers under the tab row, never tinted. Each row: a 14px alert glyph and one kind word at 12.5px/600 (Confirmed in failed red, Suspected in blocked orange), the alert text at 13px/500 ink as a link to its thread, ellipsized, a 12px ink-3 meta line (hidden below 900px), a default Confirm for suspected alerts and a ghost Resolve. At most three show, confirmed first and newest first; the rest fold behind a 32px "n more alerts" row. There is no dismiss: an alert leaves when someone resolves it, and the resolver's row stays three seconds saying "Resolved by sam".
+
+### Presence
+Sidebar rooms with agents on end in up to three 6px done-green dots (and "+n"), with the count spoken in the link's name. In the tab row, a ghost button shows up to three 20px agent avatars overlapping by 5px, each ringed 2px in the panel ground; it opens a 260px popover (raised white, hairline, 8px radius, the pop shadow) with an "On now" group label and 32px rows: avatar, "ana-agent · 2 sessions" at 13px/500 and the latest status at 12px ink-3. "On" means a session seen in the last 90 seconds; people never count.
+
+### Decision and Change Rows (thread)
+Both are Slack message rows. A decision: the decider's avatar and bold name, a "Decision" tag in the Agent badge style, the time, the text at message size, then a 12.5px ink-3 line ("Posted by sam-agent · Acknowledged by ana-agent and ben-agent"). A change: the agent's (or person's) row with its Agent tag, the change as text, then a 12.5px field list on an 88px label column (Where, Undo, Undo when, Status with a 6px dot, For).
+
+### Decision and Change Lists
+Linear list rows across the panel: 8px radius, hover wash, the open row in the active wash. A decision row: a 20px avatar, the text at card-title type clamped to two lines, a 12px ink-3 meta line, and at the right up to three 18px ack avatars and "n acks" in tabular numerals. A change row: a 6px status dot (claimed amber for active, done green, ink-4 for restored), the change, two meta lines (where and undo; who and when) and the status word at 12px/500 ink-2. A change with no task is a plain row.
+
+### Join Links (admin)
+An admin section like Agent tokens: one ink-3 line saying what a join link does, the new link once in the shown-once panel, a table (Created, Domains, Expires, Uses, Status) with a danger Revoke for active links, and a form for domains and expiry with Create join link as the section's primary.
 
 ### Admin Tables
 8px-radius bordered boxes on raised white; 12px/500 ink-3 headers and 13px cells at 9px 14px padding, hairline row dividers, and a hover wash per row.

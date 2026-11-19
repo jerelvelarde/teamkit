@@ -1,6 +1,7 @@
 import {
   BoardError,
   newId,
+  normalizeEmail,
   newTokenSecret,
   type ActorRef,
   type PersonInfo,
@@ -13,6 +14,10 @@ import { createPerson } from "./actors.js";
 export const DEFAULT_PUBLIC_URL = "http://127.0.0.1:3000";
 export const SESSION_TTL_MS = 30 * 24 * 3600 * 1000;
 export const SIGNIN_LINK_TTL_MS = 24 * 3600 * 1000;
+/** An emailed sign-in link works for 30 minutes. */
+export const EMAIL_LINK_TTL_MS = 30 * 60 * 1000;
+/** A person gets at most one emailed link this often. */
+export const EMAIL_LINK_GAP_MS = 60 * 1000;
 
 const BOOTSTRAP_LOCK = 7732;
 
@@ -28,13 +33,13 @@ function newSessionSecret(): string {
   return "ts_" + newTokenSecret().slice(3);
 }
 
-async function insertLink(q: Q, actorId: string, ttlMs: number): Promise<string> {
+async function insertLink(q: Q, actorId: string, ttlMs: number, emailed = false): Promise<string> {
   const secret = newLinkSecret();
   // An expired link can never be used, so each new link clears the expired ones out.
   await q`delete from signin_links where expires_at <= clock_timestamp()`;
   await q`
-    insert into signin_links (hash, actor_id, expires_at)
-    values (${hashToken(secret)}, ${actorId}, clock_timestamp() + ${ttlMs}::float8 * interval '1 millisecond')`;
+    insert into signin_links (hash, actor_id, expires_at, emailed)
+    values (${hashToken(secret)}, ${actorId}, clock_timestamp() + ${ttlMs}::float8 * interval '1 millisecond', ${emailed})`;
   return secret;
 }
 
@@ -46,25 +51,58 @@ export async function createSignInLink(
   return insertLink(db, actorId, ttlMs);
 }
 
+/**
+ * Creates the person if needed and mints a sign-in link. An email, when given, is lower-cased
+ * and set on the person (replacing an earlier one) so they can sign in by email later. All in
+ * one transaction, so a refused email creates no one.
+ */
 export async function invitePerson(
   db: Db,
-  input: { name: string; role: Role },
+  input: { name: string; role: Role; email?: string },
 ): Promise<{ person: ActorRef; role: Role; secret: string }> {
-  const [existing] = await db`select id, name, kind, role from actors where name = ${input.name}`;
-  if (existing && existing.kind !== "person") {
-    throw new BoardError("invalid_input", `name ${input.name} belongs to an agent`);
-  }
-  if (existing) {
-    const secret = await createSignInLink(db, existing.id as string);
-    return {
-      person: { id: existing.id as string, name: existing.name as string, kind: "person" },
-      role: existing.role as Role,
-      secret,
-    };
-  }
-  const person = await createPerson(db, input);
-  const secret = await createSignInLink(db, person.id);
-  return { person, role: input.role, secret };
+  const email = input.email === undefined ? undefined : normalizeEmail(input.email);
+  if (email === null) throw new BoardError("invalid_input", "that is not an email address");
+  return db.begin(async (tx) => {
+    const [existing] = await tx`select id, name, kind, role from actors where name = ${input.name}`;
+    if (existing && existing.kind !== "person") {
+      throw new BoardError("invalid_input", `name ${input.name} belongs to an agent`);
+    }
+    const person: ActorRef = existing
+      ? { id: existing.id as string, name: existing.name as string, kind: "person" }
+      : await createPerson(tx, input);
+    const role = existing ? (existing.role as Role) : input.role;
+    if (email !== undefined) {
+      try {
+        await tx`update actors set email = ${email} where id = ${person.id}`;
+      } catch (e) {
+        if ((e as { code?: string; constraint_name?: string }).code === "23505") {
+          throw new BoardError("email_taken", "that email already belongs to someone on this team");
+        }
+        throw e;
+      }
+    }
+    const secret = await insertLink(tx, person.id, SIGNIN_LINK_TTL_MS);
+    return { person, role, secret };
+  });
+}
+
+/**
+ * A one-time sign-in link for the person with this email, or null when no one has it or they
+ * already have an unused link from the last minute. Locks the person, so two requests at once
+ * mint one link.
+ */
+export async function emailSignInLink(db: Db, email: string): Promise<{ person: ActorRef; secret: string } | null> {
+  return db.begin(async (tx) => {
+    const [a] = await tx`select id, name from actors where email = ${email} and kind = 'person' for no key update`;
+    if (!a) return null;
+    const [recent] = await tx`
+      select 1 from signin_links
+      where actor_id = ${a.id as string} and emailed and used_at is null and expires_at > clock_timestamp()
+        and created_at > clock_timestamp() - ${EMAIL_LINK_GAP_MS}::float8 * interval '1 millisecond'`;
+    if (recent) return null;
+    const secret = await insertLink(tx, a.id as string, EMAIL_LINK_TTL_MS, true);
+    return { person: { id: a.id as string, name: a.name as string, kind: "person" as const }, secret };
+  });
 }
 
 /** Marks every unused link of the actor used, so none of them signs in any more. */
@@ -94,19 +132,25 @@ export async function consumeSignInLink(
       returning actor_id`;
     if (!link) throw invalid();
     await cancelLinks(tx, a.id as string);
-    const sessionSecret = newSessionSecret();
-    const [s] = await tx`
-      insert into sessions (id, actor_id, hash, expires_at)
-      values (${newId("ses")}, ${a.id as string}, ${hashToken(sessionSecret)},
-              clock_timestamp() + ${SESSION_TTL_MS}::float8 * interval '1 millisecond')
-      returning expires_at`;
+    const { sessionSecret, expiresAt } = await insertSession(tx, a.id as string);
     return {
       actor: { id: a.id as string, name: a.name as string, kind: "person" as const },
       role: a.role as Role,
       sessionSecret,
-      expiresAt: (s!.expires_at as Date).toISOString(),
+      expiresAt,
     };
   });
+}
+
+/** Starts a 30-day board session for a person; the secret goes in their cookie, only its hash is stored. */
+export async function insertSession(q: Q, actorId: string): Promise<{ sessionSecret: string; expiresAt: string }> {
+  const sessionSecret = newSessionSecret();
+  const [s] = await q`
+    insert into sessions (id, actor_id, hash, expires_at)
+    values (${newId("ses")}, ${actorId}, ${hashToken(sessionSecret)},
+            clock_timestamp() + ${SESSION_TTL_MS}::float8 * interval '1 millisecond')
+    returning expires_at`;
+  return { sessionSecret, expiresAt: (s!.expires_at as Date).toISOString() };
 }
 
 export async function authenticateSession(

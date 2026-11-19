@@ -14,3 +14,13 @@ test("TEAMKIT_PUBLIC_URL rejects an empty or invalid port", () => {
   assert.equal(loadConfig({ TEAMKIT_PUBLIC_URL: "http://localhost:3000/" }).publicUrl, "http://localhost:3000");
   assert.equal(loadConfig({ TEAMKIT_PUBLIC_URL: "http://[::1]:3000" }).publicUrl, "http://[::1]:3000");
 });
+
+test("mail is off unless TEAMKIT_SMTP_URL is set, and then needs TEAMKIT_MAIL_FROM", () => {
+  assert.equal(loadConfig({}).mail, null);
+  const from = "AG-UI TeamKit <teamkit@example.com>";
+  assert.deepEqual(loadConfig({ TEAMKIT_SMTP_URL: "smtp://mail.example.com:587", TEAMKIT_MAIL_FROM: from }).mail,
+    { smtpUrl: "smtp://mail.example.com:587", from });
+  assert.throws(() => loadConfig({ TEAMKIT_SMTP_URL: "smtp://mail.example.com" }), /TEAMKIT_MAIL_FROM is required/);
+  assert.throws(() => loadConfig({ TEAMKIT_SMTP_URL: "https://user:hunter2@mail.example.com", TEAMKIT_MAIL_FROM: from }),
+    (e: Error) => /smtp:\/\/ or smtps:\/\//.test(e.message) && !e.message.includes("hunter2"));
+});
