@@ -27,7 +27,10 @@ Files:
   export TEAMKIT="node $PWD/packages/cli/bin/teamkit.mjs"
   ```
 
-- For real agents, the `claude` command (Claude Code), signed in. The offline run needs nothing else.
+- For real agents, the `claude` command (Claude Code), signed in, and `teamkit` itself on your PATH: the agents are
+  allowed to run `teamkit ...` commands, and `node .../teamkit.mjs` is not one. One way, from the repository root:
+  `ln -s "$PWD/packages/cli/bin/teamkit.mjs" ~/.local/bin/teamkit` (any directory on your PATH works).
+  The offline run needs none of this.
 
 ## Create tokens
 
@@ -48,6 +51,22 @@ pnpm --silent --filter @teamkit/server admin agents create reviewer --rooms buil
 
 If the server uses a database other than the default, set `DATABASE_URL` to the same value for these commands.
 
+## Give each worker its own checkout
+
+Real agents edit files and run git where they start. Give every worker its own checkout of the repository the
+agents work on, so two agents never edit the same files and nothing lands in the TeamKit repository itself.
+With git worktrees of your project (here `~/code/myapp`):
+
+```sh
+cd ~/code/myapp
+git worktree add ../work-1
+git worktree add ../work-2
+git worktree add ../review-1
+```
+
+Start each worker from its own directory: `cd ~/code/work-1`, then run `workers.sh` by its full path.
+`workers.sh` refuses to start the default agent inside the TeamKit repository.
+
 ## Run it
 
 Every terminal needs the server address and its own token:
@@ -63,23 +82,40 @@ Terminal 1, the lead. It creates the plan and then waits:
 examples/swarm/lead.sh
 ```
 
-Terminals 2 and 3, two workers (use the `worker-1` and `worker-2` tokens). Each one claims `role=worker` tasks:
+Terminals 2 and 3, two workers (use the `worker-1` and `worker-2` tokens). Each one claims `role=worker` tasks,
+from its own worktree (`TEAMKIT_HOME` here is wherever you cloned TeamKit):
 
 ```sh
-examples/swarm/workers.sh
+cd ~/code/work-1   # work-2 in the other terminal
+"$TEAMKIT_HOME"/examples/swarm/workers.sh
 ```
 
 Terminal 4, the reviewer (use the `reviewer` token):
 
 ```sh
-ROLE=reviewer examples/swarm/workers.sh
+cd ~/code/review-1
+ROLE=reviewer "$TEAMKIT_HOME"/examples/swarm/workers.sh
 ```
 
 Each worker runs `teamkit run --ready build --label role=<role> --wait 10m -- sh -c "<agent command>"`.
 `teamkit run` claims a ready task, starts the agent with `TEAMKIT_TASK`, `TEAMKIT_URL` and `TEAMKIT_TOKEN` set,
-keeps the claim alive while the agent runs, and completes the task when the agent exits 0 (or fails it on any other code).
-The default agent command is `claude -p "$(cat "$PROMPT")"`, where the prompt is
-`skills/teamkit/prompts/<role>.md`. The reviewer only gets `review` after `limiter` is completed.
+and keeps the claim alive while the agent runs. The agent settles the task itself, with
+`teamkit tasks complete <id> "<result>"`, `fail` or `block`. If it exits without doing so, `run` fails the task on a
+non-zero exit, and on exit 0 completes it with the result "agent exited 0 without completing".
+The reviewer only gets `review` after `limiter` is completed.
+
+The default agent command is:
+
+```sh
+claude -p "$(sed "s|[$]TEAMKIT_TASK|$TEAMKIT_TASK|g; s|[$]TEAMKIT_ROOM|$TEAMKIT_ROOM|g" "$PROMPT")" \
+  --allowedTools "Bash(teamkit *)" "Bash(git *)" Read Edit Write Glob Grep
+```
+
+The prompt is `skills/teamkit/prompts/<role>.md`. `claude -p` cannot ask for permission, so `--allowedTools`
+approves what a worker needs up front: `teamkit` and `git` commands, and reading and editing files. Without it the
+agent can do nothing and exits 0. The prompt comes first because `--allowedTools` takes every argument after it.
+The `sed` writes the task id and room into the prompt: an allowed-tools rule never matches a command that contains a
+variable, so the agent has to type `teamkit read th_...` rather than `teamkit read $TEAMKIT_TASK`.
 
 Watch progress from any terminal that has a token:
 
@@ -97,27 +133,43 @@ These environment variables change what the scripts do:
 | `ROOM` | `build` | The room that holds the tasks |
 | `ROLE` | `worker` | `workers.sh` only: which label to claim, and which prompt to use |
 | `PROMPT` | `skills/teamkit/prompts/$ROLE.md` | `workers.sh` only: the prompt file |
-| `AGENT_CMD` | `claude -p "$(cat "$PROMPT")"` | `workers.sh` only: the agent command, run with `sh -c` |
+| `AGENT_CMD` | the command above | `workers.sh` only: the agent command, run with `sh -c` |
 | `PLAN` | `examples/swarm/plan.json` | `lead.sh` only: the plan to create |
-| `LEAD_CMD` | `claude -p "$LEAD_TEXT"` | `lead.sh` only: run for each blocked task, with `TEAMKIT_TASK` set to the blocked thread |
+| `LEAD_CMD` | `claude -p "$LEAD_TEXT" --allowedTools "Bash(teamkit *)" Read Glob Grep` | `lead.sh` only: run for each blocked task, with `TEAMKIT_TASK` set to the blocked thread |
 
 Other agents work too: set `AGENT_CMD` to any command that reads its task from `TEAMKIT_TASK`.
 
-### What the workers do when nothing is ready
+### What the workers do after each task
 
-`workers.sh` stops when `teamkit run` exits 130 (you pressed Ctrl-C). It prints "queue empty" and tries again when
-nothing was ready within 10 minutes (exit 3), and it logs and continues on any other code.
+`workers.sh` looks at how `teamkit run` exited:
+
+| Exit | Meaning | `workers.sh` |
+| --- | --- | --- |
+| `0` | the task was completed or blocked | takes the next task |
+| `3` | nothing was ready within 10 minutes | prints "queue empty" and waits again |
+| `4` | the agent command could not start (not found, not executable, `claude` not installed) | stops; the task was released for another worker |
+| `130` | you pressed Ctrl-C | stops |
+| other | the task failed, or the server could not be reached | waits 5 s, doubling up to 60 s, then tries again |
+
+Ctrl-C reaches the agent once, through `teamkit run`, which releases the task when the agent has stopped.
+Press Ctrl-C a second time to kill the agent at once.
 
 ### Questions that need a person
 
-When a worker runs `teamkit tasks block <id> "<question>"`, the lead's `LEAD_CMD` reads the thread and answers it.
-A task blocked with `--kind awaiting_approval` is different: it needs a person, and the lead's token is refused.
-`lead.sh` reports the failure and keeps waiting; the person answers it, for example with `teamkit tasks answer <id> "go ahead"`.
+When a worker runs `teamkit tasks block <id> "<question>"`, the lead's `LEAD_CMD` reads the thread and answers it
+with `teamkit tasks answer`. The question and the answer both stay in the thread, so the worker that picks the task up
+again reads them in order.
+A task blocked with `--kind awaiting_approval` is different: only a person signed in to the board can answer it.
+No token can, the lead's included (`teamkit tasks answer` fails with `approval_requires_person`). `lead.sh` reports
+the failure and keeps waiting; the person approves it on the web board (coming in this release) or in Slack.
+
+If a task fails, the tasks that need it can never run. `lead.sh` reports them as stuck, and when nothing else is
+left to finish it exits 1.
 
 ## Try it with no model
 
-`fake-agent.sh` reads the task, replies twice and exits 0, so `teamkit run` completes the task.
-Set the agent command, and the rest is the same:
+`fake-agent.sh` reads the task, replies twice and completes it. It edits nothing, so it can run from the repository
+root. Set the agent command, and the rest is the same:
 
 ```sh
 # Workers and reviewer
