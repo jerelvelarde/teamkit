@@ -56,3 +56,18 @@ Never write the key to a file in the repo.
 ```sh
 teamkit agents register researcher --url http://127.0.0.1:8790/researcher --rooms research
 ```
+
+## lead
+
+A scripted agent that acts as a room's lead. TeamKit wakes it with a message like
+`Task th_0123456789abcdef in build/ is now blocked: ...`. On a blocked task it reads the
+thread with `teamkit_read`. A `needs_input` question gets `teamkit_answer` with the first
+option, or "Go with your recommendation." when there are no options. Approvals need a
+person, so it leaves those alone. For any other state it just notes it. It calls the board
+tools as client-side AG-UI tools and finishes the run; the dispatcher runs them and calls it
+again with the results.
+
+```sh
+teamkit agents register lead --url http://127.0.0.1:8790/lead --rooms build
+teamkit triggers add lead-wake --room build/ --kinds task.blocked,task.completed,task.failed --agent lead
+```
