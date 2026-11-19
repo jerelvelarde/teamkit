@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { startTestServer } from "../../../apps/server/test/helpers/server.js";
 import { personAuth } from "../../../apps/server/test/helpers/actors.js";
 import { approveDevice } from "../../../apps/server/src/store/device.js";
-import { TeamkitError } from "../src/client.js";
+import { TeamkitError, createClient } from "../src/client.js";
 import { pollDeviceLogin, startDeviceLogin, waitForDeviceLogin } from "../src/device.js";
 
 const CODE = /^[B-DF-HJ-NP-TV-XZ]{4}-[B-DF-HJ-NP-TV-XZ]{4}$/;
@@ -81,6 +81,22 @@ test("an unknown device code is not_found", async () => {
       assert.equal(e.code, "not_found");
       return true;
     });
+  } finally {
+    await srv.stop();
+  }
+});
+
+test("agent mode: start, approve with rooms, and wait resolves with <person>-agent", async () => {
+  const srv = await startTestServer();
+  try {
+    const ana = await personAuth(srv.db, "ana", "member");
+    const start = await startDeviceLogin(srv.url, { mode: "agent" });
+    assert.ok(start.verifyUrl.endsWith(`/device?code=${start.userCode}&mode=agent`));
+    const waiting = waitForDeviceLogin(srv.url, start, { sleep: fast });
+    await approveDevice(srv.db, ana, start.userCode, ["billing-migration"]);
+    const out = await waiting;
+    assert.deepEqual([out.actor.name, out.actor.kind], ["ana-agent", "agent"]);
+    assert.equal((await createClient({ url: srv.url, token: out.token }).whoami()).scope, "agent");
   } finally {
     await srv.stop();
   }

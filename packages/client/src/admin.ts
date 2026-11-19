@@ -1,10 +1,13 @@
 import type {
   AgentInfo,
   AgentRegistration,
+  CreatedJoinLink,
   CreatedToken,
   CreatedTrigger,
   GrantSpec,
   Invite,
+  JoinLink,
+  JoinLinkInput,
   PersonInfo,
   RoomInfo,
   RoomSettingsInput,
@@ -19,9 +22,13 @@ export interface AdminClient {
   whoami(): Promise<Whoami>;
   people(): Promise<PersonInfo[]>;
   /** Needs an admin signed in on the web board (cookie mode); an admin-scope token gets 403. */
-  invitePerson(input: { name: string; role?: "admin" | "member" }): Promise<Invite>;
+  invitePerson(input: { name: string; role?: "admin" | "member"; email?: string }): Promise<Invite>;
   /** Needs an admin signed in on the web board (cookie mode); an admin-scope token gets 403. */
   personLink(name: string): Promise<{ link: string }>;
+  joinLinks(): Promise<JoinLink[]>;
+  /** Needs an admin signed in on the web board (cookie mode); an admin-scope token gets 403. The link is shown only here. */
+  createJoinLink(input?: JoinLinkInput): Promise<CreatedJoinLink>;
+  revokeJoinLink(id: string): Promise<void>;
   tokens(): Promise<TokenInfo[]>;
   createTokens(input: { name: string; rooms: GrantSpec[]; count?: number }): Promise<CreatedToken[]>;
   revokeToken(id: string): Promise<void>;
@@ -76,6 +83,11 @@ export function createAdminClient(opts: ClientOptions): AdminClient {
     people: () => json("GET", "/admin/people"),
     invitePerson: (input) => json("POST", "/admin/people", input),
     personLink: (name) => json("POST", `/admin/people/${enc(name)}/link`, {}),
+    joinLinks: () => json("GET", "/admin/join-links"),
+    createJoinLink: (input = {}) => json("POST", "/admin/join-links", input),
+    revokeJoinLink: async (id) => {
+      await json("POST", `/admin/join-links/${enc(id)}/revoke`, {});
+    },
     tokens: () => json("GET", "/admin/tokens"),
     createTokens: async (input) => (await json<{ tokens: CreatedToken[] }>("POST", "/admin/tokens", input)).tokens,
     revokeToken: async (id) => {
