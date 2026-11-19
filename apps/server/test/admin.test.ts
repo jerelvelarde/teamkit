@@ -77,13 +77,13 @@ test("a bad permission exits 1 with invalid_input", async () => {
 test("a room spec with no permissions exits 2 and creates no agent", async () => {
   await withTestDb(async (db, url) => {
     for (const spec of ["build:", "build: , "]) {
-      const r = run(url, ["agents", "create", "w", "--rooms", "*:read", spec]);
+      const r = run(url, ["agents", "create", "w", "--rooms", "*:read", "--rooms", spec]);
       assert.equal(r.code, 2, spec);
       assert.match(r.err, /no permissions/);
       assert.equal(r.out, "");
     }
     assert.equal((await db`select 1 from actors where name = 'w'`).length, 0);
-    const ok = run(url, ["agents", "create", "w", "--rooms", "build:read,post", "ops/:read"]);
+    const ok = run(url, ["agents", "create", "w", "--rooms", "build:read,post", "--rooms", "ops/:read"]);
     assert.equal(ok.code, 0, ok.err);
     const grants = await db`
       select g.room_pattern, g.perms from grants g join actors a on a.id = g.actor_id
@@ -253,5 +253,17 @@ test("teamkit-admin refuses embedded credentials in an agent url and a webhook u
     assert.equal(t.code, 1);
     assert.match(t.err, /invalid_input: .*credentials/);
     assert.equal((await db`select 1 from triggers`).length, 0);
+  });
+});
+
+test("agents create takes --rooms before or after the name, and repeats it for more rooms", async () => {
+  await withTestDb(async (db, url) => {
+    const first = run(url, ["agents", "create", "--rooms", "build:read,post", "alpha"]);
+    assert.equal(first.code, 0, first.err);
+    assert.match(first.out, /^alpha\ttk_/);
+    const second = run(url, ["agents", "create", "beta", "--rooms", "build:read", "--rooms", "ops/:read,post"]);
+    assert.equal(second.code, 0, second.err);
+    const auth = await authenticate(db, second.out.split("\t")[1]!.trim());
+    assert.equal(auth?.actor.name, "beta");
   });
 });

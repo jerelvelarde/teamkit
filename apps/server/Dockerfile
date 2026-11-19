@@ -15,7 +15,7 @@ RUN pnpm install --frozen-lockfile --filter "@teamkit/server..."
 
 FROM node:22-slim AS run
 WORKDIR /app
-ENV NODE_ENV=production PORT=8787
+ENV NODE_ENV=production PORT=8787 HOST=0.0.0.0
 COPY --from=deps --chown=node:node /app/node_modules ./node_modules
 COPY --from=deps --chown=node:node /app/packages/protocol/node_modules ./packages/protocol/node_modules
 COPY --from=deps --chown=node:node /app/apps/server/node_modules ./apps/server/node_modules

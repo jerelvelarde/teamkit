@@ -62,7 +62,7 @@ function buildProgram(): Command {
   agents
     .command("create <name>")
     .description("create an agent and print `name<TAB>token` lines (the only time a token is shown)")
-    .requiredOption("--rooms <spec...>", "grants as pattern:perm,perm", parseGrant)
+    .requiredOption("--rooms <spec>", "grants as pattern:perm,perm; repeat the option for more rooms", parseGrant)
     .option("--count <n>", "create <name>-1 .. <name>-n", parseCount)
     .exitOverride()
     .action(async (name: string, opts: { rooms: Grant[]; count?: number }) => {

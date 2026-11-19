@@ -40,7 +40,7 @@ function publicUrlVar(env: NodeJS.ProcessEnv): string {
   let ok = false;
   try {
     const u = new URL(raw);
-    ok = u.protocol === "http:" || u.protocol === "https:";
+    ok = (u.protocol === "http:" || u.protocol === "https:") && !/^[a-z]+:\/\/[^/?#]*:(?=\/|\?|#|$)/i.test(raw);
   } catch {
     ok = false;
   }
@@ -55,7 +55,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
   return {
     databaseUrl: env.DATABASE_URL || "postgres://teamkit@127.0.0.1:54329/teamkit",
     port,
-    host: env.HOST || "0.0.0.0",
+    host: env.HOST || "127.0.0.1",
     reapIntervalMs: intVar(env, "TEAMKIT_REAP_INTERVAL_MS", 15000, 1),
     publicUrl,
     dispatch: env.TEAMKIT_DISPATCH !== "off",
