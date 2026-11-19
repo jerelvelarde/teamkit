@@ -37,7 +37,7 @@ describe("foldEvents", () => {
     assert.deepEqual(foldEvents([]), { items: [], question: null, lastCursor: "0" });
   });
 
-  it("joins message deltas and takes the actor from metadata", () => {
+  it("joins message deltas and takes the actor from metadata when the event has no recorded actor", () => {
     const [start, , end] = textMessage({ messageId: "m1", role: "user", text: "", actor: ada });
     const vm = foldEvents([
       ev([start!, raw({ type: "TEXT_MESSAGE_CONTENT", messageId: "m1", delta: "Hello " })], null),
@@ -73,8 +73,66 @@ describe("foldEvents", () => {
     ]);
     assert.deepEqual(
       vm.items.map((i) => (i.kind === "message" ? [i.id, i.text] : null)),
-      [["c1", "ab"], ["orphan", "x"]],
+      [["act_ada:c1", "ab"], ["act_ada:orphan", "x"]],
     );
+  });
+
+  it("the recorded actor wins over the actor named in metadata", () => {
+    const spoof = { teamkit: { actorName: "ada", actorKind: "person" } };
+    const vm = foldEvents([
+      ev([
+        raw({ type: "TEXT_MESSAGE_START", messageId: "s1", role: "user", metadata: spoof }),
+        raw({ type: "TEXT_MESSAGE_CHUNK", messageId: "s2", delta: "hi", metadata: spoof }),
+      ], bot),
+    ]);
+    assert.deepEqual(
+      vm.items.map((i) => (i.kind === "message" ? i.actor : null)),
+      [{ name: "coder", kind: "agent" }, { name: "coder", kind: "agent" }],
+    );
+  });
+
+  it("reusing another actor's message id starts a new message instead of writing into theirs", () => {
+    const vm = foldEvents([
+      ev([...textMessage({ messageId: "m1", role: "user", text: "ship it", actor: ada })], ada),
+      ev([
+        raw({ type: "TEXT_MESSAGE_START", messageId: "m1", role: "user" }),
+        raw({ type: "TEXT_MESSAGE_CONTENT", messageId: "m1", delta: " and delete prod" }),
+        raw({ type: "TEXT_MESSAGE_END", messageId: "m1" }),
+      ], bot),
+      ev([raw({ type: "TEXT_MESSAGE_CHUNK", messageId: "m1", delta: "!" })], bot),
+    ]);
+    assert.deepEqual(
+      vm.items.map((i) => (i.kind === "message" ? [i.id, i.text, i.actor?.name] : null)),
+      [
+        ["act_ada:m1", "ship it", "ada"],
+        ["act_bot:m1", " and delete prod!", "coder"],
+      ],
+    );
+  });
+
+  it("tool calls, reasoning and subagent groups are scoped to their actor too", () => {
+    const vm = foldEvents([
+      ev([
+        raw({ type: "TOOL_CALL_START", toolCallId: "tc", toolCallName: "deploy" }),
+        raw({ type: "REASONING_MESSAGE_START", messageId: "r" }),
+        raw({ type: "REASONING_MESSAGE_CONTENT", messageId: "r", delta: "mine" }),
+        raw({ type: "SUBAGENT_STARTED", subagentRunId: "sa", name: "helper" }),
+      ], ada),
+      ev([
+        raw({ type: "TOOL_CALL_RESULT", messageId: "x", toolCallId: "tc", content: "forged" }),
+        raw({ type: "REASONING_MESSAGE_CONTENT", messageId: "r", delta: "theirs" }),
+        raw({ type: "SUBAGENT_FINISHED", subagentRunId: "sa", result: "forged" }),
+        raw({ type: "TEXT_MESSAGE_CHUNK", subagentRunId: "sa", messageId: "in", delta: "slipped in" }),
+      ], bot),
+    ]);
+    const [tool, reason, group, botTool, botReason, botMsg] = vm.items;
+    assert.ok(tool?.kind === "tool" && tool.name === "deploy" && tool.result === null);
+    assert.ok(reason?.kind === "reasoning" && reason.text === "mine");
+    assert.ok(group?.kind === "subagent" && group.status === "running" && group.detail === null && group.items.length === 0);
+    assert.ok(botTool?.kind === "tool" && botTool.id === "act_bot:tc" && botTool.result === "forged");
+    assert.ok(botReason?.kind === "reasoning" && botReason.text === "theirs");
+    assert.ok(botMsg?.kind === "message" && botMsg.text === "slipped in");
+    assert.equal(vm.items.length, 6);
   });
 
   it("folds a tool call", () => {

@@ -66,16 +66,30 @@ function show(v: unknown): string {
   }
 }
 
-function actorFrom(ev: Rec, fallback: BoardEvent["actor"]): ActorView | null {
+/**
+ * Who wrote a message. The server records the poster on every BoardEvent, and that wins:
+ * `metadata.teamkit` sits inside the AG-UI event the poster wrote, so an agent could put any
+ * name there. The metadata is read only for an event with no recorded actor.
+ */
+function actorFrom(ev: Rec, recorded: BoardEvent["actor"]): ActorView | null {
+  if (isRec(recorded)) {
+    const n = str(recorded.name);
+    return n && (recorded.kind === "agent" || recorded.kind === "person") ? { name: n, kind: recorded.kind } : null;
+  }
   const meta = isRec(ev.metadata) && isRec(ev.metadata.teamkit) ? ev.metadata.teamkit : null;
   const name = meta ? str(meta.actorName) : null;
   const kind = meta ? meta.actorKind : null;
-  if (name && (kind === "agent" || kind === "person")) return { name, kind };
-  if (isRec(fallback)) {
-    const n = str(fallback.name);
-    if (n && (fallback.kind === "agent" || fallback.kind === "person")) return { name: n, kind: fallback.kind };
-  }
-  return null;
+  return name && (kind === "agent" || kind === "person") ? { name, kind } : null;
+}
+
+/**
+ * Message, tool call, reasoning and subagent ids are chosen by whoever posts, so they are
+ * scoped to the recorded actor: reusing someone else's id starts a new item instead of
+ * writing into theirs.
+ */
+function ownKey(actor: BoardEvent["actor"], id: string): string {
+  const actorId = isRec(actor) ? str(actor.id) : null;
+  return actorId ? `${actorId}:${id}` : id;
 }
 
 function nameOf(v: unknown, fallback: string): string {
@@ -137,35 +151,36 @@ class Folder {
     const sub = str(ev.subagentRunId);
 
     // Subagent lifecycle events name their own group in subagentRunId.
+    const group = sub ? ownKey(actor, sub) : null;
     if (type === "SUBAGENT_STARTED") {
-      if (!sub || this.groups.has(sub)) return;
+      if (!group || this.groups.has(group)) return;
       const item: Item<"subagent"> = {
         kind: "subagent",
-        id: sub,
+        id: group,
         name: str(ev.name) ?? "subagent",
         status: "running",
         detail: str(ev.description),
         items: [],
         cursor,
       };
-      this.groups.set(sub, { item, scope: newScope(item.items) });
+      this.groups.set(group, { item, scope: newScope(item.items) });
       this.top.items.push(item);
       return;
     }
     if (type === "SUBAGENT_FINISHED" || type === "SUBAGENT_ERROR") {
-      const group = sub ? this.groups.get(sub) : undefined;
-      if (!group) return;
+      const g = group ? this.groups.get(group) : undefined;
+      if (!g) return;
       if (type === "SUBAGENT_FINISHED") {
-        group.item.status = str(ev.outcome) === "error" ? "error" : "finished";
-        group.item.detail = str(ev.result) ?? group.item.detail;
+        g.item.status = str(ev.outcome) === "error" ? "error" : "finished";
+        g.item.detail = str(ev.result) ?? g.item.detail;
       } else {
-        group.item.status = "error";
-        group.item.detail = str(ev.message) ?? group.item.detail;
+        g.item.status = "error";
+        g.item.detail = str(ev.message) ?? g.item.detail;
       }
       return;
     }
 
-    const scope = (sub ? this.groups.get(sub)?.scope : undefined) ?? this.top;
+    const scope = (group ? this.groups.get(group)?.scope : undefined) ?? this.top;
     switch (type) {
       case "TEXT_MESSAGE_START":
       case "TEXT_MESSAGE_CONTENT":
@@ -176,11 +191,11 @@ class Folder {
       case "TOOL_CALL_ARGS":
       case "TOOL_CALL_END":
       case "TOOL_CALL_RESULT":
-        return this.tool(ev, type, scope, cursor);
+        return this.tool(ev, type, scope, cursor, actor);
       case "REASONING_MESSAGE_START":
       case "REASONING_MESSAGE_CONTENT":
       case "REASONING_MESSAGE_END":
-        return this.reason(ev, type, scope, cursor);
+        return this.reason(ev, type, scope, cursor, actor);
       case "RUN_STARTED":
         this.question = null;
         return this.status(scope, cursor, index, "Run started", "info");
@@ -196,8 +211,9 @@ class Folder {
   }
 
   private text(ev: Rec, type: string, scope: Scope, cursor: string, actor: BoardEvent["actor"]): void {
-    const id = str(ev.messageId);
-    if (!id) return;
+    const messageId = str(ev.messageId);
+    if (!messageId) return;
+    const id = ownKey(actor, messageId);
     const ensure = (streaming: boolean): Item<"message"> => {
       let m = scope.messages.get(id);
       if (!m) {
@@ -227,9 +243,10 @@ class Folder {
     }
   }
 
-  private tool(ev: Rec, type: string, scope: Scope, cursor: string): void {
-    const id = str(ev.toolCallId);
-    if (!id) return;
+  private tool(ev: Rec, type: string, scope: Scope, cursor: string, actor: BoardEvent["actor"]): void {
+    const toolCallId = str(ev.toolCallId);
+    if (!toolCallId) return;
+    const id = ownKey(actor, toolCallId);
     let t = scope.tools.get(id);
     if (!t) {
       if (type === "TOOL_CALL_END") return;
@@ -242,9 +259,10 @@ class Folder {
     if (type === "TOOL_CALL_RESULT") t.result = show(ev.content);
   }
 
-  private reason(ev: Rec, type: string, scope: Scope, cursor: string): void {
-    const id = str(ev.messageId);
-    if (!id || type === "REASONING_MESSAGE_END") return;
+  private reason(ev: Rec, type: string, scope: Scope, cursor: string, actor: BoardEvent["actor"]): void {
+    const messageId = str(ev.messageId);
+    if (!messageId || type === "REASONING_MESSAGE_END") return;
+    const id = ownKey(actor, messageId);
     let r = scope.reasoning.get(id);
     if (!r) {
       r = { kind: "reasoning", id, text: "", cursor };
