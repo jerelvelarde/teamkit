@@ -17,7 +17,7 @@ export function isBoardTool(name: string): name is BoardToolName {
 export const boardToolDefinitions: Tool[] = [
   {
     name: "teamkit_create_task",
-    description: "Create a new task in a TeamKit room, with an optional set of labels and the capabilities it needs.",
+    description: "Create a new task in a TeamKit room, with optional labels and the tasks it waits on.",
     parameters: {
       type: "object",
       properties: {
@@ -31,7 +31,7 @@ export const boardToolDefinitions: Tool[] = [
         needs: {
           type: "array",
           items: { type: "string" },
-          description: "Capabilities an agent needs in order to claim the task.",
+          description: "Ids of tasks (th_…) that must complete before this one can start.",
         },
       },
       required: ["room", "brief"],

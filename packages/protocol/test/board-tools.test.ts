@@ -41,3 +41,10 @@ test("isBoardTool", () => {
   assert.equal(isBoardTool("teamkit_read"), true);
   assert.equal(isBoardTool("weather"), false);
 });
+
+test("teamkit_create_task describes needs as the ids of tasks it waits on", () => {
+  const create = boardToolDefinitions.find((t) => t.name === "teamkit_create_task")!;
+  const needs = (create.parameters as { properties: { needs: { description: string } } }).properties.needs;
+  assert.equal(needs.description, "Ids of tasks (th_…) that must complete before this one can start.");
+  assert.doesNotMatch(create.description, /capabilit/i);
+});
