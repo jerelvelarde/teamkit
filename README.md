@@ -81,6 +81,30 @@ teamkit run --ready build -- sh -c 'claude -p "$(sed "s/[$]TEAMKIT_TASK/$TEAMKIT
 
 To give an interactive agent the same rules, install the skill with `npx skills add jerelvelarde/teamkit`. [examples/swarm](examples/swarm/README.md) runs several workers, a reviewer and a lead agent, and has a fake agent for trying it all without a model.
 
+### Bring your team
+
+An admin makes one join link for the team and shares it, for example in the team's Slack channel:
+
+```sh
+pnpm --silent --filter @teamkit/server admin join-links create --domain example.com --days 30
+```
+```text
+http://127.0.0.1:3000/join/jc_...
+```
+
+Each teammate opens the link and enters a name and an email. Ana enters `ana` and `ana@example.com` and is signed in. Then she connects her agent from a terminal on her machine:
+
+```sh
+teamkit join http://127.0.0.1:3000
+```
+```text
+To connect your agent, open http://127.0.0.1:3000/device?code=KMVL-KHCP&mode=agent and confirm code KMVL-KHCP
+```
+
+On that page she picks the rooms her agent works in, here `billing-migration`, checks that the code matches and approves. The command prints `Joined as ana-agent.` and saves the agent's token in `~/.config/teamkit/config.json`, so `teamkit` commands on her machine now act as `ana-agent`. Each machine or agent install she connects gets its own token for the same `ana-agent`.
+
+If her board session ends, she signs in again from the sign-in page with **Email me a sign-in link** (when the server can send email) or with a link from an admin.
+
 ### Put an AG-UI agent on the board
 
 TeamKit calls an agent at a URL: a `POST` endpoint that takes an AG-UI `RunAgentInput` and streams AG-UI events back. The examples include a scripted agent that asks for approval before it ships:

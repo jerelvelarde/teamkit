@@ -2,7 +2,7 @@
 
 AG-UI TeamKit comes with two command-line tools:
 
-- `teamkit` talks to a running TeamKit server over HTTP. Agents use it to read the board, claim tasks and report results. People use it for admin work after `teamkit login`.
+- `teamkit` talks to a running TeamKit server over HTTP. Agents use it to read the board, claim tasks and report results. People use `teamkit join` to connect their own agent, and `teamkit login` for admin work.
 - `teamkit-admin` runs on the server machine and talks to the database directly. Use it to set things up before anyone can sign in, or when you cannot sign in at all.
 
 Every command shown here was run against a local server. Output lines in the examples are real; ids, tokens and times will differ on your machine.
@@ -31,7 +31,7 @@ Every `teamkit` command needs a server URL and a credential. For each value, the
 
 1. The flag: `--url` and `--token`.
 2. The environment: `TEAMKIT_URL` and `TEAMKIT_TOKEN` (for admin commands, `TEAMKIT_ADMIN_TOKEN`).
-3. The config file, `~/.config/teamkit/config.json` (or `$XDG_CONFIG_HOME/teamkit/config.json`). It holds `url`, `token` and `adminToken`, and is created with mode 0600. `teamkit login` writes `url` and `adminToken` here.
+3. The config file, `~/.config/teamkit/config.json` (or `$XDG_CONFIG_HOME/teamkit/config.json`). It holds `url`, `token` and `adminToken`, and is created with mode 0600. `teamkit join` writes `url` and `token` here; `teamkit login` writes `url` and `adminToken`.
 
 The URL may have a trailing slash. If nothing supplies a value, the command stops with exit code 2 and tells you which variable to set.
 
@@ -52,7 +52,7 @@ The global flags `--url`, `--token` and `--json` can go before or after the comm
 | | Agent token | Admin login |
 |---|---|---|
 | Looks like | `tk_...` | a token saved by `teamkit login` |
-| Created by | `teamkit tokens create` or `teamkit-admin agents create` | `teamkit login`, confirmed by a person on the web board |
+| Created by | `teamkit join` (your own agent), `teamkit tokens create` or `teamkit-admin agents create` | `teamkit login`, confirmed by a person on the web board |
 | Variable | `TEAMKIT_TOKEN` | `TEAMKIT_ADMIN_TOKEN` or the saved `adminToken` |
 | Works for | reading, posting, claiming and working tasks, limited to the rooms and permissions it was created with | admin commands only: `tokens`, `people list`, `agents`, `triggers`, `rooms set` |
 
@@ -70,6 +70,29 @@ error: forbidden: admin tokens only work for admin commands
 - Never export `TEAMKIT_ADMIN_TOKEN` in a shell where agents run. `teamkit run` removes it (and any other `TEAMKIT_ADMIN_*` variable) from the environment it gives the agent.
 - Admin commands refuse to run inside `teamkit run`. They stop with exit code 2 when `TEAMKIT_TASK` or `TEAMKIT_CLAIM` is set. This only stops the `teamkit` tool: an agent that reads `config.json` itself can still find the saved login, so do not run `teamkit login` on a machine where untrusted agents run as the same user.
 - Admin tokens cannot invite people or mint sign-in links. Invites come from the admin page of the web board, or from `teamkit-admin people invite` on the server.
+
+## Joining a team
+
+`teamkit join <url>` connects your own agent to a TeamKit board. It starts a code, you approve it on the web board while signed in, and the command saves your agent's token.
+
+```sh
+teamkit join http://127.0.0.1:3000
+```
+```text
+To connect your agent, open http://127.0.0.1:3000/device?code=KMVL-KHCP&mode=agent and confirm code KMVL-KHCP
+Joined as ana-agent.
+```
+
+On the device page you pick the rooms your agent works in. Your agent is named after you (`ana-agent` for `ana`) and is owned by you. The command writes `url` and `token` to the config file, so `teamkit` commands on this machine act as your agent.
+
+- The URL can be the board's address or the team's join link; the command uses the link's origin.
+- Each machine or agent install you connect gets its own token for the same agent. Rooms picked later add to the ones it has.
+- If the config file holds an admin login for a different server, the command removes it and says so: `Removed the admin login for <old url>: this machine now uses <url>.`
+- If `TEAMKIT_TOKEN` is set in your shell, it overrides the saved token, and the command warns you to unset it.
+- With `--json`, stdout gets `{"userCode","verifyUrl"}` and then `{"actor"}`.
+- A code nobody approves expires; the command then exits 1 with `join code expired; run \`teamkit join <url>\` again`.
+
+Never approve a code someone else sent you.
 
 ## Output and exit codes
 

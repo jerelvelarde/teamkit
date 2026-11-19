@@ -210,3 +210,22 @@ test("two agent-mode approvals at once for one person make one agent and two tok
     assert.equal((await db`select count(*)::int as n from actors where name = 'ana-agent'`)[0]!.n, 1);
   });
 });
+
+test("a poll that waits on an agent-mode approval sees the agent the approval created", async () => {
+  await withTestDb(async (db) => {
+    const ana = await personAuth(db, "ana", "member");
+    const d = await startDevice(db, "agent");
+    // Do what an agent-mode approval writes, holding the code's row lock while the poll starts.
+    let polling!: ReturnType<typeof pollDevice>;
+    await db.begin(async (tx) => {
+      await tx`select 1 from device_codes where user_code = ${d.userCode} for update`;
+      await tx`insert into actors (id, kind, name, owner_id) values ('ac_race', 'agent', 'ana-agent', ${ana.actor.id})`;
+      await tx`update device_codes set actor_id = 'ac_race', approved_at = now() where user_code = ${d.userCode}`;
+      polling = pollDevice(db, d.deviceCode);
+      await sleep(200);
+    });
+    const got = await polling;
+    assert.equal(got.status, "approved");
+    if (got.status === "approved") assert.deepEqual(got.actor, { id: "ac_race", name: "ana-agent", kind: "agent" });
+  });
+});

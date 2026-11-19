@@ -128,15 +128,17 @@ export async function pollDevice(db: Db, deviceCode: string): Promise<DevicePoll
   const hash = typeof deviceCode === "string" ? hashToken(deviceCode) : "";
   return db.begin(async (tx): Promise<DevicePoll> => {
     const [row] = await tx`
-      select d.actor_id, d.approved_at, d.consumed_at, d.expires_at <= now() as expired, d.mode,
-             a.name, a.kind
-      from device_codes d left join actors a on a.id = d.actor_id
-      where d.code = ${hash}
-      for update of d`;
+      select actor_id, approved_at, consumed_at, expires_at <= now() as expired, mode
+      from device_codes where code = ${hash}
+      for update`;
     if (!row) throw new BoardError("not_found", "unknown device code");
     // An approved code is collectable once, and only until it expires.
     if (row.consumed_at || row.expired) return { status: "expired" };
     if (!row.approved_at) return { status: "pending" };
+    // Read the actor in its own statement: a poll that waited on the approval's row lock would
+    // otherwise join against a snapshot from before the approval created the person's agent.
+    const [a] = await tx`select name, kind from actors where id = ${row.actor_id as string}`;
+    if (!a) throw new BoardError("not_found", "unknown device code");
     const token = newTokenSecret();
     const tokenId = newId("tok");
     await tx`insert into tokens (id, actor_id, hash, scope)
@@ -145,7 +147,7 @@ export async function pollDevice(db: Db, deviceCode: string): Promise<DevicePoll
     return {
       status: "approved",
       token,
-      actor: { id: row.actor_id as string, name: row.name as string, kind: row.kind as "agent" | "person" },
+      actor: { id: row.actor_id as string, name: a.name as string, kind: a.kind as "agent" | "person" },
     };
   });
 }
