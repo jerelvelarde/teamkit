@@ -1,8 +1,12 @@
+import { DEFAULT_PUBLIC_URL } from "./store/people.js";
+
 export interface Config {
   databaseUrl: string;
   port: number;
   host: string;
   reapIntervalMs: number;
+  /** The web board's public origin, no trailing slash; used for links shown to people. */
+  publicUrl: string;
 }
 
 function intVar(env: NodeJS.ProcessEnv, name: string, fallback: number, min: number): number {
@@ -15,6 +19,20 @@ function intVar(env: NodeJS.ProcessEnv, name: string, fallback: number, min: num
   return n;
 }
 
+function publicUrlVar(env: NodeJS.ProcessEnv): string {
+  const raw = env.TEAMKIT_PUBLIC_URL;
+  if (raw === undefined || raw === "") return DEFAULT_PUBLIC_URL;
+  let ok = false;
+  try {
+    const u = new URL(raw);
+    ok = u.protocol === "http:" || u.protocol === "https:";
+  } catch {
+    ok = false;
+  }
+  if (!ok) throw new Error(`TEAMKIT_PUBLIC_URL must be an http(s) URL, got "${raw}"`);
+  return raw.replace(/\/+$/, "");
+}
+
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
   const port = intVar(env, "PORT", 8787, 0);
   if (port > 65535) throw new Error(`PORT must be at most 65535, got "${env.PORT}"`);
@@ -23,5 +41,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     port,
     host: env.HOST || "0.0.0.0",
     reapIntervalMs: intVar(env, "TEAMKIT_REAP_INTERVAL_MS", 15000, 1),
+    publicUrl: publicUrlVar(env),
   };
 }

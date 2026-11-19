@@ -6,6 +6,7 @@ import { createDb } from "./db/pool.js";
 import { migrate } from "./db/migrate.js";
 import { createApp } from "./http/app.js";
 import { createNotifier } from "./notifier.js";
+import { ensureBootstrapLink, signInUrl } from "./store/people.js";
 import { reapExpired } from "./store/reaper.js";
 
 const config = loadConfig();
@@ -13,8 +14,20 @@ const db = createDb(config.databaseUrl);
 const applied = await migrate(db);
 console.log(`migrations applied: ${applied.length ? applied.join(", ") : "none"}`);
 
+const bootstrapSecret = await ensureBootstrapLink(db);
+if (bootstrapSecret) {
+  console.log(
+    [
+      "",
+      "No one has signed in yet. Open this link to sign in as the first admin.",
+      `bootstrap admin sign-in link (valid 24 h): ${signInUrl(config.publicUrl, bootstrapSecret)}`,
+      "",
+    ].join("\n"),
+  );
+}
+
 const notifier = await createNotifier(db);
-const app = createApp({ db, notifier });
+const app = createApp({ db, notifier, publicUrl: config.publicUrl });
 
 const reaper = setInterval(() => {
   reapExpired(db).then(
