@@ -1,9 +1,8 @@
 import type { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
 import type { AppDeps } from "./app.js";
-import { bearerToken, type AppEnv } from "./auth.js";
+import { credentialsOf, credentialsValid, type AppEnv } from "./auth.js";
 import { eventQueryFromRequest } from "./body.js";
-import { authenticate } from "../store/actors.js";
 import { currentCursor } from "../store/events.js";
 import { readEvents, validateEventQuery } from "../store/feed.js";
 
@@ -23,8 +22,9 @@ const DEFAULT_MAX_MS = 30 * 60_000;
  * A live tail first writes an id-only frame holding its start cursor, so a client
  * that reconnects before any event arrives resumes from there, not from a newer head.
  *
- * Each ping re-checks the bearer token and ends the stream once it no longer
- * authenticates (revoked). Every stream also ends after `maxMs`; the client then
+ * Each ping re-checks the bearer token or session cookie the stream opened with and
+ * ends the stream once it no longer authenticates (revoked, or a session that
+ * expired). Every stream also ends after `maxMs`; the client then
  * reconnects with Last-Event-ID and is authenticated afresh.
  */
 export function registerStream(
@@ -37,7 +37,7 @@ export function registerStream(
 
   v1.get("/events/stream", async (c) => {
     const auth = c.get("auth");
-    const token = bearerToken(c.req.header("authorization"));
+    const creds = credentialsOf(c);
     const q = eventQueryFromRequest(c);
     const lastEventId = c.req.header("last-event-id");
     if (lastEventId !== undefined && lastEventId !== "") q.after = lastEventId;
@@ -75,8 +75,8 @@ export function registerStream(
         if (checking) return;
         checking = true;
         try {
-          // Hash and look the token up again: a revoked token loses its stream here.
-          if (token === undefined || !(await authenticate(deps.db, token))) return stop();
+          // Hash and look the credential up again: a revoked token or session loses its stream here.
+          if (!(await credentialsValid(deps.db, creds))) return stop();
           await stream.write(": ping\n\n");
         } catch {
           stop();
