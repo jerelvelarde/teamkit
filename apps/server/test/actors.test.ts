@@ -139,6 +139,22 @@ test("a person can do everything", async () => {
   });
 });
 
+test("an admin-scope token holds no board permission, even for a person", async () => {
+  await withTestDb(async (db) => {
+    const p = await personAuth(db, "ann", "admin");
+    const adminToken = { ...p, via: "token" as const, scope: "admin" as const };
+    for (const perm of ["read", "post", "claim", "create"] as const) {
+      await assert.rejects(requirePerm(db, adminToken, "any/room", perm), (e) => {
+        assert.ok(code("forbidden")(e));
+        assert.equal((e as Error).message, `ann uses an admin token, which cannot ${perm} in any/room`);
+        return true;
+      });
+      // The same person through a session still can.
+      await requirePerm(db, p, "any/room", perm);
+    }
+  });
+});
+
 test("an agent with an owner records owner_id", async () => {
   await withTestDb(async (db) => {
     const p = await createPerson(db, { name: "ann", role: "admin" });

@@ -196,12 +196,19 @@ export async function can(q: Q, actor: ActorRef, room: string, perm: Permission)
   );
 }
 
+/**
+ * Throws forbidden unless the caller may use `perm` in `room`. Admin-scope tokens
+ * are for admin commands only (spec 7.5), so they hold no board permission at all.
+ */
 export async function requirePerm(
   q: Q,
   auth: AuthContext,
   room: string,
   perm: Permission,
 ): Promise<void> {
+  if (auth.scope === "admin") {
+    throw new BoardError("forbidden", `${auth.actor.name} uses an admin token, which cannot ${perm} in ${room}`);
+  }
   if (!(await can(q, auth.actor, room, perm))) {
     throw new BoardError("forbidden", `${auth.actor.name} lacks ${perm} in ${room}`);
   }
