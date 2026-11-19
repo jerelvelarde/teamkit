@@ -11,6 +11,7 @@ import { block } from "../src/store/blocks.js";
 import { claimTask } from "../src/store/claims.js";
 import { loadTask } from "../src/store/task-load.js";
 import { createTask } from "../src/store/tasks.js";
+import { getThread } from "../src/store/threads.js";
 import { CHANNEL, SLACK_USER, seedBilling, type Billing } from "./helpers/billing.js";
 import { withTestDb } from "./helpers/db.js";
 import { fakeSlack, outboundOptions as out } from "./helpers/fake-slack.js";
@@ -128,5 +129,24 @@ test("a reply naming an option is refused the same way for someone the ask does 
     assert.equal(s.ephemerals.length, 1);
     assert.equal(s.ephemerals[0]!.ui, "This waits on sam. Only sam or an admin can answer it.");
     assert.equal((await loadTask(db, t.id))!.state, "blocked");
+  });
+});
+
+test("free text from someone a no-option ask does not wait on still reaches the task, with the note", async () => {
+  await withTestDb(async (db) => {
+    const b = await seedBilling(db);
+    const t = await createTask(db, b.benAgent, { room: "billing-prod", brief: "Confirm the invoice row counts" });
+    const c = await claimTask(db, b.benAgent, t.id);
+    await block(db, b.benAgent, t.id, c.claimId, { question: "What row count did the old database report?", kind: "needs_input", approvers: ["sam"] });
+    await saveSlackThread(db, { taskId: t.id, channel: CHANNEL.prod, ts: "7.000", conversationKey: "C0BILLPRD::7.000" });
+    const h = createSlackHandlers({ db, publicUrl: "http://board.test", defaultRoom: null, guest: await ensureSlackGuest(db) });
+    const s = stubThread();
+    await h.onMessage({ thread: s.thread, text: "sam has the count; checking now", slackUserId: SLACK_USER.ben, slackUserName: "ben", coordinates: null });
+    assert.equal(s.ephemerals.length, 1);
+    assert.equal(s.ephemerals[0]!.ui, "This waits on sam. Only sam or an admin can answer it.");
+    assert.equal((await loadTask(db, t.id))!.state, "blocked");
+    const view = await getThread(db, b.ana, t.id);
+    const texts = view.messages.map((m) => String((m as { content?: unknown }).content));
+    assert.ok(texts.includes("sam has the count; checking now"), JSON.stringify(texts));
   });
 });

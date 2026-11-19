@@ -183,7 +183,8 @@ export function createSlackHandlers(d: SlackHandlerDeps): {
    * Tries to answer a blocked task from a linked person's reply. True when it was handled.
    * needs_input takes an option in any case, or free text when it has no options. An approval
    * takes only an option's exact text: a casual "ok" or "yes" is a plain reply, and an approval
-   * with no options is answered only with a button or on the board.
+   * with no options is answered only with a button or on the board. Someone the ask does not
+   * wait on gets a private note; their free text still goes to the task as a plain reply.
    */
   async function tryAnswer(t: SlackTurn, auth: AuthContext, task: Task, text: string): Promise<boolean> {
     const block = task.state === "blocked" ? task.block : null;
@@ -206,7 +207,9 @@ export function createSlackHandlers(d: SlackHandlerDeps): {
     } catch (e) {
       if (isNotAnswererError(e)) {
         await t.thread.postEphemeral(t.slackUserId, await refusalFor(d.db, task.id), { fallbackToDM: false });
-        return true;
+        // An option's exact text was meant as the answer, so it stops here. Free text may be
+        // anything ("sam has the count"), so it still reaches the task as a plain reply.
+        return "choice" in input;
       }
       // Someone else answered between the read and the write: treat this as a plain reply.
       if (isBoardError(e) && e.code === "invalid_state") return false;
