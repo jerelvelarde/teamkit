@@ -7,6 +7,7 @@ import {
   authenticateSession,
   consumeSignInLink,
   createSignInLink,
+  emailSignInLink,
   ensureBootstrapLink,
   invitePerson,
   listPeople,
@@ -169,5 +170,19 @@ test("a new sign-in link deletes expired links and keeps live ones", async () =>
     const hashes = (await db`select hash from signin_links`).map((r) => r.hash as string).sort();
     assert.deepEqual(hashes, [hashToken(inv.secret), hashToken(fresh)].sort());
     assert.ok(!hashes.includes(hashToken(short)));
+  });
+});
+
+test("an invite can carry an email, lower-cased and unique, so email sign-in finds the person", async () => {
+  await withTestDb(async (db) => {
+    const ben = await invitePerson(db, { name: "ben", role: "member", email: " Ben@Example.com " });
+    assert.equal((await db`select email from actors where id = ${ben.person.id}`)[0]!.email, "ben@example.com");
+    assert.equal((await emailSignInLink(db, "ben@example.com"))?.person.name, "ben");
+    await assert.rejects(invitePerson(db, { name: "sam", role: "member", email: "ben@example.com" }), code("email_taken"));
+    await assert.rejects(invitePerson(db, { name: "sam", role: "member", email: "sam" }), code("invalid_input"));
+    assert.equal((await db`select count(*)::int as n from actors where name = 'sam'`)[0]!.n, 0);
+    await invitePerson(db, { name: "ana", role: "admin" });
+    await invitePerson(db, { name: "ana", role: "admin", email: "ana@example.com" });
+    assert.equal((await db`select email from actors where name = 'ana'`)[0]!.email, "ana@example.com");
   });
 });

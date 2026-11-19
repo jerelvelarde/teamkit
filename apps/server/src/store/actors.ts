@@ -146,7 +146,7 @@ export async function createAgentTokens(
 }
 
 export async function createPerson(
-  db: Db,
+  db: Q,
   input: { name: string; role: "admin" | "member" },
 ): Promise<ActorRef> {
   checkName(input.name);

@@ -602,12 +602,12 @@ wake	eng/	task.ready	agent reviewer	enabled
 
 ## teamkit-admin
 
-`teamkit-admin` runs on the server machine and writes to the database directly, with no token. It is how you create the first agents and invites before anyone has signed in, and it is why the database must only be reachable by people you trust.
+`teamkit-admin` runs on the server machine and writes to the database directly, with no token. It is how you create the first agents, invites and join links before anyone has signed in, and it is why the database must only be reachable by people you trust.
 
 | Variable | Meaning |
 |---|---|
 | `DATABASE_URL` | The database to use. Default `postgres://teamkit@127.0.0.1:54329/teamkit`. |
-| `TEAMKIT_PUBLIC_URL` | The web board's address, used to build sign-in links. Default `http://127.0.0.1:3000`. |
+| `TEAMKIT_PUBLIC_URL` | The web board's address, used to build sign-in and join links. Default `http://127.0.0.1:3000`. |
 
 It applies any pending database migrations before it runs. Output is plain text; there is no `--json`. Exit codes: 0 for success, 1 for a refused or failed command (`error: <code>: <message>` on stderr), 2 for wrong usage.
 
@@ -671,10 +671,11 @@ teamkit-admin rooms set ops --agent helper --approvers dana --slack-announce non
 
 ### people
 
-`teamkit-admin people invite [--admin] <name>` creates the person if they do not exist and prints a one-time sign-in link, valid for 24 hours. `--admin` makes a new person an admin; it does not change an existing person. Names are lowercase letters, digits and hyphens. Send the link to the person yourself.
+`teamkit-admin people invite [--admin] [--email <e>] <name>` creates the person if they do not exist and prints a one-time sign-in link, valid for 24 hours. `--admin` makes a new person an admin; it does not change an existing person. `--email` sets the person's email, so they can get a sign-in link by email later; it is lower-cased and belongs to one person. Names are lowercase letters, digits and hyphens. Send the link to the person yourself.
 
 ```sh
 teamkit-admin people invite sam
+teamkit-admin people invite ben --email ben@example.com
 ```
 ```text
 http://127.0.0.1:3000/signin/sl_...
@@ -683,6 +684,27 @@ http://127.0.0.1:3000/signin/sl_...
 `teamkit-admin people list` prints name, role and last sign-in time.
 
 When a server starts and nobody has signed in yet, it prints a first-admin sign-in link in its log. Use that, or `teamkit-admin people invite <name> --admin`, to get in the first time.
+
+### join-links
+
+`teamkit-admin join-links create [--days <n>] [--domain <d>]` makes a team join link and prints it, once. `--days` makes it expire (1 to 365; leave it out and it never expires). `--domain` limits it to emails at that domain, matched exactly; repeat it for more.
+
+```sh
+teamkit-admin join-links create --domain example.com --days 30
+```
+```text
+http://127.0.0.1:3000/join/jc_...
+```
+
+Share the link with your team. Anyone who has it can join as a member until it expires or you revoke it.
+
+`teamkit-admin join-links list` prints each link's id, uses, expiry (or `never`), domains (or `any`) and state (`active`, `revoked` or `expired`):
+
+```text
+jl_4f2a9c1e7b3d5a60	3	2026-12-19T10:00:00.000Z	example.com	active
+```
+
+`teamkit-admin join-links revoke <id>` stops a link working. People who already joined keep their accounts.
 
 ### triggers
 

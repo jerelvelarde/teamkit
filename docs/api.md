@@ -327,7 +327,7 @@ All of these need an admin (see [Admin scope](#admin-scope)), except that inviti
 | Method | Path | Auth | Body | Response |
 | --- | --- | --- | --- | --- |
 | GET | `/v1/admin/people` | admin | none | `[{actor, role, createdAt, lastSignInAt}]` |
-| POST | `/v1/admin/people` | admin on the web board | `{name, role?}`. `role` is `admin` or `member` (default `member`). | `201 {person, role, link}`. The link signs the person in once. |
+| POST | `/v1/admin/people` | admin on the web board | `{name, role?, email?}`. `role` is `admin` or `member` (default `member`). An email lets the person get a sign-in link by email later; it is lower-cased and belongs to one person (`409 email_taken`). | `201 {person, role, link}`. The link signs the person in once. |
 | POST | `/v1/admin/people/:name/link` | admin on the web board | none | `{link}`, a fresh sign-in link for an existing person. `404` if there is no such person. |
 
 ### Join links

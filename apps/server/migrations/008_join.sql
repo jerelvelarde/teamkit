@@ -14,5 +14,8 @@ create table join_links (
 alter table actors add column email text;
 create unique index actors_email_idx on actors (email) where email is not null;
 
+-- Emailed sign-in links, so the once-a-minute email limit counts only those, not invites.
+alter table signin_links add column emailed boolean not null default false;
+
 -- How a device code signs in: as an admin login, or as the approving person's own agent.
 alter table device_codes add column mode text not null default 'admin' check (mode in ('admin', 'agent'));

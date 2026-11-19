@@ -7,6 +7,7 @@ import { authenticate } from "../src/store/actors.js";
 import { getRoomInfo } from "../src/store/rooms.js";
 import { getAgent } from "../src/dispatch/registry.js";
 import { consumeSignInLink } from "../src/store/people.js";
+import { redeemJoinLink } from "../src/store/join.js";
 
 const CWD = fileURLToPath(new URL("..", import.meta.url));
 
@@ -266,5 +267,36 @@ test("agents create takes --rooms before or after the name, and repeats it for m
     assert.equal(second.code, 0, second.err);
     const auth = await authenticate(db, second.out.split("\t")[1]!.trim());
     assert.equal(auth?.actor.name, "beta");
+  });
+});
+
+test("people invite --email stores the email", async () => {
+  await withTestDb(async (db, url) => {
+    const r = run(url, ["people", "invite", "ben", "--email", "Ben@Example.com"]);
+    assert.equal(r.code, 0, r.err);
+    assert.match(r.out.trim(), /^http:\/\/127\.0\.0\.1:3000\/signin\/sl_/);
+    assert.equal((await db`select email from actors where name = 'ben'`)[0]!.email, "ben@example.com");
+    const taken = run(url, ["people", "invite", "sam", "--email", "ben@example.com"]);
+    assert.equal(taken.code, 1);
+    assert.equal((await db`select count(*)::int as n from actors where name = 'sam'`)[0]!.n, 0);
+  });
+});
+
+test("join-links create prints a join link; list and revoke", async () => {
+  await withTestDb(async (db, url) => {
+    const c = run(url, ["join-links", "create", "--days", "14", "--domain", "example.com"], undefined,
+      { TEAMKIT_PUBLIC_URL: "https://teamkit.example.com" });
+    assert.equal(c.code, 0, c.err);
+    assert.match(c.out.trim(), /^https:\/\/teamkit\.example\.com\/join\/jc_[A-Za-z0-9_-]{43}$/);
+    const secret = c.out.trim().split("/join/")[1]!;
+    assert.equal((await redeemJoinLink(db, { code: secret, name: "ana", email: "ana@example.com" })).actor.name, "ana");
+    const [id, uses, expires, domains, state] = run(url, ["join-links", "list"]).out.trim().split("\t");
+    assert.match(id!, /^jl_/);
+    assert.deepEqual([uses, domains, state], ["1", "example.com", "active"]);
+    assert.ok(Date.parse(expires!) > Date.now());
+    assert.equal(run(url, ["join-links", "revoke", id!]).code, 0);
+    assert.equal(run(url, ["join-links", "list"]).out.trim().split("\t")[4], "revoked");
+    assert.equal(run(url, ["join-links", "revoke", "jl_nope"]).code, 1);
+    assert.equal(run(url, ["join-links", "create", "--days", "0"]).code, 1);
   });
 });

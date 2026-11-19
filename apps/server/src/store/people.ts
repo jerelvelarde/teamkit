@@ -1,6 +1,7 @@
 import {
   BoardError,
   newId,
+  normalizeEmail,
   newTokenSecret,
   type ActorRef,
   type PersonInfo,
@@ -32,13 +33,13 @@ function newSessionSecret(): string {
   return "ts_" + newTokenSecret().slice(3);
 }
 
-async function insertLink(q: Q, actorId: string, ttlMs: number): Promise<string> {
+async function insertLink(q: Q, actorId: string, ttlMs: number, emailed = false): Promise<string> {
   const secret = newLinkSecret();
   // An expired link can never be used, so each new link clears the expired ones out.
   await q`delete from signin_links where expires_at <= clock_timestamp()`;
   await q`
-    insert into signin_links (hash, actor_id, expires_at)
-    values (${hashToken(secret)}, ${actorId}, clock_timestamp() + ${ttlMs}::float8 * interval '1 millisecond')`;
+    insert into signin_links (hash, actor_id, expires_at, emailed)
+    values (${hashToken(secret)}, ${actorId}, clock_timestamp() + ${ttlMs}::float8 * interval '1 millisecond', ${emailed})`;
   return secret;
 }
 
@@ -50,25 +51,39 @@ export async function createSignInLink(
   return insertLink(db, actorId, ttlMs);
 }
 
+/**
+ * Creates the person if needed and mints a sign-in link. An email, when given, is lower-cased
+ * and set on the person (replacing an earlier one) so they can sign in by email later. All in
+ * one transaction, so a refused email creates no one.
+ */
 export async function invitePerson(
   db: Db,
-  input: { name: string; role: Role },
+  input: { name: string; role: Role; email?: string },
 ): Promise<{ person: ActorRef; role: Role; secret: string }> {
-  const [existing] = await db`select id, name, kind, role from actors where name = ${input.name}`;
-  if (existing && existing.kind !== "person") {
-    throw new BoardError("invalid_input", `name ${input.name} belongs to an agent`);
-  }
-  if (existing) {
-    const secret = await createSignInLink(db, existing.id as string);
-    return {
-      person: { id: existing.id as string, name: existing.name as string, kind: "person" },
-      role: existing.role as Role,
-      secret,
-    };
-  }
-  const person = await createPerson(db, input);
-  const secret = await createSignInLink(db, person.id);
-  return { person, role: input.role, secret };
+  const email = input.email === undefined ? undefined : normalizeEmail(input.email);
+  if (email === null) throw new BoardError("invalid_input", "that is not an email address");
+  return db.begin(async (tx) => {
+    const [existing] = await tx`select id, name, kind, role from actors where name = ${input.name}`;
+    if (existing && existing.kind !== "person") {
+      throw new BoardError("invalid_input", `name ${input.name} belongs to an agent`);
+    }
+    const person: ActorRef = existing
+      ? { id: existing.id as string, name: existing.name as string, kind: "person" }
+      : await createPerson(tx, input);
+    const role = existing ? (existing.role as Role) : input.role;
+    if (email !== undefined) {
+      try {
+        await tx`update actors set email = ${email} where id = ${person.id}`;
+      } catch (e) {
+        if ((e as { code?: string; constraint_name?: string }).code === "23505") {
+          throw new BoardError("email_taken", "that email already belongs to someone on this team");
+        }
+        throw e;
+      }
+    }
+    const secret = await insertLink(tx, person.id, SIGNIN_LINK_TTL_MS);
+    return { person, role, secret };
+  });
 }
 
 /**
@@ -82,10 +97,10 @@ export async function emailSignInLink(db: Db, email: string): Promise<{ person: 
     if (!a) return null;
     const [recent] = await tx`
       select 1 from signin_links
-      where actor_id = ${a.id as string} and used_at is null and expires_at > clock_timestamp()
+      where actor_id = ${a.id as string} and emailed and used_at is null and expires_at > clock_timestamp()
         and created_at > clock_timestamp() - ${EMAIL_LINK_GAP_MS}::float8 * interval '1 millisecond'`;
     if (recent) return null;
-    const secret = await insertLink(tx, a.id as string, EMAIL_LINK_TTL_MS);
+    const secret = await insertLink(tx, a.id as string, EMAIL_LINK_TTL_MS, true);
     return { person: { id: a.id as string, name: a.name as string, kind: "person" as const }, secret };
   });
 }

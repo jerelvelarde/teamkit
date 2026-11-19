@@ -83,7 +83,8 @@ export function registerAdminRoutes(v1: Hono<AppEnv>, deps: AppDeps): void {
     const name = reqString(b, "name");
     const role = optString(b, "role") ?? "member";
     if (role !== "admin" && role !== "member") throw new BoardError("invalid_input", "role must be admin or member");
-    const inv = await invitePerson(db, { name, role: role as Role });
+    const email = optString(b, "email");
+    const inv = await invitePerson(db, { name, role: role as Role, ...(email === undefined ? {} : { email }) });
     const invite: Invite = { person: inv.person, role: inv.role, link: signInUrl(publicUrl, inv.secret) };
     return c.json(invite, 201);
   });

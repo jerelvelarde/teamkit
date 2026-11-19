@@ -194,3 +194,15 @@ test("an admin-scope token cannot mint sign-in links", async () => {
     assert.equal(linksAfter, linksBefore);
   });
 });
+
+test("POST /v1/admin/people takes an optional email", async () => {
+  await withApp(async ({ db, app }) => {
+    const ana = await signIn(db, "ana", "admin");
+    const ok = await post(app, "/v1/admin/people", cookie(ana.secret), { name: "ben", role: "member", email: "ben@example.com" });
+    assert.equal(ok.status, 201);
+    assert.equal((await db`select email from actors where name = 'ben'`)[0]!.email, "ben@example.com");
+    const taken = await post(app, "/v1/admin/people", cookie(ana.secret), { name: "sam", email: "ben@example.com" });
+    assert.equal(taken.status, 409);
+    assert.equal((await errorOf(taken)).code, "email_taken");
+  });
+});
