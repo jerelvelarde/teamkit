@@ -59,6 +59,8 @@ Two rules explain most of the table:
 | `decision.acked` | An agent or person acknowledges a decision. | `decisionId` | `CUSTOM teamkit.decision.acked` (`{ decisionId, by }`). |
 | `rollcall.started` | Someone starts a roll call, on its own new thread. | `rollCallId`, `messageId` | `CUSTOM teamkit.rollcall.started` (`{ rollCallId, room, askedBy }`), then the message `Roll call: who is on in <room>?`. |
 | `rollcall.answered` | An agent or person answers a roll call. | `rollCallId`, `status`, `messageId` | `CUSTOM teamkit.rollcall.answered` (`{ rollCallId, by, status }`), then `status` as the answerer's message. |
+| `change.logged` | A change is logged. On the task's thread, or with no thread (`threadId: null`) when it belongs to no task. | `changeId`, `status` (`active`) | `CUSTOM teamkit.change.logged` (`{ change }`). |
+| `change.updated` | A logged change is marked active, done or restored. On the entry's thread, or none. | `changeId`, `status`, `previous` | `CUSTOM teamkit.change.updated` (`{ changeId, status, previous }`). |
 | `run.event` | A service agent (one TeamKit calls itself) streams an event. | `runId`, `agent`, `round`, and `claimId`, `taskId` on a claimed task | Exactly one AG-UI event per row. See [Service agents](#service-agents-and-runevent). |
 
 When a task completes, TeamKit appends the `task.completed` event first, then one `task.ready` event for each waiting task that this completion unblocked.
@@ -114,6 +116,8 @@ Every `CUSTOM` event TeamKit writes has a `name` starting with `teamkit.` and a 
 | `teamkit.decision.acked` | `decisionId`, `by` | `decision.acked` |
 | `teamkit.rollcall.started` | `rollCallId`, `room`, `askedBy` | `rollcall.started` |
 | `teamkit.rollcall.answered` | `rollCallId`, `by`, `status` | `rollcall.answered` |
+| `teamkit.change.logged` | `change` | `change.logged` |
+| `teamkit.change.updated` | `changeId`, `status`, `previous` | `change.updated` |
 | `teamkit.interrupt.answered` | `interruptId`, `by`, `payload` | `task.answered` |
 | `teamkit.trigger.fired` | `triggerId`, `cursor`, `kind` | `message.posted` (see below) |
 | `teamkit.task.completed` | `claimId`, `result` | `task.completed`, only when a run already closed itself |

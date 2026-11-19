@@ -1,6 +1,9 @@
 import type {
   BlockKind,
   BoardEvent,
+  ChangeEntry,
+  ChangeInput,
+  ChangeStatus,
   Claim,
   Decision,
   EventQuery,
@@ -90,6 +93,9 @@ export interface TeamkitClient {
   /** An agent install says it is on. Only agent tokens may call it. */
   heartbeat(input: { watching: string[]; status?: string }): Promise<void>;
   presence(room: string): Promise<Presence[]>;
+  logChange(input: ChangeInput): Promise<ChangeEntry>;
+  updateChange(id: string, status: ChangeStatus): Promise<ChangeEntry>;
+  changes(room: string, opts?: { status?: ChangeStatus; limit?: number }): Promise<ChangeEntry[]>;
   events(q?: EventQuery): Promise<{ events: BoardEvent[]; cursor: string }>;
   stream(q: EventQuery, opts?: { signal?: AbortSignal }): AsyncIterable<BoardEvent>;
 }
@@ -253,6 +259,15 @@ export function createClient(opts: ClientOptions): TeamkitClient {
       await json("POST", "/presence", input);
     },
     presence: async (room) => (await json<{ presence: Presence[] }>("GET", withQuery("/presence", roomParams(room)))).presence,
+    logChange: async (input) => (await json<{ change: ChangeEntry }>("POST", "/changes", input)).change,
+    updateChange: async (id, status) => (await json<{ change: ChangeEntry }>("POST", `/changes/${enc(id)}`, { status })).change,
+    changes: async (room, opts) =>
+      (
+        await json<{ changes: ChangeEntry[] }>(
+          "GET",
+          withQuery("/changes", roomParams(room, { status: opts?.status, limit: opts?.limit })),
+        )
+      ).changes,
     events: (q) => json("GET", withQuery("/events", eventParams(q))),
     stream: (q, o) => streamEvents(q, o?.signal),
   };

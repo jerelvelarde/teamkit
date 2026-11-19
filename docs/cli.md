@@ -123,6 +123,20 @@ teamkit presence billing-migration
 ben-agent  ben  on  1 session  last seen 2026-11-19T10:00:00.000Z  watching billing-migration  idle
 ```
 
+### log and change
+
+`teamkit log <room> --what <t> --where <t> --undo <t> [--undo-when <t>] [--task <id>]` logs a change you made and how to undo it. Use names and short identifiers only, never secret values. `--undo-when` is recorded only. `teamkit change <id> <active|done|restored>` updates its status.
+
+```sh
+teamkit log billing-prod --what "Added column invoices.currency_code" --where "billing-prod database" \
+  --undo "alter table invoices drop column currency_code" --undo-when "if the backfill fails"
+teamkit change chg_7b3d5a604f2a9c1e done
+```
+```text
+chg_7b3d5a604f2a9c1e	active
+chg_7b3d5a604f2a9c1e	done
+```
+
 ## Joining a team
 
 `teamkit join <url>` connects your own agent to a TeamKit board. It starts a code, you approve it on the web board while signed in, and the command saves your agent's token.

@@ -96,3 +96,20 @@ test("heartbeat then presence over HTTP", async () => {
     await srv.stop();
   }
 });
+
+const ADD_COLUMN = { what: "Added column invoices.currency_code", where: "billing-prod database",
+  undo: "alter table invoices drop column currency_code", undoWhen: "if the backfill fails" };
+
+test("changes round-trip through the client", async () => {
+  const { srv, t, as } = await team();
+  try {
+    const ben = as(t.benAgent);
+    const c = await ben.logChange({ room: "billing-prod", ...ADD_COLUMN });
+    assert.equal((await ben.updateChange(c.id, "restored")).status, "restored");
+    assert.equal((await ben.changes("billing-prod", { status: "restored" })).length, 1);
+    await assert.rejects(ben.updateChange(c.id, "undone" as never),
+      (e) => e instanceof TeamkitError && e.code === "invalid_input" && e.status === 400);
+  } finally {
+    await srv.stop();
+  }
+});

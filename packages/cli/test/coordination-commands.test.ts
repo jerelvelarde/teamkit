@@ -92,3 +92,24 @@ test("presence prints the agents on in a room", async () => {
     await srv.stop();
   }
 });
+
+const ADD_COLUMN = { what: "Added column invoices.currency_code", where: "billing-prod database",
+  undo: "alter table invoices drop column currency_code", undoWhen: "if the backfill fails" };
+
+test("log records a change and change updates its status", async () => {
+  const { srv, team, env, client } = await setup();
+  try {
+    const task = await client(team.benAgent).createTask({ room: "billing-prod", brief: BRIEF });
+    const e = env(team.benAgent);
+    const r = await runCli(["log", "billing-prod", "--what", ADD_COLUMN.what, "--where", ADD_COLUMN.where, "--undo", ADD_COLUMN.undo,
+      "--undo-when", ADD_COLUMN.undoWhen, "--task", task.id], e);
+    assert.equal(r.code, 0, r.stderr);
+    assert.match(r.stdout, /^chg_\S+\tactive\n$/);
+    const chgId = r.stdout.split("\t")[0]!;
+    assert.equal((await runCli(["change", chgId, "done"], e)).stdout, `${chgId}\tdone\n`);
+    assert.equal((await runCli(["change", chgId, "undone"], e)).code, 2);
+    assert.equal((await runCli(["log", "billing-prod", "--what", "x"], e)).code, 2);
+  } finally {
+    await srv.stop();
+  }
+});

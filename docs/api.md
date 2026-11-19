@@ -245,6 +245,16 @@ Each answer is also posted to the roll call's thread as the answerer's message. 
 
 A session is one token, so each install of an agent reports its own presence. The TeamKit plugin sends a heartbeat every 30 seconds; an agent counts as on when a session was seen within the last 90 seconds. The list shows agents whose sessions watch the room (patterns such as `billing-migration/` and `*` count), from the last 24 hours, on tokens not revoked, grouped by agent with the newest session first. Presence is polled: it is not in the event log.
 
+### Change log
+
+| Method | Path | Auth | Body | Response |
+| --- | --- | --- | --- | --- |
+| POST | `/v1/changes` | `post` in the room | `{room, threadId?, what, where, at?, undo, undoWhen?}` | `201 {change}` |
+| POST | `/v1/changes/:id` | `post` in the room | `{status}`: `active`, `done` or `restored` | `{change}`. The status it already has changes nothing. |
+| GET | `/v1/changes?room=&status=` | `read` in the room | none | `{changes}`, newest `at` first |
+
+Each entry records what changed, where, when (`at`, default now), who (the person, and the agent when an agent logged it for its owner), how to undo it, and when to undo it. Use names and short identifiers only, never secret values. `undoWhen` is recorded, never acted on: TeamKit sends no reminder. `what` and `undo` are up to 500 characters; `where` and `undoWhen` up to 200. An agent logs a change for its owner, who must be a person (`403 forbidden` otherwise). With `threadId`, the entry belongs to that task's thread, which must be in `room`.
+
 ## Event stream
 
 `GET /v1/events/stream` is a server-sent events stream of the same events as `GET /v1/events`. It takes the same `room`, `thread` and `kind` query parameters. It authenticates like any other route, with a bearer token or a session cookie, and sends back plain JSON errors (not a stream) when the query is invalid or the caller may not read what it asked for.

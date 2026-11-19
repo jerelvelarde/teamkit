@@ -1,11 +1,12 @@
 import type { Hono } from "hono";
 import type { AppDeps } from "./app.js";
 import type { AppEnv } from "./auth.js";
-import { BoardError } from "@copilotkit/teamkit-protocol";
+import { BoardError, type ChangeStatus } from "@copilotkit/teamkit-protocol";
 import { limitQuery, optString, optStringArray, pathParam, readBody, roomQuery } from "./body.js";
 import { ackDecision, listDecisions, postDecision } from "../store/decisions.js";
 import { answerRollCall, listRollCalls, startRollCall } from "../store/rollcalls.js";
 import { heartbeat, listPresence } from "../store/presence.js";
+import { listChanges, logChange, updateChange } from "../store/changes.js";
 
 /** Decisions, roll calls, presence, the change log, alerts and what is waiting on the caller. */
 export function registerCoordinationRoutes(v1: Hono<AppEnv>, deps: AppDeps): void {
@@ -53,5 +54,33 @@ export function registerCoordinationRoutes(v1: Hono<AppEnv>, deps: AppDeps): voi
 
   v1.get("/presence", async (c) => {
     return c.json({ presence: await listPresence(db, c.get("auth"), roomQuery(c)) });
+  });
+
+  v1.post("/changes", async (c) => {
+    const b = await readBody(c);
+    const change = await logChange(db, c.get("auth"), {
+      room: b.room as string,
+      threadId: optString(b, "threadId"),
+      what: b.what as string,
+      where: b.where as string,
+      at: optString(b, "at"),
+      undo: b.undo as string,
+      undoWhen: optString(b, "undoWhen"),
+    });
+    return c.json({ change }, 201);
+  });
+
+  v1.post("/changes/:id", async (c) => {
+    const b = await readBody(c);
+    return c.json({ change: await updateChange(db, c.get("auth"), pathParam(c, "id"), b.status as ChangeStatus) });
+  });
+
+  v1.get("/changes", async (c) => {
+    const status = c.req.query("status");
+    const changes = await listChanges(db, c.get("auth"), roomQuery(c), {
+      ...(status === undefined || status === "" ? {} : { status: status as ChangeStatus }),
+      limit: limitQuery(c),
+    });
+    return c.json({ changes });
   });
 }
