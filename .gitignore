@@ -1,0 +1,8 @@
+.wave-state.md
+node_modules/
+.tmp/
+.env
+.env.local
+dist/
+.next/
+*.log
