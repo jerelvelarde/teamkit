@@ -8,8 +8,6 @@ export async function* parseSse(
   source: AsyncIterable<Uint8Array> | ReadableStream<Uint8Array>,
   signal?: AbortSignal,
 ): AsyncGenerator<SseFrame> {
-  if (signal?.aborted) return;
-
   const decoder = new TextDecoder("utf-8");
   let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
   let iterator: AsyncIterator<Uint8Array> | undefined;
@@ -19,14 +17,52 @@ export async function* parseSse(
     iterator = (source as AsyncIterable<Uint8Array>)[Symbol.asyncIterator]();
   }
 
+  // Tells the source to stop without waiting for it: an async generator parked in
+  // next() only runs return() once that next() settles. Errors from stopping are
+  // irrelevant here.
+  const stopSource = () => {
+    if (reader) {
+      reader.cancel().catch(() => {});
+      return;
+    }
+    try {
+      if (iterator?.return) Promise.resolve(iterator.return()).catch(() => {});
+    } catch {
+      // ignore
+    }
+  };
+
+  if (signal?.aborted) {
+    stopSource();
+    reader?.releaseLock();
+    return;
+  }
+
   let aborted = false;
+  // Set while a read is pending; abort resolves it so the read is abandoned
+  // rather than awaited.
+  let abandonRead: (() => void) | undefined;
   const onAbort = () => {
     aborted = true;
-    // Unblock a pending read; errors from cancelling are irrelevant here.
-    if (reader) reader.cancel().catch(() => {});
-    else if (iterator?.return) Promise.resolve(iterator.return()).catch(() => {});
+    abandonRead?.();
+    stopSource();
   };
   signal?.addEventListener("abort", onAbort, { once: true });
+
+  const read = async (): Promise<IteratorResult<Uint8Array> | undefined> => {
+    const next = reader ? reader.read() : iterator!.next();
+    if (!signal) return next;
+    // A rejection after the read was abandoned has no one to report to.
+    next.catch(() => {});
+    try {
+      return await new Promise<IteratorResult<Uint8Array> | undefined>((resolve, reject) => {
+        abandonRead = () => resolve(undefined);
+        next.then(resolve, reject);
+      });
+    } finally {
+      abandonRead = undefined;
+    }
+  };
 
   let buffer = "";
   let pendingCr = false; // previous chunk ended with \r; swallow a following \n
@@ -65,8 +101,11 @@ export async function* parseSse(
   };
 
   const feed = (text: string) => {
-    if (pendingCr && text.startsWith("\n")) text = text.slice(1);
-    if (text.length > 0) pendingCr = false;
+    // An empty chunk (e.g. half of a multi-byte character) must not clear pendingCr.
+    if (pendingCr && text.length > 0) {
+      if (text[0] === "\n") text = text.slice(1);
+      pendingCr = false;
+    }
     buffer += text;
     let start = 0;
     for (let i = 0; i < buffer.length; i++) {
@@ -88,18 +127,9 @@ export async function* parseSse(
 
   try {
     while (!aborted) {
-      let chunk: Uint8Array | undefined;
-      if (reader) {
-        const r = await reader.read();
-        if (r.done) break;
-        chunk = r.value;
-      } else {
-        const r = await iterator!.next();
-        if (r.done) break;
-        chunk = r.value;
-      }
-      if (aborted) break;
-      feed(decoder.decode(chunk, { stream: true }));
+      const r = await read();
+      if (aborted || r === undefined || r.done) break;
+      feed(decoder.decode(r.value, { stream: true }));
       while (frames.length > 0) {
         yield frames.shift()!;
         if (aborted) return;

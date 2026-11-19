@@ -96,3 +96,103 @@ test("aborting mid-stream ends iteration without throwing", async () => {
   }
   assert.equal(got2.length, 1);
 });
+
+test("CR, LF, LF split across chunks ends the frame", async () => {
+  const parts = ["data: a\r", "\n", "\n", "data: b\n\n"].map((s) => enc.encode(s));
+  const expected = [
+    { event: "message", data: "a" },
+    { event: "message", data: "b" },
+  ];
+  assert.deepEqual(await collect(parseSse(chunks(parts))), expected);
+  assert.deepEqual(await collect(parseSse(stream(parts))), expected);
+});
+
+test("aborting while an async generator source is parked in next() ends iteration and returns the source", async () => {
+  const ac = new AbortController();
+  let unpark!: () => void;
+  const parked = new Promise<void>((r) => (unpark = r));
+  let finalized = false;
+  async function* source(): AsyncGenerator<Uint8Array> {
+    try {
+      yield enc.encode("data: one\n\n");
+      await parked;
+      yield enc.encode("data: late\n\n");
+    } finally {
+      finalized = true;
+    }
+  }
+  const gen = source();
+  let returnCalled = false;
+  const origReturn = gen.return.bind(gen);
+  gen.return = (v) => {
+    returnCalled = true;
+    return origReturn(v);
+  };
+  const timer = setTimeout(() => ac.abort(), 20);
+  const got: SseFrame[] = [];
+  try {
+    for await (const f of parseSse(gen, ac.signal)) got.push(f);
+  } finally {
+    clearTimeout(timer);
+  }
+  assert.deepEqual(got, [{ event: "message", data: "one" }]);
+  assert.equal(returnCalled, true, "the source's return() must be called on abort");
+  // return() is queued behind the parked next(); once that settles, the source finalizes.
+  unpark();
+  await new Promise((r) => setTimeout(r, 10));
+  assert.equal(finalized, true);
+});
+
+test("aborting while a ReadableStream read is pending ends iteration and cancels the stream", async () => {
+  const ac = new AbortController();
+  let cancelled = false;
+  const rs = new ReadableStream<Uint8Array>({
+    start(c) {
+      c.enqueue(enc.encode("data: one\n\n"));
+    },
+    cancel() {
+      cancelled = true;
+    },
+  });
+  const timer = setTimeout(() => ac.abort(), 20);
+  const got: SseFrame[] = [];
+  try {
+    for await (const f of parseSse(rs, ac.signal)) got.push(f);
+  } finally {
+    clearTimeout(timer);
+  }
+  assert.deepEqual(got, [{ event: "message", data: "one" }]);
+  assert.equal(cancelled, true);
+});
+
+test("an already-aborted signal yields nothing and stops the source", async () => {
+  const ac = new AbortController();
+  ac.abort();
+
+  let cancelled = false;
+  const rs = new ReadableStream<Uint8Array>({
+    start(c) {
+      c.enqueue(enc.encode("data: one\n\n"));
+    },
+    cancel() {
+      cancelled = true;
+    },
+  });
+  assert.deepEqual(await collect(parseSse(rs, ac.signal)), []);
+  assert.equal(cancelled, true);
+  assert.equal(rs.locked, false);
+
+  let returnCalled = false;
+  const it: AsyncIterableIterator<Uint8Array> = {
+    [Symbol.asyncIterator]() {
+      return this;
+    },
+    next: () => Promise.resolve({ done: false, value: enc.encode("data: one\n\n") }),
+    return: () => {
+      returnCalled = true;
+      return Promise.resolve({ done: true, value: undefined });
+    },
+  };
+  assert.deepEqual(await collect(parseSse(it, ac.signal)), []);
+  assert.equal(returnCalled, true);
+});
