@@ -103,6 +103,8 @@ test("assertText", () => {
   assert.throws(() => assertText("brief", 5), bad);
   assert.equal(assertText("brief", undefined), undefined);
   assert.equal(assertText("brief", "ok", { required: true }), "ok");
+  assert.throws(() => assertText("brief", "a\u0000b"), bad);
+  assert.throws(() => assertText("brief", "\u0000", { required: true }), bad);
 });
 
 test("validateLabels", () => {
@@ -113,4 +115,6 @@ test("validateLabels", () => {
   assert.throws(() => validateLabels({ a: "x".repeat(1001) }), bad);
   assert.throws(() => validateLabels([]), bad);
   assert.throws(() => validateLabels(null), bad);
+  assert.throws(() => validateLabels({ a: "x\u0000y" }), bad);
+  assert.throws(() => validateLabels({ "a\u0000": "v" }), bad);
 });

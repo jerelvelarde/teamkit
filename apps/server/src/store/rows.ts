@@ -17,6 +17,8 @@ export function assertText(field: string, value: unknown, opts?: { required?: bo
   if (value.length > MAX_TEXT_LENGTH) {
     throw new BoardError("invalid_input", `${field} exceeds ${MAX_TEXT_LENGTH} characters`);
   }
+  // Postgres text and jsonb cannot store NUL.
+  if (value.includes("\u0000")) throw new BoardError("invalid_input", `${field} must not contain NUL characters`);
   if (opts?.required && value.length === 0) throw new BoardError("invalid_input", `${field} is required`);
   return value;
 }
@@ -37,6 +39,7 @@ export function validateLabels(value: unknown): Record<string, string> {
     if (!LABEL_KEY.test(k)) throw new BoardError("invalid_input", `invalid label key "${k}"`);
     if (typeof v !== "string") throw new BoardError("invalid_input", `label "${k}" must be a string`);
     if (v.length > 1000) throw new BoardError("invalid_input", `label "${k}" exceeds 1000 characters`);
+    if (v.includes("\u0000")) throw new BoardError("invalid_input", `label "${k}" must not contain NUL characters`);
     out[k] = v;
   }
   return out;
