@@ -94,19 +94,25 @@ export async function consumeSignInLink(
       returning actor_id`;
     if (!link) throw invalid();
     await cancelLinks(tx, a.id as string);
-    const sessionSecret = newSessionSecret();
-    const [s] = await tx`
-      insert into sessions (id, actor_id, hash, expires_at)
-      values (${newId("ses")}, ${a.id as string}, ${hashToken(sessionSecret)},
-              clock_timestamp() + ${SESSION_TTL_MS}::float8 * interval '1 millisecond')
-      returning expires_at`;
+    const { sessionSecret, expiresAt } = await insertSession(tx, a.id as string);
     return {
       actor: { id: a.id as string, name: a.name as string, kind: "person" as const },
       role: a.role as Role,
       sessionSecret,
-      expiresAt: (s!.expires_at as Date).toISOString(),
+      expiresAt,
     };
   });
+}
+
+/** Starts a 30-day board session for a person; the secret goes in their cookie, only its hash is stored. */
+export async function insertSession(q: Q, actorId: string): Promise<{ sessionSecret: string; expiresAt: string }> {
+  const sessionSecret = newSessionSecret();
+  const [s] = await q`
+    insert into sessions (id, actor_id, hash, expires_at)
+    values (${newId("ses")}, ${actorId}, ${hashToken(sessionSecret)},
+            clock_timestamp() + ${SESSION_TTL_MS}::float8 * interval '1 millisecond')
+    returning expires_at`;
+  return { sessionSecret, expiresAt: (s!.expires_at as Date).toISOString() };
 }
 
 export async function authenticateSession(
