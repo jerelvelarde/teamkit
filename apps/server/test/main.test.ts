@@ -20,6 +20,7 @@ test("loadConfig defaults and validation", () => {
     triggers: true,
     dispatchConcurrency: 4,
     trustedProxy: false,
+    mail: null,
     slack: {
       bridge: {
         intelligenceApiKey: undefined,

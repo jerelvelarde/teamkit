@@ -5,6 +5,7 @@ import { loadConfig } from "./config.js";
 import { createDb } from "./db/pool.js";
 import { migrate } from "./db/migrate.js";
 import { createApp } from "./http/app.js";
+import type { Mailer } from "./mail.js";
 import { createNotifier } from "./notifier.js";
 import { ensureBootstrapLink, signInUrl } from "./store/people.js";
 import { startDispatcher, type Dispatcher } from "./dispatch/dispatcher.js";
@@ -31,7 +32,15 @@ if (bootstrapSecret) {
 }
 
 const notifier = await createNotifier(db);
-const app = createApp({ db, notifier, publicUrl: config.publicUrl }, { trustedProxy: config.trustedProxy });
+let mailer: Mailer | undefined;
+if (config.mail) {
+  const { smtpMailer } = await import("./mail-smtp.js");
+  mailer = smtpMailer({ url: config.mail.smtpUrl, from: config.mail.from });
+  console.log("email sign-in on");
+} else {
+  console.log("email sign-in off (set TEAMKIT_SMTP_URL and TEAMKIT_MAIL_FROM)");
+}
+const app = createApp({ db, notifier, publicUrl: config.publicUrl, mailer }, { trustedProxy: config.trustedProxy });
 
 const reaper = setInterval(() => {
   reapExpired(db).then(

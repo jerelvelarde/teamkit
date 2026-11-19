@@ -11,6 +11,7 @@ import type { RateLimit } from "./rate-limit.js";
 import { registerRoutes } from "./routes.js";
 import { registerSlackRoutes } from "./slack-routes.js";
 import { registerStream } from "./stream.js";
+import type { Mailer } from "../mail.js";
 import { registerJoinRoutes } from "./join-routes.js";
 import { registerTaskRoutes } from "./task-routes.js";
 
@@ -19,6 +20,8 @@ export interface AppDeps {
   notifier: Notifier;
   /** The web board's public origin, used for links shown to people and the cookie's Secure flag (default DEFAULT_PUBLIC_URL). */
   publicUrl?: string;
+  /** Sends emailed sign-in links; without it, email sign-in is off. */
+  mailer?: Mailer;
 }
 
 export interface AppOptions {
@@ -32,6 +35,8 @@ export interface AppOptions {
   trustedProxy?: boolean;
   /** Team joins one client address may make: a burst, then a steady rate (default 30, then 30 a minute). */
   joinLimit?: RateLimit;
+  /** Sign-in emails one client address may request: a burst, then a steady rate (default 5, then 5 a minute). */
+  emailSignInLimit?: RateLimit;
 }
 
 /** SQLSTATE class 22, data exception: Postgres refused a value it was sent (NUL, bad encoding, out of range). */
@@ -61,7 +66,11 @@ export function createApp(deps: AppDeps, opts: AppOptions = {}): Hono {
   registerClaimNext(v1, deps);
   registerTaskRoutes(v1, deps);
   registerStream(v1, deps, { pingMs: opts.streamPingMs, maxMs: opts.streamMaxMs });
-  registerPeopleRoutes(v1, deps, { deviceStartLimit: opts.deviceStartLimit, trustedProxy: opts.trustedProxy });
+  registerPeopleRoutes(v1, deps, {
+    deviceStartLimit: opts.deviceStartLimit,
+    emailSignInLimit: opts.emailSignInLimit,
+    trustedProxy: opts.trustedProxy,
+  });
   registerAdminRoutes(v1, deps);
   registerJoinRoutes(v1, deps, { joinLimit: opts.joinLimit, trustedProxy: opts.trustedProxy });
   registerSlackRoutes(v1, deps);

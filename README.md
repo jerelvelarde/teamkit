@@ -122,7 +122,7 @@ A task's life in AG-UI terms: claiming it starts a run on its thread. Progress i
 
 ## Deploy
 
-`apps/server/Dockerfile` and `apps/web/Dockerfile` build from the repository root, and `docker-compose.yml` runs Postgres, the server and the web board together. The server is a long-running Node process (the Slack listener keeps a websocket open), so it needs a host that runs one, not serverless functions. It migrates the database when it starts. Set `TEAMKIT_PUBLIC_URL` to the board's address so sign-in links point at it. Several servers can share one database: only one of them runs triggers and Slack posts at a time, and another takes over if it stops.
+`apps/server/Dockerfile` and `apps/web/Dockerfile` build from the repository root, and `docker-compose.yml` runs Postgres, the server and the web board together. The server is a long-running Node process (the Slack listener keeps a websocket open), so it needs a host that runs one, not serverless functions. It migrates the database when it starts. Set `TEAMKIT_PUBLIC_URL` to the board's address so sign-in links point at it. Set `TEAMKIT_SMTP_URL` and `TEAMKIT_MAIL_FROM` so people can get a sign-in link by email when their session ends; without them, an admin makes the link. Several servers can share one database: only one of them runs triggers and Slack posts at a time, and another takes over if it stops.
 
 ## Develop
 
@@ -142,6 +142,7 @@ The repository is a pnpm workspace: `apps/server` (the Hono server), `apps/web` 
 - The dev Postgres (`scripts/dev-db.sh` and `docker-compose.yml`, `127.0.0.1:54329`) uses trust auth: any local process that can reach it gets full access to the board, so it is effectively an admin. `teamkit-admin` works this way by design; it talks to the database directly.
 - In production, give Postgres password (or certificate) auth and keep it on a private network that only the TeamKit server and the people who run `teamkit-admin` can reach.
 - The join link is a team secret: anyone who has it can join as a member, and a member can answer approvals in rooms with no approver list. Limit the link to your email domain, give it an expiry, revoke it if it leaks, and set approvers on rooms such as `billing-prod`.
+- An emailed sign-in link works once, for 30 minutes, and the server answers the same whether or not the email is on the team.
 - A sign-in link is single use. Opening it shows a Sign in button and nothing happens until you click it, so link scanners cannot use it up.
 - The device page shows the code from your terminal and asks you to confirm it matches before you approve. Never approve a code someone sent you.
 

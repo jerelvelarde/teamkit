@@ -23,7 +23,7 @@ export function sessionCookieName(publicUrl: string | undefined): string {
 }
 
 /** Routes reachable with no credentials at all. */
-export const PUBLIC_PATHS: ReadonlySet<string> = new Set(["/v1/signin", "/v1/device/start", "/v1/device/poll", "/v1/join"]);
+export const PUBLIC_PATHS: ReadonlySet<string> = new Set(["/v1/signin", "/v1/device/start", "/v1/device/poll", "/v1/join", "/v1/signin/email"]);
 
 /** Methods a browser may send cross-site without changing state; every other method is state-changing. */
 const SAFE_METHODS: ReadonlySet<string> = new Set(["GET", "HEAD", "OPTIONS"]);

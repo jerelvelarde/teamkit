@@ -13,6 +13,10 @@ import { createPerson } from "./actors.js";
 export const DEFAULT_PUBLIC_URL = "http://127.0.0.1:3000";
 export const SESSION_TTL_MS = 30 * 24 * 3600 * 1000;
 export const SIGNIN_LINK_TTL_MS = 24 * 3600 * 1000;
+/** An emailed sign-in link works for 30 minutes. */
+export const EMAIL_LINK_TTL_MS = 30 * 60 * 1000;
+/** A person gets at most one emailed link this often. */
+export const EMAIL_LINK_GAP_MS = 60 * 1000;
 
 const BOOTSTRAP_LOCK = 7732;
 
@@ -65,6 +69,25 @@ export async function invitePerson(
   const person = await createPerson(db, input);
   const secret = await createSignInLink(db, person.id);
   return { person, role: input.role, secret };
+}
+
+/**
+ * A one-time sign-in link for the person with this email, or null when no one has it or they
+ * already have an unused link from the last minute. Locks the person, so two requests at once
+ * mint one link.
+ */
+export async function emailSignInLink(db: Db, email: string): Promise<{ person: ActorRef; secret: string } | null> {
+  return db.begin(async (tx) => {
+    const [a] = await tx`select id, name from actors where email = ${email} and kind = 'person' for no key update`;
+    if (!a) return null;
+    const [recent] = await tx`
+      select 1 from signin_links
+      where actor_id = ${a.id as string} and used_at is null and expires_at > clock_timestamp()
+        and created_at > clock_timestamp() - ${EMAIL_LINK_GAP_MS}::float8 * interval '1 millisecond'`;
+    if (recent) return null;
+    const secret = await insertLink(tx, a.id as string, EMAIL_LINK_TTL_MS);
+    return { person: { id: a.id as string, name: a.name as string, kind: "person" as const }, secret };
+  });
 }
 
 /** Marks every unused link of the actor used, so none of them signs in any more. */

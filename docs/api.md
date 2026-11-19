@@ -66,6 +66,7 @@ These routes need no credentials:
 - `POST /v1/device/start`
 - `POST /v1/device/poll`
 - `POST /v1/join`
+- `POST /v1/signin/email`
 
 Every other route under `/v1` checks credentials before it looks for the route. That means an unknown path under `/v1` answers `401` without credentials and `404` with them.
 
@@ -108,6 +109,7 @@ Switch on `code`. The `message` is for people and may change.
 | Agent token batch | `count` is 1 to 100. |
 | `POST /device/start` | A burst of 10 per client address, then 10 a minute. |
 | `POST /join` | A burst of 30 per client address, then 30 a minute. Behind the web board's proxy, every browser shares one address. |
+| `POST /signin/email` | A burst of 5 per client address, then 5 a minute; at most one email per person a minute. |
 
 Strings may not contain NUL characters or invalid Unicode. The server answers `400 invalid_input` for them.
 
@@ -260,9 +262,12 @@ An admin invites a person (see [Admin routes](#admin-routes)) and gets a one-tim
 | Method | Path | Auth | Body | Response |
 | --- | --- | --- | --- | --- |
 | POST | `/v1/signin` | public | `{token}`, the link's secret. Must be sent as `application/json`. | `{actor, role}` and a `Set-Cookie` for the session. |
+| POST | `/v1/signin/email` | public, rate limited | `{email}`, as `application/json` | `202 {ok: true}`, whether or not anyone has that email |
 | POST | `/v1/logout` | a session, or an admin-scope token | none | `{ok: true}`. A session is revoked and the cookie cleared. An admin-scope token is revoked. Agent tokens get `403`. |
 
 `/v1/signin` insists on JSON for the same reason cookie requests do: it sets a cookie, and a form posted from another site could otherwise sign a victim in as someone else.
+
+A person who joined with an email can ask for a link on the board's sign-in page. The server emails a one-time link that works for 30 minutes, at most once a minute per person. Without `TEAMKIT_SMTP_URL` and `TEAMKIT_MAIL_FROM`, the route answers `409 invalid_state`, and an admin makes the link instead.
 
 When no one has signed in yet, the server prints a first-admin sign-in link in its log at start-up. It is valid for 24 hours.
 
