@@ -54,3 +54,36 @@ test("writeConfigFile merges and leaves the file at 0600", () => {
   assert.equal(statSync(configPath(e)).mode & 0o777, 0o600);
   assert.equal(statSync(join(e.XDG_CONFIG_HOME, "teamkit")).mode & 0o777, 0o700);
 });
+
+function writeRaw(e: Record<string, string>, raw: string): void {
+  mkdirSync(join(e.XDG_CONFIG_HOME!, "teamkit"), { recursive: true });
+  writeFileSync(configPath(e), raw);
+}
+
+test("a malformed config file is not read when flags or env supply url and token", () => {
+  const e = env();
+  writeRaw(e, "{nope");
+  assert.deepEqual(resolveConfig({ url: "http://flag", token: "flag-tok" }, e), { url: "http://flag", token: "flag-tok" });
+  const withEnv = { ...e, TEAMKIT_URL: "http://env", TEAMKIT_TOKEN: "env-tok" };
+  assert.deepEqual(resolveConfig({}, withEnv), { url: "http://env", token: "env-tok" });
+  assert.throws(
+    () => resolveConfig({ url: "http://flag" }, e),
+    (err: unknown) => err instanceof CliExit && err.code === 1 && err.message === `bad config file ${configPath(e)}`,
+  );
+});
+
+test("a non-string config value is a UsageError only when it is needed", () => {
+  const e = env();
+  writeRaw(e, JSON.stringify({ url: 1, token: "file-tok" }));
+  assert.throws(
+    () => resolveConfig({}, e),
+    (err: unknown) => err instanceof UsageError && err.code === 2 && err.message === `url in ${configPath(e)} must be a string`,
+  );
+  assert.deepEqual(resolveConfig({ url: "http://flag" }, e), { url: "http://flag", token: "file-tok" });
+  writeRaw(e, JSON.stringify({ url: "http://file", token: { nested: true } }));
+  assert.throws(
+    () => resolveConfig({}, e),
+    (err: unknown) => err instanceof UsageError && err.message === `token in ${configPath(e)} must be a string`,
+  );
+  assert.deepEqual(resolveConfig({ token: "flag-tok" }, e), { url: "http://file", token: "flag-tok" });
+});

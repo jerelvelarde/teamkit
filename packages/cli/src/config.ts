@@ -41,10 +41,24 @@ export function writeConfigFile(patch: Partial<ResolvedConfig>, env: Env = proce
   chmodSync(path, 0o600);
 }
 
+/** A config file value, or undefined when it is absent; a non-string value is a UsageError. */
+function fileValue(file: Partial<ResolvedConfig>, key: keyof ResolvedConfig, env: Env): string | undefined {
+  const v: unknown = file[key];
+  if (v === undefined || v === null || v === "") return undefined;
+  if (typeof v !== "string") throw new UsageError(`${key} in ${configPath(env)} must be a string`);
+  return v;
+}
+
 export function resolveConfig(opts: { url?: string; token?: string }, env: Env = process.env): ResolvedConfig {
-  const file = readConfigFile(env);
-  const url = opts.url || env.TEAMKIT_URL || file.url;
-  const token = opts.token || env.TEAMKIT_TOKEN || file.token;
+  let url = opts.url || env.TEAMKIT_URL;
+  let token = opts.token || env.TEAMKIT_TOKEN;
+  // Only read the file for what flags and env did not supply, so a broken file
+  // does not stop a command that does not need it.
+  if (!url || !token) {
+    const file = readConfigFile(env);
+    url ||= fileValue(file, "url", env);
+    token ||= fileValue(file, "token", env);
+  }
   if (!url) throw new UsageError("set TEAMKIT_URL or --url");
   if (!token) throw new UsageError("set TEAMKIT_TOKEN or --token");
   return { url: url.replace(/\/$/, ""), token };
