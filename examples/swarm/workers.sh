@@ -24,12 +24,17 @@ export PROMPT
 # shellcheck disable=SC2206
 TEAMKIT_ARGV=($TEAMKIT)
 
-# The default agent edits the files where it runs, so keep it out of the TeamKit checkout itself.
 if [ "$AGENT_CMD" = "$default_cmd" ]; then
+  # The default agent edits the files where it runs, so keep it out of the TeamKit checkout itself.
   top="$(git rev-parse --show-toplevel 2>/dev/null || true)"
   if [ -n "$top" ] && [ "$(cd "$top" && pwd -P)" = "$(cd "$HERE/../.." && pwd -P)" ]; then
     echo "run workers.sh from this worker's own checkout of the target repository, not from TeamKit" >&2
     exit 2
+  fi
+  # A signed-out claude exits 1, and run would fail every task it took: check before claiming any.
+  if ! claude auth status >/dev/null 2>&1; then
+    echo "claude is not installed or not signed in (see claude auth status); sign in, then start again" >&2
+    exit 4
   fi
 fi
 
@@ -44,7 +49,7 @@ while true; do
       echo "the agent command could not start, so the task was released; fix AGENT_CMD and start again" >&2
       exit 4
       ;;
-    130) exit 130 ;;
+    129 | 130) exit "$code" ;;
     *)
       # A failed task, or a server that is down: wait before the next claim, longer each time.
       echo "teamkit run exited with code $code, trying again in ${delay}s" >&2

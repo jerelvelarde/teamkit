@@ -27,7 +27,7 @@ Files:
   export TEAMKIT="node $PWD/packages/cli/bin/teamkit.mjs"
   ```
 
-- For real agents, the `claude` command (Claude Code), signed in, and `teamkit` itself on your PATH: the agents are
+- For real agents, the `claude` command (Claude Code), signed in (`claude auth status` exits 0), and `teamkit` itself on your PATH: the agents are
   allowed to run `teamkit ...` commands, and `node .../teamkit.mjs` is not one. One way, from the repository root:
   `ln -s "$PWD/packages/cli/bin/teamkit.mjs" ~/.local/bin/teamkit` (any directory on your PATH works).
   The offline run needs none of this.
@@ -148,11 +148,19 @@ Other agents work too: set `AGENT_CMD` to any command that reads its task from `
 | `0` | the task was completed or blocked | takes the next task |
 | `3` | nothing was ready within 10 minutes | prints "queue empty" and waits again |
 | `4` | the agent command could not start (not found, not executable, `claude` not installed) | stops; the task was released for another worker |
+| `129` | the terminal was closed | stops; the agent was stopped and the task released |
 | `130` | you pressed Ctrl-C | stops |
 | other | the task failed, or the server could not be reached | waits 5 s, doubling up to 60 s, then tries again |
 
+A `claude` that is installed but signed out is not exit 4: it starts, prints "Not logged in" and exits 1, so `run`
+fails the task and the worker backs off and fails the next one. With the default agent command, `workers.sh` runs
+`claude auth status` first and stops if you are not signed in; with your own `AGENT_CMD`, check the sign-in
+yourself before starting workers.
+
 Ctrl-C reaches the agent once, through `teamkit run`, which releases the task when the agent has stopped.
-Press Ctrl-C a second time to kill the agent at once.
+Press Ctrl-C a second time to kill the agent at once. Closing the terminal does the same as one Ctrl-C.
+Ctrl-Z pauses the agent along with `teamkit run`, and `fg` resumes both; while paused, the claim is not renewed,
+so after the lease (5 minutes by default) another worker may take the task.
 
 ### Questions that need a person
 
