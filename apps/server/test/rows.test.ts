@@ -66,7 +66,7 @@ test("messageFor passes MessageSchema", () => {
     actor: { id: "ac_1", name: "bot", kind: "agent" },
   });
   assert.equal(MessageSchema.safeParse(m).success, true);
-  assert.equal(m.name, "bot");
+  assert.equal((m as { name?: string }).name, "bot");
 });
 
 test("assertText", () => {
