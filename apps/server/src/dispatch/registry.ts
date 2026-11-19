@@ -67,6 +67,9 @@ function validate(input: AgentRegistration): Record<string, string> {
   if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
     throw new BoardError("invalid_input", "agent url must be http or https");
   }
+  if (parsed.username !== "" || parsed.password !== "") {
+    throw new BoardError("invalid_input", "agent url must not contain credentials; use headers");
+  }
   if (!Array.isArray(rooms) || rooms.length === 0) {
     throw new BoardError("invalid_input", "rooms must be a non-empty array");
   }

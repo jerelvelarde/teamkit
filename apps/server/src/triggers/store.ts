@@ -72,6 +72,9 @@ function validate(input: TriggerInput): { labels: Record<string, string> | null;
     if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
       throw new BoardError("invalid_input", "webhook url must be http or https");
     }
+    if (parsed.username !== "" || parsed.password !== "") {
+      throw new BoardError("invalid_input", "webhook url must not contain credentials");
+    }
     return { labels, action: { type: "webhook", url: webhook } };
   }
   if (typeof agent !== "string") throw new BoardError("invalid_input", "agent must be a string");

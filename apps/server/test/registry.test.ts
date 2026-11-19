@@ -146,3 +146,13 @@ test("listDispatchable routes a task whose target names an enabled agent: label 
     );
   });
 });
+
+test("registerAgent refuses non-http(s) urls and embedded credentials", async () => {
+  await withTestDb(async (db) => {
+    const base = { name: "bot", rooms: ["lab"] };
+    for (const url of ["ftp://x.test/a", "http://user:pw@x.test/a", "https://user@x.test/a", "https://:pw@x.test/a"]) {
+      await assert.rejects(registerAgent(db, { ...base, url }), code("invalid_input"), url);
+    }
+    assert.equal((await listAgents(db)).length, 0);
+  });
+});

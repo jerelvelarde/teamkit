@@ -238,3 +238,20 @@ test("triggers add needs exactly one of --webhook and --agent (exit 2) and creat
     assert.equal(run(url, ["triggers", "list"]).out, "");
   });
 });
+
+test("teamkit-admin refuses embedded credentials in an agent url and a webhook url", async () => {
+  await withTestDb(async (db, url) => {
+    const a = run(url, ["agents", "register", "bot", "--url", "http://u:pw@127.0.0.1:9/a", "--rooms", "lab"]);
+    assert.equal(a.code, 1);
+    assert.match(a.err, /invalid_input: .*credentials/);
+    assert.ok(!a.err.includes("pw@"));
+    assert.equal((await db`select 1 from agents`).length, 0);
+    const t = run(url, [
+      "triggers", "add", "notify", "--room", "build/", "--kinds", "task.completed",
+      "--webhook", "https://u:pw@example.com/h",
+    ]);
+    assert.equal(t.code, 1);
+    assert.match(t.err, /invalid_input: .*credentials/);
+    assert.equal((await db`select 1 from triggers`).length, 0);
+  });
+});

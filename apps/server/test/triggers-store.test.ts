@@ -86,3 +86,13 @@ test("listTriggers hides secrets; advance never moves back; remove deletes", asy
     await assert.rejects(setTriggerEnabled(db, "t", true), code("not_found"));
   });
 });
+
+test("addTrigger refuses a webhook url with embedded credentials", async () => {
+  await withTestDb(async (db) => {
+    const base = { name: "n", room: "build/", kinds: ["task.completed" as const] };
+    for (const webhook of ["https://user:pw@x.test/h", "https://user@x.test/h"]) {
+      await assert.rejects(addTrigger(db, { ...base, webhook }), code("invalid_input"), webhook);
+    }
+    assert.equal((await listTriggers(db)).length, 0);
+  });
+});
