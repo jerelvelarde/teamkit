@@ -169,3 +169,19 @@ export interface RoomView {
   threads: ThreadSummary[];
   cursor: string;
 }
+
+export type Role = "admin" | "member";
+export interface GrantSpec { room: string; perms: Permission[] }
+export interface PersonInfo { actor: ActorRef; role: Role; createdAt: string; lastSignInAt: string | null }
+export interface Invite { person: ActorRef; role: Role; link: string }
+export interface TokenInfo { id: string; actorId: string; actorName: string; scope: "agent" | "admin"; createdAt: string; revokedAt: string | null }
+export interface CreatedToken { actor: ActorRef; token: string; tokenId: string }
+export interface RoomSettingsInput { agent?: string | null; approvers?: string[] | null; slackChannel?: string | null; slackAnnounce?: "blocked" | "all" | "none" }
+export interface DeviceStart { deviceCode: string; userCode: string; verifyUrl: string; expiresAt: string; intervalMs: number }
+export type DevicePoll = { status: "pending" } | { status: "expired" } | { status: "approved"; token: string; actor: ActorRef };
+export interface AgentRegistration { name: string; url: string; rooms: string[]; headers?: Record<string, string> }
+export interface AgentInfo { name: string; actor: ActorRef; url: string; rooms: string[]; headerNames: string[]; enabled: boolean; createdAt: string }
+export type TriggerAction = { type: "webhook"; url: string } | { type: "agent"; agent: string };
+export interface TriggerInput { name: string; room: string; kinds: EventKind[]; labels?: Record<string, string>; webhook?: string; agent?: string }
+export interface TriggerInfo { id: string; name: string; room: string; kinds: EventKind[]; labels: Record<string, string> | null; action: TriggerAction; cursor: string; enabled: boolean; createdAt: string }
+export interface CreatedTrigger { trigger: TriggerInfo; secret: string | null }
