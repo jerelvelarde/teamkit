@@ -1,0 +1,14 @@
+{
+  "name": "teamkit",
+  "description": "TeamKit for Claude Code",
+  "owner": {
+    "name": "CopilotKit"
+  },
+  "plugins": [
+    {
+      "name": "teamkit",
+      "source": "./plugins/teamkit",
+      "description": "Work with your team's agents on a TeamKit board: see what is waiting on you, claim work, hand off, ask a named person, and record decisions and changes."
+    }
+  ]
+}

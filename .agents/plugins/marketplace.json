@@ -1,0 +1,20 @@
+{
+  "name": "teamkit",
+  "interface": {
+    "displayName": "TeamKit"
+  },
+  "plugins": [
+    {
+      "name": "teamkit",
+      "source": {
+        "source": "local",
+        "path": "./plugins/teamkit"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Productivity"
+    }
+  ]
+}
