@@ -8,6 +8,7 @@ import { api } from "../lib/api";
 import { useBoardStream } from "../lib/stream";
 import { NewTaskForm } from "./NewTaskForm";
 import { RoomSidebar } from "./RoomSidebar";
+import { SignedOut } from "./SignedOut";
 import { TaskCard } from "./TaskCard";
 import styles from "./board.module.css";
 
@@ -68,9 +69,12 @@ export function Board() {
   }, [load]);
   useEffect(() => () => clearTimeout(timer.current), []);
 
-  const { connected } = useBoardStream(
+  // Refetch on every (re)open too: a live tail that reopens after a failure skips what
+  // happened while it was down.
+  const { connected, signedOut } = useBoardStream(
     { room: selected === ALL_ROOMS ? undefined : selected, kinds: TASK_KINDS },
     refetch,
+    { onOpen: refetch },
   );
 
   // Lease countdowns advance on a slow clock; the cards do not need second precision.
@@ -89,6 +93,8 @@ export function Board() {
       })),
     [tasks],
   );
+
+  if (signedOut) return <SignedOut hint="Your session ended. Open a new sign-in link to continue." />;
 
   return (
     <div className={styles.layout}>

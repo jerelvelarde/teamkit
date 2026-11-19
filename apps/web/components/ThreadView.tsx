@@ -8,6 +8,7 @@ import { cursorAfter, useBoardStream } from "../lib/stream";
 import { AnswerForm } from "./AnswerForm";
 import { EventRenderer } from "./EventRenderer";
 import { ReplyBox } from "./ReplyBox";
+import { SignedOut } from "./SignedOut";
 import styles from "./thread.module.css";
 
 const PAGE = 1000;
@@ -80,14 +81,18 @@ export function ThreadView({ id }: { id: string }) {
 
   const model = useMemo(() => foldEvents(events), [events]);
 
-  useBoardStream(
+  // `after` is only where the stream starts; on every (re)open, refetch the thread and any
+  // events past the last merged cursor, so nothing from a gap in the stream goes missing.
+  const { signedOut } = useBoardStream(
     { thread: id, after: model.lastCursor },
     (e) => {
       merge([e]);
       if (e.kind.startsWith("task.")) void refreshThread();
     },
-    { enabled: ready },
+    { enabled: ready, onOpen: () => void refresh() },
   );
+
+  if (signedOut) return <SignedOut hint="Your session ended. Open a new sign-in link to continue." />;
 
   if (error && !data) {
     return (

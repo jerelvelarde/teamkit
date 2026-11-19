@@ -28,7 +28,47 @@ export function cursorAfter(cursor: string, seen: string | undefined): boolean {
   return BigInt(cursor) > BigInt(seen);
 }
 
-const RETRY_MS = 2_000;
+const RETRY_MIN_MS = 2_000;
+const RETRY_MAX_MS = 60_000;
+
+/** How long to wait before reopening after `failures` failed opens in a row: 2 s, 4 s, 8 s, ... up to 60 s. */
+export function retryDelayMs(failures: number): number {
+  return Math.min(RETRY_MAX_MS, RETRY_MIN_MS * 2 ** Math.max(0, failures - 1));
+}
+
+/** Where a stream (re)opens: after the later of the last delivered event and the caller's starting cursor. */
+export function resumeCursor(delivered: string | undefined, start: string | undefined): string | undefined {
+  if (delivered === undefined) return start;
+  if (start === undefined) return delivered;
+  return cursorAfter(start, delivered) ? start : delivered;
+}
+
+/**
+ * What a stream that failed to open does next, from the status of GET /v1/whoami
+ * (null when that request failed too). A 401 or 403 means the session is gone and
+ * retrying cannot help; anything else, such as a 502 while the server restarts, retries.
+ */
+export function afterFailure(whoamiStatus: number | null): "signed_out" | "retry" {
+  return whoamiStatus === 401 || whoamiStatus === 403 ? "signed_out" : "retry";
+}
+
+async function whoamiStatus(): Promise<number | null> {
+  try {
+    return (await fetch("/v1/whoami", { cache: "no-store" })).status;
+  } catch {
+    return null;
+  }
+}
+
+export interface BoardStreamOptions {
+  enabled?: boolean;
+  /**
+   * Called every time the stream opens, including each reopen. A stream reopened after a
+   * failure resumes from the last cursor it knew, but a live tail that had delivered nothing
+   * yet knows none, so callers refetch here to pick up anything that happened while it was down.
+   */
+  onOpen?: () => void;
+}
 
 /**
  * Live board events over EventSource.
@@ -36,41 +76,61 @@ const RETRY_MS = 2_000;
  * The server ends a stream after 30 minutes, and EventSource reconnects on its own with
  * Last-Event-ID, which the server prefers over `after`. Delivery is at-least-once from the
  * client's point of view, so each event is dropped unless its cursor is above the last one
- * delivered; the same cursor is the resume point if the browser gives up and the hook has
- * to reopen the stream itself (a non-200 reply closes an EventSource for good).
+ * delivered. A non-200 reply closes an EventSource for good; the hook then checks the session,
+ * stops if it is signed out, and otherwise reopens after a backoff from the later of the last
+ * delivered cursor and `q.after`. `q.after` is only a starting point: changing it does not
+ * reopen the stream.
  */
 export function useBoardStream(
   q: StreamQuery,
   onEvent: (e: BoardEvent) => void,
-  opts: { enabled?: boolean } = {},
-): { connected: boolean } {
+  opts: BoardStreamOptions = {},
+): { connected: boolean; signedOut: boolean } {
   const enabled = opts.enabled ?? true;
-  const url = streamUrl(q);
+  const key = streamUrl({ ...q, after: undefined });
   const [connected, setConnected] = useState(false);
+  const [signedOut, setSignedOut] = useState(false);
   const onEventRef = useRef(onEvent);
   onEventRef.current = onEvent;
+  const onOpenRef = useRef(opts.onOpen);
+  onOpenRef.current = opts.onOpen;
+  const queryRef = useRef(q);
+  queryRef.current = q;
 
   useEffect(() => {
     if (!enabled) {
       setConnected(false);
       return;
     }
+    setSignedOut(false);
     let source: EventSource | undefined;
     let retry: ReturnType<typeof setTimeout> | undefined;
     let closed = false;
     let lastCursor: string | undefined;
+    let failures = 0;
 
     const open = () => {
-      // Resume from the last delivered cursor when reopening by hand.
-      const href = lastCursor === undefined ? url : streamUrl({ ...q, after: lastCursor });
-      const es = new EventSource(href);
+      const q = queryRef.current;
+      const es = new EventSource(streamUrl({ ...q, after: resumeCursor(lastCursor, q.after) }));
       source = es;
-      es.onopen = () => setConnected(true);
+      es.onopen = () => {
+        failures = 0;
+        setConnected(true);
+        onOpenRef.current?.();
+      };
       es.onerror = () => {
         setConnected(false);
-        if (es.readyState === EventSource.CLOSED && !closed) {
-          retry = setTimeout(open, RETRY_MS);
-        }
+        // CONNECTING means the browser is retrying by itself; only CLOSED needs the hook.
+        if (es.readyState !== EventSource.CLOSED || closed) return;
+        failures += 1;
+        void whoamiStatus().then((status) => {
+          if (closed) return;
+          if (afterFailure(status) === "signed_out") {
+            setSignedOut(true);
+            return;
+          }
+          retry = setTimeout(open, retryDelayMs(failures));
+        });
       };
       es.addEventListener("board", (msg) => {
         let event: BoardEvent;
@@ -92,9 +152,8 @@ export function useBoardStream(
       source?.close();
       setConnected(false);
     };
-    // `url` encodes every field of q.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [url, enabled]);
+    // `key` encodes every field of q except `after`, which is read through queryRef at each open.
+  }, [key, enabled]);
 
-  return { connected };
+  return { connected, signedOut };
 }
