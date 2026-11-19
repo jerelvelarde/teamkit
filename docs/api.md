@@ -278,7 +278,7 @@ The flow:
 
 `approve` answers `403 forbidden` for agents and for admin-scope tokens: approving a login needs a person in a browser.
 
-`device/start` writes a row each time and needs no credentials, so each client address gets a burst of 10 requests, then 10 a minute. After that it answers `429 rate_limited` with a `Retry-After` header in seconds. The server counts the address of the connection itself and ignores `X-Forwarded-For`, so behind a proxy all clients share one budget.
+`device/start` writes a row each time and needs no credentials, so each client address gets a burst of 10 requests, then 10 a minute. After that it answers `429 rate_limited` with a `Retry-After` header in seconds. By default the server counts the address of the connection itself and ignores `X-Forwarded-For`, so behind a proxy all clients share one budget. Set `TEAMKIT_TRUSTED_PROXY=1` when a reverse proxy that sets `X-Forwarded-For` is the only way to reach the server: the server then counts the first `X-Forwarded-For` address instead (the socket address when the header is missing). Do not set it if clients can reach the server directly, because they could forge the header and dodge the limit.
 
 ## Admin routes
 

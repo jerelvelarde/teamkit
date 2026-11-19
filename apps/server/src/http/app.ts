@@ -27,6 +27,8 @@ export interface AppOptions {
   streamMaxMs?: number;
   /** Login codes one client address may start: a burst, then a steady rate (default 10, then 10 a minute). */
   deviceStartLimit?: RateLimit;
+  /** Key the login-code limiter on the first X-Forwarded-For address (TEAMKIT_TRUSTED_PROXY=1); default is the socket address. */
+  trustedProxy?: boolean;
 }
 
 /** SQLSTATE class 22, data exception: Postgres refused a value it was sent (NUL, bad encoding, out of range). */
@@ -56,7 +58,7 @@ export function createApp(deps: AppDeps, opts: AppOptions = {}): Hono {
   registerClaimNext(v1, deps);
   registerTaskRoutes(v1, deps);
   registerStream(v1, deps, { pingMs: opts.streamPingMs, maxMs: opts.streamMaxMs });
-  registerPeopleRoutes(v1, deps, { deviceStartLimit: opts.deviceStartLimit });
+  registerPeopleRoutes(v1, deps, { deviceStartLimit: opts.deviceStartLimit, trustedProxy: opts.trustedProxy });
   registerAdminRoutes(v1, deps);
   registerSlackRoutes(v1, deps);
   app.route("/v1", v1);

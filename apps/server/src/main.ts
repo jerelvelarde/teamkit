@@ -31,7 +31,7 @@ if (bootstrapSecret) {
 }
 
 const notifier = await createNotifier(db);
-const app = createApp({ db, notifier, publicUrl: config.publicUrl });
+const app = createApp({ db, notifier, publicUrl: config.publicUrl }, { trustedProxy: config.trustedProxy });
 
 const reaper = setInterval(() => {
   reapExpired(db).then(

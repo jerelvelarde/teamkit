@@ -216,3 +216,43 @@ test("device/start allows a burst per client address, then answers 429 with Retr
     { deviceStartLimit: { burst: 3, perMinute: 1 } },
   );
 });
+
+test("device/start ignores X-Forwarded-For by default: every client behind the socket shares one budget", async () => {
+  await withApp(
+    async ({ app }) => {
+      const env = { incoming: { socket: { remoteAddress: "10.0.0.1" } } };
+      const start = (xff: string) =>
+        app.request("/v1/device/start", { method: "POST", headers: { ...JSON_TYPE, "x-forwarded-for": xff }, body: "{}" }, env);
+      assert.equal((await start("1.1.1.1")).status, 200);
+      assert.equal((await start("2.2.2.2")).status, 200);
+      assert.equal((await start("3.3.3.3")).status, 429);
+    },
+    undefined,
+    { deviceStartLimit: { burst: 2, perMinute: 1 } },
+  );
+});
+
+test("with trustedProxy, device/start keys on the first X-Forwarded-For address and falls back to the socket", async () => {
+  await withApp(
+    async ({ app }) => {
+      const env = { incoming: { socket: { remoteAddress: "10.0.0.1" } } };
+      const start = (xff?: string) =>
+        app.request(
+          "/v1/device/start",
+          { method: "POST", headers: { ...JSON_TYPE, ...(xff ? { "x-forwarded-for": xff } : {}) }, body: "{}" },
+          env,
+        );
+      assert.equal((await start("1.1.1.1, 10.0.0.9")).status, 200);
+      assert.equal((await start("1.1.1.1, 10.9.9.9")).status, 200);
+      assert.equal((await start("1.1.1.1")).status, 429);
+      // A different client behind the same proxy has its own budget.
+      assert.equal((await start("2.2.2.2")).status, 200);
+      // No header: the socket address is the key.
+      assert.equal((await start()).status, 200);
+      assert.equal((await start()).status, 200);
+      assert.equal((await start()).status, 429);
+    },
+    undefined,
+    { deviceStartLimit: { burst: 2, perMinute: 1 }, trustedProxy: true },
+  );
+});

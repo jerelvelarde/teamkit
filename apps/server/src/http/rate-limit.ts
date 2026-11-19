@@ -47,10 +47,17 @@ export function tokenBucket(limit: RateLimit, now: () => number = Date.now): Tok
 }
 
 /**
- * The address of the connection a request came in on. Forwarding headers are ignored:
- * any client can write them. Requests that did not come over a socket share one key.
+ * The address of the connection a request came in on. Forwarding headers are ignored by
+ * default: any client can write them. With `trustProxy` (a reverse proxy that sets
+ * X-Forwarded-For sits in front) the first X-Forwarded-For address is used instead, falling
+ * back to the socket when the header is missing or empty. Requests that did not come over a
+ * socket share one key.
  */
-export function clientAddress(c: Context): string {
+export function clientAddress(c: Context, trustProxy = false): string {
+  if (trustProxy) {
+    const first = c.req.header("x-forwarded-for")?.split(",")[0]?.trim();
+    if (first) return first;
+  }
   const env = c.env as { incoming?: IncomingMessage } | undefined;
   return env?.incoming?.socket?.remoteAddress ?? "unknown";
 }

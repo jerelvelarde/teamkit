@@ -19,6 +19,7 @@ test("loadConfig defaults and validation", () => {
     dispatch: true,
     triggers: true,
     dispatchConcurrency: 4,
+    trustedProxy: false,
     slack: {
       bridge: {
         intelligenceApiKey: undefined,
@@ -34,6 +35,8 @@ test("loadConfig defaults and validation", () => {
   });
   assert.equal(loadConfig({ TEAMKIT_PUBLIC_URL: "https://b.example.com/" }).publicUrl, "https://b.example.com");
   assert.equal(loadConfig({ PORT: "0" }).port, 0);
+  assert.equal(loadConfig({ TEAMKIT_TRUSTED_PROXY: "1" }).trustedProxy, true);
+  assert.equal(loadConfig({ TEAMKIT_TRUSTED_PROXY: "0" }).trustedProxy, false);
   assert.equal(loadConfig({ TEAMKIT_DISPATCH: "off" }).dispatch, false);
   assert.equal(loadConfig({ TEAMKIT_DISPATCH: "on" }).dispatch, true);
   assert.equal(loadConfig({ TEAMKIT_DISPATCH_CONCURRENCY: "2" }).dispatchConcurrency, 2);

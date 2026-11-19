@@ -24,7 +24,7 @@ const DEFAULT_DEVICE_START_LIMIT: RateLimit = { burst: 10, perMinute: 10 };
 export function registerPeopleRoutes(
   v1: Hono<AppEnv>,
   deps: AppDeps,
-  opts: { deviceStartLimit?: RateLimit } = {},
+  opts: { deviceStartLimit?: RateLimit; trustedProxy?: boolean } = {},
 ): void {
   const { db } = deps;
   const publicUrl = deps.publicUrl ?? DEFAULT_PUBLIC_URL;
@@ -67,7 +67,7 @@ export function registerPeopleRoutes(
 
   v1.post("/device/start", async (c) => {
     // Public and each call writes a row, so each client address gets a modest budget.
-    const waitMs = deviceStarts.take(clientAddress(c));
+    const waitMs = deviceStarts.take(clientAddress(c, opts.trustedProxy === true));
     if (waitMs > 0) {
       return c.json(
         { error: { code: "rate_limited", message: "too many login codes requested; try again shortly" } },
