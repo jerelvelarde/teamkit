@@ -24,10 +24,6 @@ if ! command -v pg_ctl >/dev/null 2>&1; then
     fi
   done
 fi
-if ! command -v pg_ctl >/dev/null 2>&1; then
-  echo "pg_ctl not found: install PostgreSQL 16+ or run 'docker compose up -d'" >&2
-  exit 1
-fi
 
 # macOS postmaster aborts ("became multithreaded") without a valid locale.
 if [ "$(uname -s)" = "Darwin" ]; then
@@ -70,6 +66,10 @@ case "${1:-}" in
       echo "$URL"
       exit 0
     fi
+    if ! command -v pg_ctl >/dev/null 2>&1; then
+      echo "pg_ctl not found: install PostgreSQL 16+ or run 'docker compose up -d'" >&2
+      exit 1
+    fi
     if [ ! -f "$PGDATA/PG_VERSION" ]; then
       initdb -D "$PGDATA" -U teamkit --auth=trust -E UTF8 --locale=C >/dev/null
     fi
@@ -90,7 +90,9 @@ case "${1:-}" in
     echo "$URL"
     ;;
   stop)
-    if running; then
+    if ! command -v pg_ctl >/dev/null 2>&1; then
+      echo "pg_ctl not found; nothing to stop" >&2
+    elif running; then
       pg_ctl -D "$PGDATA" -m fast -w stop >/dev/null
     fi
     ;;
