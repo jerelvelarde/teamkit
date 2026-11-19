@@ -7,6 +7,7 @@ import { ackDecision, listDecisions, postDecision } from "../store/decisions.js"
 import { answerRollCall, listRollCalls, startRollCall } from "../store/rollcalls.js";
 import { heartbeat, listPresence } from "../store/presence.js";
 import { listChanges, logChange, updateChange } from "../store/changes.js";
+import { confirmAlert, listAlerts, raiseAlert, resolveAlert } from "../store/alerts.js";
 
 /** Decisions, roll calls, presence, the change log, alerts and what is waiting on the caller. */
 export function registerCoordinationRoutes(v1: Hono<AppEnv>, deps: AppDeps): void {
@@ -82,5 +83,29 @@ export function registerCoordinationRoutes(v1: Hono<AppEnv>, deps: AppDeps): voi
       limit: limitQuery(c),
     });
     return c.json({ changes });
+  });
+
+  v1.post("/alerts", async (c) => {
+    const b = await readBody(c);
+    return c.json({ alert: await raiseAlert(db, c.get("auth"), { room: b.room as string, text: b.text as string }) }, 201);
+  });
+
+  v1.post("/alerts/:id/confirm", async (c) => {
+    const b = await readBody(c);
+    return c.json({ alert: await confirmAlert(db, c.get("auth"), pathParam(c, "id"), { source: optString(b, "source") }) });
+  });
+
+  v1.post("/alerts/:id/resolve", async (c) => {
+    const b = await readBody(c);
+    return c.json({ alert: await resolveAlert(db, c.get("auth"), pathParam(c, "id"), { source: optString(b, "source") }) });
+  });
+
+  v1.get("/alerts", async (c) => {
+    const open = c.req.query("open");
+    if (open !== undefined && open !== "true" && open !== "false") {
+      throw new BoardError("invalid_input", "open must be true or false");
+    }
+    const alerts = await listAlerts(db, c.get("auth"), roomQuery(c), { open: open === "true", limit: limitQuery(c) });
+    return c.json({ alerts });
   });
 }

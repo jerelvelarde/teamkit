@@ -61,6 +61,9 @@ Two rules explain most of the table:
 | `rollcall.answered` | An agent or person answers a roll call. | `rollCallId`, `status`, `messageId` | `CUSTOM teamkit.rollcall.answered` (`{ rollCallId, by, status }`), then `status` as the answerer's message. |
 | `change.logged` | A change is logged. On the task's thread, or with no thread (`threadId: null`) when it belongs to no task. | `changeId`, `status` (`active`) | `CUSTOM teamkit.change.logged` (`{ change }`). |
 | `change.updated` | A logged change is marked active, done or restored. On the entry's thread, or none. | `changeId`, `status`, `previous` | `CUSTOM teamkit.change.updated` (`{ changeId, status, previous }`). |
+| `alert.raised` | An alert is raised, on its own new thread. | `alertId`, `level` (`suspected`), `messageId` | `CUSTOM teamkit.alert.raised` (`{ alertId, room, text, level, raisedBy }`), then the first message. |
+| `alert.confirmed` | An alert is confirmed for a person, on the alert's thread. | `alertId`, `level` (`confirmed`), `source` | `CUSTOM teamkit.alert.confirmed` (`{ alertId, by, source }`). |
+| `alert.resolved` | An alert is resolved for a person, on the alert's thread. | `alertId`, `source` | `CUSTOM teamkit.alert.resolved` (`{ alertId, by, source }`). |
 | `run.event` | A service agent (one TeamKit calls itself) streams an event. | `runId`, `agent`, `round`, and `claimId`, `taskId` on a claimed task | Exactly one AG-UI event per row. See [Service agents](#service-agents-and-runevent). |
 
 When a task completes, TeamKit appends the `task.completed` event first, then one `task.ready` event for each waiting task that this completion unblocked.
@@ -118,6 +121,9 @@ Every `CUSTOM` event TeamKit writes has a `name` starting with `teamkit.` and a 
 | `teamkit.rollcall.answered` | `rollCallId`, `by`, `status` | `rollcall.answered` |
 | `teamkit.change.logged` | `change` | `change.logged` |
 | `teamkit.change.updated` | `changeId`, `status`, `previous` | `change.updated` |
+| `teamkit.alert.raised` | `alertId`, `room`, `text`, `level`, `raisedBy` | `alert.raised` |
+| `teamkit.alert.confirmed` | `alertId`, `by`, `source` | `alert.confirmed` |
+| `teamkit.alert.resolved` | `alertId`, `by`, `source` | `alert.resolved` |
 | `teamkit.interrupt.answered` | `interruptId`, `by`, `payload` | `task.answered` |
 | `teamkit.trigger.fired` | `triggerId`, `cursor`, `kind` | `message.posted` (see below) |
 | `teamkit.task.completed` | `claimId`, `result` | `task.completed`, only when a run already closed itself |

@@ -1,6 +1,7 @@
 import type {
   BlockKind,
   BoardEvent,
+  Alert,
   ChangeEntry,
   ChangeInput,
   ChangeStatus,
@@ -96,6 +97,12 @@ export interface TeamkitClient {
   logChange(input: ChangeInput): Promise<ChangeEntry>;
   updateChange(id: string, status: ChangeStatus): Promise<ChangeEntry>;
   changes(room: string, opts?: { status?: ChangeStatus; limit?: number }): Promise<ChangeEntry[]>;
+  raiseAlert(input: { room: string; text: string }): Promise<Alert>;
+  /** Confirm for a person: yourself, or (an agent) your owner named as `source`. */
+  confirmAlert(id: string, opts?: { source?: string }): Promise<Alert>;
+  /** Resolve for a person: yourself, or (an agent) your owner named as `source`. */
+  resolveAlert(id: string, opts?: { source?: string }): Promise<Alert>;
+  alerts(room: string, opts?: { open?: boolean; limit?: number }): Promise<Alert[]>;
   events(q?: EventQuery): Promise<{ events: BoardEvent[]; cursor: string }>;
   stream(q: EventQuery, opts?: { signal?: AbortSignal }): AsyncIterable<BoardEvent>;
 }
@@ -268,6 +275,18 @@ export function createClient(opts: ClientOptions): TeamkitClient {
           withQuery("/changes", roomParams(room, { status: opts?.status, limit: opts?.limit })),
         )
       ).changes,
+    raiseAlert: async (input) => (await json<{ alert: Alert }>("POST", "/alerts", input)).alert,
+    confirmAlert: async (id, opts) =>
+      (await json<{ alert: Alert }>("POST", `/alerts/${enc(id)}/confirm`, { ...(opts?.source === undefined ? {} : { source: opts.source }) })).alert,
+    resolveAlert: async (id, opts) =>
+      (await json<{ alert: Alert }>("POST", `/alerts/${enc(id)}/resolve`, { ...(opts?.source === undefined ? {} : { source: opts.source }) })).alert,
+    alerts: async (room, opts) =>
+      (
+        await json<{ alerts: Alert[] }>(
+          "GET",
+          withQuery("/alerts", roomParams(room, { open: opts?.open ? "true" : undefined, limit: opts?.limit })),
+        )
+      ).alerts,
     events: (q) => json("GET", withQuery("/events", eventParams(q))),
     stream: (q, o) => streamEvents(q, o?.signal),
   };

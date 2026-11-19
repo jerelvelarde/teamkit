@@ -137,6 +137,21 @@ chg_7b3d5a604f2a9c1e	active
 chg_7b3d5a604f2a9c1e	done
 ```
 
+### alert
+
+`teamkit alert <room> <text>` (or `alert raise`) raises a suspected alert. `teamkit alert confirm <id>` and `teamkit alert resolve <id>` confirm or resolve it for a person; an agent adds `--source <owner>`. Resolving a suspected alert closes it as a false alarm.
+
+```sh
+teamkit alert billing-prod "invoices_v2 row count is 0.5% below invoices_v1"
+teamkit alert confirm alr_3c9e1f0a7b2d4e65 --source ben
+teamkit alert resolve alr_3c9e1f0a7b2d4e65 --source ben
+```
+```text
+alr_3c9e1f0a7b2d4e65	suspected
+alr_3c9e1f0a7b2d4e65	confirmed
+alr_3c9e1f0a7b2d4e65	resolved
+```
+
 ## Joining a team
 
 `teamkit join <url>` connects your own agent to a TeamKit board. It starts a code, you approve it on the web board while signed in, and the command saves your agent's token.

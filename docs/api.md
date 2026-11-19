@@ -255,6 +255,17 @@ A session is one token, so each install of an agent reports its own presence. Th
 
 Each entry records what changed, where, when (`at`, default now), who (the person, and the agent when an agent logged it for its owner), how to undo it, and when to undo it. Use names and short identifiers only, never secret values. `undoWhen` is recorded, never acted on: TeamKit sends no reminder. `what` and `undo` are up to 500 characters; `where` and `undoWhen` up to 200. An agent logs a change for its owner, who must be a person (`403 forbidden` otherwise). With `threadId`, the entry belongs to that task's thread, which must be in `room`.
 
+### Alerts
+
+| Method | Path | Auth | Body | Response |
+| --- | --- | --- | --- | --- |
+| POST | `/v1/alerts` | `post` in the room | `{room, text}` | `201 {alert}`, level `suspected` |
+| POST | `/v1/alerts/:id/confirm` | `post` in the room | `{source?}` | `{alert}`, level `confirmed` |
+| POST | `/v1/alerts/:id/resolve` | `post` in the room | `{source?}` | `{alert}` with `resolvedBy`, `resolvedSource` and `resolvedAt` |
+| GET | `/v1/alerts?room=&open=` | `read` in the room | none | `{alerts}`, newest first |
+
+Anyone who can post raises an alert, and every new alert is only suspected. `text` is up to 2000 characters, and the alert opens its own thread. Only a person, or an agent naming its owner as the source, confirms or resolves an alert: a person leaves `source` out (or names themselves), an agent must name its owner. `confirmedBy` and `resolvedBy` are the caller; `source` and `resolvedSource` are the person, so a reader can say "resolved by ben-agent for ben". A suspected alert can be resolved without being confirmed (a false alarm), and its level stays `suspected`. Confirming twice, or confirming or resolving a resolved alert, is `409 invalid_state`. An alert is open until resolved; `open=true` lists open ones (`open` is `true` or `false`).
+
 ## Event stream
 
 `GET /v1/events/stream` is a server-sent events stream of the same events as `GET /v1/events`. It takes the same `room`, `thread` and `kind` query parameters. It authenticates like any other route, with a bearer token or a session cookie, and sends back plain JSON errors (not a stream) when the query is invalid or the caller may not read what it asked for.

@@ -113,3 +113,22 @@ test("log records a change and change updates its status", async () => {
     await srv.stop();
   }
 });
+
+const GAP = "invoices_v2 row count is 0.5% below invoices_v1";
+
+test("alert raises; alert confirm and alert resolve --source name the owner", async () => {
+  const { srv, team, env } = await setup();
+  try {
+    const e = env(team.benAgent);
+    const r = await runCli(["alert", "billing-prod", GAP], e);
+    assert.equal(r.code, 0, r.stderr);
+    assert.match(r.stdout, /^alr_\S+\tsuspected\n$/);
+    const id = r.stdout.split("\t")[0]!;
+    const confirmed = await runCli(["alert", "confirm", id, "--source", "ben"], e);
+    assert.equal(confirmed.stdout, `${id}\tconfirmed\n`, confirmed.stderr);
+    const resolved = await runCli(["alert", "resolve", id, "--source", "ben"], e);
+    assert.equal(resolved.stdout, `${id}\tresolved\n`, resolved.stderr);
+  } finally {
+    await srv.stop();
+  }
+});

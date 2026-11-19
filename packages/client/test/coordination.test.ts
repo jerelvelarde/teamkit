@@ -113,3 +113,25 @@ test("changes round-trip through the client", async () => {
     await srv.stop();
   }
 });
+
+const GAP = "invoices_v2 row count is 0.5% below invoices_v1";
+
+test("alerts round-trip through the client, including resolve and open", async () => {
+  const { srv, t, as, person } = await team();
+  try {
+    const ben = as(t.benAgent);
+    const a = await ben.raiseAlert({ room: "billing-prod", text: GAP });
+    assert.equal((await person(t.sam).confirmAlert(a.id)).level, "confirmed");
+    assert.equal((await ben.alerts("billing-prod"))[0]!.confirmedBy!.name, "sam");
+    const r = await person(t.sam).resolveAlert(a.id);
+    assert.deepEqual([r.resolvedBy!.name, r.resolvedSource!.name], ["sam", "sam"]);
+    assert.deepEqual(await ben.alerts("billing-prod", { open: true }), []);
+    const res = await fetch(`${srv.url}/v1/alerts?room=billing-prod&open=maybe`, {
+      headers: { authorization: `Bearer ${t.benAgent.token}` },
+    });
+    assert.equal(res.status, 400);
+    assert.equal(((await res.json()) as { error: { code: string } }).error.code, "invalid_input");
+  } finally {
+    await srv.stop();
+  }
+});
