@@ -9,7 +9,7 @@ import { firstLine } from "../format.js";
 const MAX_SLICE_MS = 25_000;
 
 /** Runs a claims-file update after the server call succeeded; a failure only warns, on stderr. */
-function bestEffort(ctx: CliContext, what: string, fn: () => unknown): void {
+export function bestEffort(ctx: CliContext, what: string, fn: () => unknown): void {
   try {
     if (fn() !== false) return;
   } catch {

@@ -34,3 +34,17 @@ test("block sends approvers; a person who is not named gets 403 approval_require
     await srv.stop();
   }
 });
+
+test("handoff returns the held task; handing to a person is 400 invalid_input", async () => {
+  const { srv, t, as } = await team();
+  try {
+    const ana = as(t.anaAgent);
+    const task = await ana.createTask({ room: "billing-migration", brief: BRIEF });
+    assert.equal((await ana.handoff(task.id, "ben-agent")).reservedFor?.name, "ben-agent");
+    const task2 = await ana.createTask({ room: "billing-migration", brief: BRIEF });
+    await assert.rejects(ana.handoff(task2.id, "ben"),
+      (e) => e instanceof TeamkitError && e.code === "invalid_input" && e.status === 400);
+  } finally {
+    await srv.stop();
+  }
+});

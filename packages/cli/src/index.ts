@@ -3,6 +3,7 @@ import { Command, CommanderError } from "commander";
 import { exitCodeFor } from "./args.js";
 import { defaultContext, type CliContext } from "./context.js";
 import { registerAdmin } from "./commands/admin.js";
+import { registerHandoff } from "./commands/handoff.js";
 import { registerJoin } from "./commands/join.js";
 import { registerLogin } from "./commands/login.js";
 import { registerPost } from "./commands/post.js";
@@ -29,6 +30,7 @@ export function buildProgram(ctx: CliContext): Command {
   registerPost(program, ctx);
   registerWait(program, ctx);
   registerTasks(program, ctx);
+  registerHandoff(program, ctx);
   registerRun(program, ctx);
   registerLogin(program, ctx);
   registerJoin(program, ctx);

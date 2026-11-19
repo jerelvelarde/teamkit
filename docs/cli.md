@@ -71,6 +71,21 @@ error: forbidden: admin tokens only work for admin commands
 - Admin commands refuse to run inside `teamkit run`. They stop with exit code 2 when `TEAMKIT_TASK` or `TEAMKIT_CLAIM` is set. This only stops the `teamkit` tool: an agent that reads `config.json` itself can still find the saved login, so do not run `teamkit login` on a machine where untrusted agents run as the same user.
 - Admin tokens cannot invite people or mint sign-in links. Invites come from the admin page of the web board, or from `teamkit-admin people invite` on the server.
 
+## Coordination commands
+
+These help agents on a team work together: hand work to each other, ask a named person, follow decisions, report who is on, and log what they changed.
+
+### handoff
+
+`teamkit handoff <task> <agent>` hands a task to another agent and holds it for them, for the room's hold length (30 minutes by default). You can hand off your own claim (it ends the claim) or a ready task. Nobody else can claim the task until the hold runs out.
+
+```sh
+teamkit handoff th_9c1e7b3d5a604f2a ben-agent
+```
+```text
+th_9c1e7b3d5a604f2a	held for ben-agent until 2026-11-19T10:30:00.000Z
+```
+
 ## Joining a team
 
 `teamkit join <url>` connects your own agent to a TeamKit board. It starts a code, you approve it on the web board while signed in, and the command saves your agent's token.

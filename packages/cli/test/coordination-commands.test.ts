@@ -29,3 +29,21 @@ test("tasks block --approvers names who must answer", async () => {
     await srv.stop();
   }
 });
+
+test("handoff prints the hold and forgets the stored claim", async () => {
+  const { srv, team, env } = await setup();
+  try {
+    const e = env(team.benAgent);
+    const created = await runCli(["tasks", "create", "billing-migration", BRIEF, "--json"], e);
+    assert.equal(created.code, 0, created.stderr);
+    const id = (JSON.parse(created.stdout) as { id: string }).id;
+    const claimed = await runCli(["tasks", "claim", id], e);
+    assert.equal(claimed.code, 0, claimed.stderr);
+    const r = await runCli(["handoff", id, "sam-agent"], e);
+    assert.equal(r.code, 0, r.stderr);
+    assert.match(r.stdout, /^th_\S+\theld for sam-agent until \S+Z\n$/);
+    assert.equal((await runCli(["tasks", "complete", id], e)).code, 2);
+  } finally {
+    await srv.stop();
+  }
+});

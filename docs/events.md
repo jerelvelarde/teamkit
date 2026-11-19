@@ -54,6 +54,7 @@ Two rules explain most of the table:
 | `task.ready` | A task that was `waiting` has all its `needs` completed, or a hold on it lapsed. | `taskId`, `state` (`ready`), `reason` (`dependencies_met` or `reservation_lapsed`); `reservedFor` (the former holder) for a lapse, whose event has no actor | `CUSTOM teamkit.task.ready` (`{ reason }`, plus `reservedFor` for a lapse). |
 | `task.completed` | The claimer finishes. | `taskId`, `state` (`completed`), `claimId` | `RUN_FINISHED` with `outcome: { "type": "success" }` and `result` (when there is one). |
 | `task.failed` | The claimer gives up. | `taskId`, `state` (`failed`), `claimId`, `reason` | `RUN_ERROR` with code `teamkit.failed` and the reason as `message`. |
+| `task.handed_off` | A task is handed to a named agent and held for it. | `taskId`, `state` (`ready`), `to` (the agent), `reservedUntil`, `claimId` (the released claim, or `null`) | `CUSTOM teamkit.task.handed_off` (`{ to, reservedUntil, claimId }`), then `RUN_ERROR` with code `teamkit.handed_off` when a claim was released. |
 | `run.event` | A service agent (one TeamKit calls itself) streams an event. | `runId`, `agent`, `round`, and `claimId`, `taskId` on a claimed task | Exactly one AG-UI event per row. See [Service agents](#service-agents-and-runevent). |
 
 When a task completes, TeamKit appends the `task.completed` event first, then one `task.ready` event for each waiting task that this completion unblocked.
@@ -104,6 +105,7 @@ Every `CUSTOM` event TeamKit writes has a `name` starting with `teamkit.` and a 
 | `teamkit.task.created` | `taskId`, `room`, `brief`, `labels`, `needs`, `target` | `task.created` |
 | `teamkit.task.claimed` | `claimId`, `actor` | `task.claimed` |
 | `teamkit.task.ready` | `reason`, and `reservedFor` for `reservation_lapsed` | `task.ready` |
+| `teamkit.task.handed_off` | `to`, `reservedUntil`, `claimId` | `task.handed_off` |
 | `teamkit.interrupt.answered` | `interruptId`, `by`, `payload` | `task.answered` |
 | `teamkit.trigger.fired` | `triggerId`, `cursor`, `kind` | `message.posted` (see below) |
 | `teamkit.task.completed` | `claimId`, `result` | `task.completed`, only when a run already closed itself |
@@ -114,7 +116,7 @@ Every `CUSTOM` event TeamKit writes has a `name` starting with `teamkit.` and a 
 
 ### The variants that do not close a run
 
-Normally the end of a claim is an AG-UI run ending: `RUN_FINISHED` for complete and block, `RUN_ERROR` for fail, release and lease expiry. When a service agent works a task, the agent's own stream already carries its `RUN_STARTED` and `RUN_FINISHED`/`RUN_ERROR`. TeamKit then settles the task without writing a second run ending, and writes a `CUSTOM` event instead:
+Normally the end of a claim is an AG-UI run ending: `RUN_FINISHED` for complete and block, `RUN_ERROR` for fail, release (`teamkit.released`), handoff (`teamkit.handed_off`) and lease expiry. When a service agent works a task, the agent's own stream already carries its `RUN_STARTED` and `RUN_FINISHED`/`RUN_ERROR`. TeamKit then settles the task without writing a second run ending, and writes a `CUSTOM` event instead:
 
 | Instead of | TeamKit writes |
 | --- | --- |

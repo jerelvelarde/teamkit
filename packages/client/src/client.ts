@@ -75,6 +75,8 @@ export interface TeamkitClient {
     input: { question: string; kind?: BlockKind; options?: string[]; approvers?: string[] },
   ): Promise<Task>;
   answer(taskId: string, input: { text?: string; choice?: string }): Promise<Task>;
+  /** Hands the task to a named agent and holds it for them. */
+  handoff(taskId: string, to: string): Promise<Task>;
   events(q?: EventQuery): Promise<{ events: BoardEvent[]; cursor: string }>;
   stream(q: EventQuery, opts?: { signal?: AbortSignal }): AsyncIterable<BoardEvent>;
 }
@@ -216,6 +218,8 @@ export function createClient(opts: ClientOptions): TeamkitClient {
       (await json<{ task: Task }>("POST", `/tasks/${enc(taskId)}/block`, { claimId, ...input })).task,
     answer: async (taskId, input) =>
       (await json<{ task: Task }>("POST", `/tasks/${enc(taskId)}/answer`, input)).task,
+    handoff: async (taskId, to) =>
+      (await json<{ task: Task }>("POST", `/tasks/${enc(taskId)}/handoff`, { to })).task,
     events: (q) => json("GET", withQuery("/events", eventParams(q))),
     stream: (q, o) => streamEvents(q, o?.signal),
   };
