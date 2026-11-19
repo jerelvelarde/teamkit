@@ -1,4 +1,5 @@
-// Swarm test agent: reads its task, replies twice, blocks on a question when the brief asks for one and nobody has answered yet.
+// Swarm test agent: reads its task, replies twice, blocks on a question when the brief asks for one and nobody has
+// answered yet, and otherwise completes the task itself, as a real agent should.
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
@@ -29,5 +30,7 @@ const answered = (await res.json()).events.length > 0;
 
 if (view.task.brief.includes("[ask]") && !answered) {
   cli(["tasks", "block", task, "which db?", "--options", "pg,sqlite"]);
+} else {
+  cli(["tasks", "complete", task, "Did the brief in two steps."]);
 }
 process.exit(0);
