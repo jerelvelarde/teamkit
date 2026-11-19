@@ -272,3 +272,25 @@ test("a bad cursor or an unreadable room is a JSON error before the stream start
     assert.equal(((await denied.json()) as { error: { code: string } }).error.code, "forbidden");
   });
 });
+
+test("HEAD on the stream answers with headers only and leaves no subscription behind", async () => {
+  await withApp(async ({ app, token, notifier }) => {
+    const srv = await serveApp(app);
+    try {
+      const head = (path: string, auth = token) =>
+        fetch(`${srv.url}${path}`, { method: "HEAD", headers: { authorization: `Bearer ${auth}` } });
+      const replies = await Promise.all(Array.from({ length: 20 }, () => head("/v1/events/stream")));
+      for (const r of replies) {
+        assert.equal(r.status, 200);
+        assert.match(r.headers.get("content-type") ?? "", /^text\/event-stream/);
+      }
+      assert.equal((await head("/v1/events/stream", "tk_bogus")).status, 401);
+      assert.equal((await head("/v1/events/stream?after=nope")).status, 400);
+      // The claim-next long poll is POST only: HEAD never reaches it.
+      assert.equal((await head("/v1/tasks/claim-next")).status, 404);
+      assert.equal(await liveCount(notifier, 0, 500), 0, "no HEAD left a subscription");
+    } finally {
+      await srv.close();
+    }
+  });
+});

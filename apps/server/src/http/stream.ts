@@ -44,6 +44,10 @@ export function registerStream(
     // Validate and check permissions before the stream starts, so errors are plain JSON.
     validateEventQuery(q);
     await readEvents(deps.db, auth, { ...q, after: q.after ?? "0", limit: 1 });
+    // Hono answers HEAD by running this GET handler and dropping the body. A stream opened
+    // for it would never see its client leave (no read, no abort) and would hold a notifier
+    // subscription and two timers until maxMs, so HEAD gets the headers and nothing more.
+    if (c.req.method === "HEAD") return c.body(null, 200, { "content-type": "text/event-stream" });
 
     return streamSSE(c, async (stream) => {
       let stopped = false;
