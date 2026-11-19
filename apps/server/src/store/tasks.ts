@@ -10,10 +10,11 @@ import {
   type TaskState,
 } from "@copilotkit/teamkit-protocol";
 import type { Db, Q, Tx } from "../db/pool.js";
-import { requirePerm, type AuthContext } from "./actors.js";
+import { can, requirePerm, type AuthContext } from "./actors.js";
 import { appendEvent, type AppendEventInput } from "./events.js";
 import { appendMessage, assertText, ensureRoom, insertThread, messageFor, validateLabels } from "./rows.js";
 import { loadTask } from "./task-load.js";
+import { withRetry } from "./tx.js";
 
 const MAX_PLAN_ITEMS = 200;
 const MAX_TARGET_LENGTH = 200;
@@ -45,14 +46,29 @@ function assertNeedIds(needs: unknown): string[] {
 
 /**
  * Locks the needed tasks with FOR SHARE (so none can be completed or deleted
- * under us, which would lose a promotion) and returns their states.
+ * under us, which would lose a promotion) and returns their states. Locks are
+ * taken in id order, the order complete() locks dependents in. A need in a room
+ * the caller cannot read is reported exactly like an unknown id, so its existence
+ * does not leak.
  */
-async function lockNeeds(tx: Tx, ids: string[]): Promise<Map<string, TaskState>> {
+async function lockNeeds(tx: Tx, auth: AuthContext, ids: string[]): Promise<Map<string, TaskState>> {
   const states = new Map<string, TaskState>();
   if (ids.length === 0) return states;
-  const rows = await tx<{ thread_id: string; state: TaskState }[]>`
-    select thread_id, state from tasks where thread_id = any(${ids}) for share`;
-  for (const r of rows) states.set(r.thread_id, r.state);
+  const rows = await tx<{ thread_id: string; state: TaskState; room: string }[]>`
+    select t.thread_id, t.state, th.room
+    from tasks t join threads th on th.id = t.thread_id
+    where t.thread_id = any(${ids})
+    order by t.thread_id
+    for share of t`;
+  const readable = new Map<string, boolean>();
+  for (const r of rows) {
+    let ok = readable.get(r.room);
+    if (ok === undefined) {
+      ok = await can(tx, auth.actor, r.room, "read");
+      readable.set(r.room, ok);
+    }
+    if (ok) states.set(r.thread_id, r.state);
+  }
   for (const id of ids) {
     if (!states.has(id)) throw new BoardError("invalid_input", `unknown need ${id}`);
   }
@@ -123,9 +139,9 @@ export async function createTask(
   const labels = validateLabels(input.labels);
   const target = assertTarget(input.target);
   const needs = assertNeedIds(input.needs);
-  return db.begin(async (tx) => {
+  return withRetry(db, async (tx) => {
     await requirePerm(tx, auth, room, "create");
-    const needStates = await lockNeeds(tx, needs);
+    const needStates = await lockNeeds(tx, auth, needs);
     const created = await insertTaskRows(tx, auth, { room, brief, labels, needs, target }, needStates);
     await appendEvent(tx, created.event);
     return mustLoad(tx, created.taskId);
@@ -214,10 +230,10 @@ export async function createPlan(
 ): Promise<Record<string, Task>> {
   const validRoom = assertRoom(room);
   const ordered = topoOrder(validatePlan(plan));
-  return db.begin(async (tx) => {
+  return withRetry(db, async (tx) => {
     await requirePerm(tx, auth, validRoom, "create");
     const idNeeds = [...new Set(ordered.flatMap((i) => i.idNeeds))];
-    const states = await lockNeeds(tx, idNeeds);
+    const states = await lockNeeds(tx, auth, idNeeds);
     const ids = new Map<string, string>();
     const events: AppendEventInput[] = [];
     for (const it of ordered) {

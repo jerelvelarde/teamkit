@@ -15,6 +15,7 @@ import { requirePerm, type AuthContext } from "./actors.js";
 import { appendEvent } from "./events.js";
 import { assertText } from "./rows.js";
 import { loadTask } from "./task-load.js";
+import { withRetry } from "./tx.js";
 
 /** Lease length in ms. Read at call time so tests can change TEAMKIT_LEASE_MS. */
 export function leaseMs(): number {
@@ -186,7 +187,9 @@ export async function complete(
   result: string | null,
 ): Promise<Task> {
   const text = assertText("result", result) ?? null;
-  return db.begin(async (tx) => {
+  // Locks the task, then its waiting dependents: a createTask holding one of those
+  // dependents FOR SHARE while waiting on this task is a deadlock, so retry.
+  return withRetry(db, async (tx) => {
     const task = await lockClaim(tx, auth, taskId, claimId);
     await tx`
       update tasks

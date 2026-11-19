@@ -1,11 +1,13 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { withTestDb } from "./helpers/db.js";
-import { agentAuth } from "./helpers/actors.js";
+import { agentAuth, personAuth } from "./helpers/actors.js";
 import { assertAguiValid } from "./helpers/agui.js";
 import { createPlan, createTask } from "../src/store/tasks.js";
+import { claimTask, complete } from "../src/store/claims.js";
 import { listEvents } from "../src/store/events.js";
-import type { Db } from "../src/db/pool.js";
+import { loadTask } from "../src/store/task-load.js";
+import { createDb, type Db } from "../src/db/pool.js";
 
 const code = (c: string) => (e: unknown) => (e as { code?: string }).code === c;
 const count = async (db: Db) => (await db`select count(*)::int as n from tasks`)[0]!.n as number;
@@ -150,5 +152,131 @@ test("task.created events are valid AG-UI and data.state matches the task", asyn
     const msgs = await db`select message from messages where thread_id = ${a.id}`;
     assert.equal(msgs.length, 1);
     assert.equal((msgs[0]!.message as { content: string }).content, "a");
+  });
+});
+
+test("a need in a room the caller cannot read is reported like an unknown id", async () => {
+  await withTestDb(async (db) => {
+    const ada = await personAuth(db, "ada");
+    const hidden = await createTask(db, ada, { room: "secret", brief: "hidden" });
+    const seen = await createTask(db, ada, { room: "build", brief: "seen" });
+    const bot = await agentAuth(db, "bot", [{ room: "build", perms: ["read", "create"] }]);
+    const before = await count(db);
+    const sameAsUnknown = (id: string) => (e: unknown) =>
+      (e as { code?: string }).code === "invalid_input" && (e as Error).message === `unknown need ${id}`;
+    await assert.rejects(createTask(db, bot, { room: "build", brief: "x", needs: ["th_nope"] }), sameAsUnknown("th_nope"));
+    await assert.rejects(createTask(db, bot, { room: "build", brief: "x", needs: [seen.id, hidden.id] }), sameAsUnknown(hidden.id));
+    await assert.rejects(
+      createPlan(db, bot, "build", [{ key: "a", text: "x", needs: [{ id: hidden.id }] }]),
+      sameAsUnknown(hidden.id),
+    );
+    assert.equal(await count(db), before);
+    const ok = await createTask(db, bot, { room: "build", brief: "x", needs: [seen.id] });
+    assert.deepEqual(ok.needStates, { [seen.id]: "ready" });
+    const mine = await createTask(db, ada, { room: "build", brief: "y", needs: [hidden.id] });
+    assert.deepEqual(mine.needs, [hidden.id]);
+  });
+});
+
+async function seedTask(db: Db, id: string, state: string, by: string, needs: string[] = []): Promise<void> {
+  await db`insert into rooms (name) values ('build') on conflict do nothing`;
+  await db`insert into threads (id, room, is_task, created_by) values (${id}, 'build', true, ${by})`;
+  await db`insert into tasks (thread_id, state, brief) values (${id}, ${state}, ${id})`;
+  for (const n of needs) await db`insert into task_needs (task_id, needs_id) values (${id}, ${n})`;
+}
+
+/** Resolves once some other session of this database is waiting on a row lock. */
+async function untilLockWait(db: Db): Promise<void> {
+  for (let i = 0; i < 500; i++) {
+    const [r] = await db`
+      select count(*)::int as n from pg_stat_activity
+      where datname = current_database() and wait_event_type = 'Lock'`;
+    if (r!.n > 0) return;
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  throw new Error("no session started waiting on a lock");
+}
+
+// th_b is the need and th_a waits on it; ids sort th_a first. createTask locks its
+// needs in id order (th_a, then th_b) while complete(th_b) locks th_b and then its
+// dependent th_a, so the two can deadlock whatever order createTask uses.
+test("createTask that loses a deadlock to complete() is retried and succeeds", async () => {
+  await withTestDb(async (db) => {
+    const bot = await agentAuth(db, "bot");
+    await seedTask(db, "th_b", "claimed", bot.actor.id);
+    await seedTask(db, "th_a", "waiting", bot.actor.id, ["th_b"]);
+    const completing = await db.reserve();
+    try {
+      // complete()'s two locking statements, with a long deadlock_timeout so that
+      // createTask's backend is the one that detects the cycle and is aborted.
+      await completing`begin`;
+      await completing`set local deadlock_timeout = '10s'`;
+      await completing`select thread_id from tasks where thread_id = 'th_b' for update`;
+      const created = createTask(db, bot, { room: "build", brief: "z", needs: ["th_b", "th_a"] });
+      await untilLockWait(db);
+      await completing`
+        select thread_id from tasks
+        where state = 'waiting' and thread_id in (select task_id from task_needs where needs_id = 'th_b')
+        order by thread_id for update`;
+      await completing`commit`;
+      const z = await created;
+      assert.equal(z.state, "waiting");
+      assert.deepEqual(z.needs, ["th_a", "th_b"]);
+    } finally {
+      await completing`rollback`.catch(() => {});
+      completing.release();
+    }
+  });
+});
+
+test("complete() that loses a deadlock to createTask is retried and promotes the dependent", async () => {
+  await withTestDb(async (db) => {
+    const bot = await agentAuth(db, "bot");
+    await seedTask(db, "th_b", "ready", bot.actor.id);
+    await seedTask(db, "th_a", "waiting", bot.actor.id, ["th_b"]);
+    const claim = await claimTask(db, bot, "th_b");
+    const creating = await db.reserve();
+    try {
+      // createTask's lockNeeds, one row at a time, with complete() as the victim.
+      await creating`begin`;
+      await creating`set local deadlock_timeout = '10s'`;
+      await creating`select thread_id from tasks where thread_id = 'th_a' for share`;
+      const completed = complete(db, bot, "th_b", claim.claimId, "done");
+      await untilLockWait(db);
+      await creating`select thread_id from tasks where thread_id = 'th_b' for share`;
+      await creating`commit`;
+      const b = await completed;
+      assert.equal(b.state, "completed");
+      assert.equal((await loadTask(db, "th_a"))!.state, "ready");
+    } finally {
+      await creating`rollback`.catch(() => {});
+      creating.release();
+    }
+  });
+});
+
+test("complete() racing createTask over a need and its dependent never surfaces a deadlock", async () => {
+  await withTestDb(async (admin, url) => {
+    // Detect deadlocks in milliseconds, not the default second, so the race can run many times.
+    const [{ name }] = await admin`select current_database() as name`;
+    await admin.unsafe(`alter database "${name}" set deadlock_timeout = '20ms'`);
+    const db = createDb(url);
+    try {
+      const bot = await agentAuth(db, "bot");
+      for (let i = 0; i < 40; i++) {
+        const x = await createTask(db, bot, { room: "build", brief: `x${i}` });
+        const y = await createTask(db, bot, { room: "build", brief: `y${i}`, needs: [x.id] });
+        const claim = await claimTask(db, bot, x.id);
+        const [done, z] = await Promise.all([
+          complete(db, bot, x.id, claim.claimId, null),
+          createTask(db, bot, { room: "build", brief: `z${i}`, needs: [x.id, y.id] }),
+        ]);
+        assert.equal(done.state, "completed");
+        assert.equal(z.state, "waiting");
+        assert.equal((await loadTask(db, y.id))!.state, "ready");
+      }
+    } finally {
+      await db.end({ timeout: 5 });
+    }
   });
 });
