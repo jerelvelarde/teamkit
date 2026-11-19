@@ -439,8 +439,14 @@ async function runRound(o: RunLoopOptions, http: HttpAgent, round: number, limit
     },
   };
 
+  // Once the run is aborted its outcome is decided, so stop waiting for runAgent. It may never
+  // settle: on Node 22, reading a fetch body that had fully arrived before the abort hangs.
+  const stopped = new Promise<void>((resolve) => {
+    if (abortController.signal.aborted) resolve();
+    else abortController.signal.addEventListener("abort", () => resolve(), { once: true });
+  });
   try {
-    await http.runAgent(
+    const running = http.runAgent(
       {
         runId,
         tools: boardToolDefinitions,
@@ -451,6 +457,9 @@ async function runRound(o: RunLoopOptions, http: HttpAgent, round: number, limit
       },
       subscriber,
     );
+    // An abandoned run can still reject later; nothing needs its result then.
+    running.catch(() => {});
+    await Promise.race([running, stopped]);
   } catch (error) {
     // A dropped stream fires onRunFailed AND rejects: still one failure.
     st.failure ??= { error };

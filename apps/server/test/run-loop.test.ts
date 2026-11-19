@@ -568,6 +568,33 @@ test("a run past 5000 events is stopped as run too large", async () => {
   );
 });
 
+test("a halted run ends even when the agent's stream never settles after the abort", async () => {
+  // A body that ignores the abort and never closes, like a Node 22 fetch whose body had
+  // fully arrived before the abort: the loop must not wait for it.
+  const sse = (event: Record<string, unknown>) => new TextEncoder().encode(`data: ${JSON.stringify(event)}\n\n`);
+  const stuckFetch: typeof fetch = async () =>
+    new Response(
+      new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(sse({ type: "RUN_STARTED", threadId: "t", runId: "r" }));
+          for (let k = 0; k < 5100; k++) controller.enqueue(sse({ type: "CUSTOM", name: "tick", value: k }));
+        },
+      }),
+      { status: 200, headers: { "content-type": "text/event-stream" } },
+    );
+  await withLoop(
+    () => [],
+    async ({ opts }) => {
+      assert.deepEqual(await runAgentLoop(opts({ fetch: stuckFetch })), {
+        type: "agent_error",
+        message: "run too large: more than 5000 events",
+        code: null,
+        delivered: false,
+      });
+    },
+  );
+});
+
 test("300 pending board tool calls in one run end the loop with none of them carried out", async () => {
   await withLoop(
     (i) => [
