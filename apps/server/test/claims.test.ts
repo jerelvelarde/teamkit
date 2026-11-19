@@ -3,12 +3,17 @@ import assert from "node:assert/strict";
 import { withTestDb } from "./helpers/db.js";
 import { agentAuth, personAuth } from "./helpers/actors.js";
 import { assertAguiValid } from "./helpers/agui.js";
+import { agentAuthContext, registerAgent, setAgentEnabled } from "../src/dispatch/registry.js";
+import { answer, block } from "../src/store/blocks.js";
+import { setRoom } from "../src/store/rooms.js";
 import { createTask } from "../src/store/tasks.js";
 import { claimNext, claimTask, complete, fail, leaseMs, release, renew } from "../src/store/claims.js";
 import { listEvents } from "../src/store/events.js";
 import { loadTask } from "../src/store/task-load.js";
 
 const code = (c: string) => (e: unknown) => (e as { code?: string }).code === c;
+const routedTo = (agent: string) => (e: unknown) =>
+  code("forbidden")(e) && (e as Error).message.endsWith(`is routed to agent ${agent}`);
 
 test("20 concurrent claimTask on one task: exactly one wins", async () => {
   await withTestDb(async (db) => {
@@ -165,5 +170,61 @@ test("all claim events are valid AG-UI and carry taskId and state", async () => 
     }
     const second = events.filter((e) => e.kind === "task.claimed")[1]!;
     assert.equal(second.agui.length, 1);
+  });
+});
+
+test("a task routed to a registered agent is that agent's alone: label, then target, then room agent", async () => {
+  await withTestDb(async (db) => {
+    const worker = await agentAuth(db, "worker");
+    const svc = agentAuthContext(await registerAgent(db, { name: "svc", url: "http://127.0.0.1:9/svc", rooms: ["build", "ops"] }));
+    const roomAgent = agentAuthContext(await registerAgent(db, { name: "ops-agent", url: "http://127.0.0.1:9/ops", rooms: ["ops"] }));
+    await setRoom(db, "ops", { agent: "ops-agent" });
+
+    const byLabel = await createTask(db, worker, { room: "build", brief: "label", labels: { agent: "svc" } });
+    const byTarget = await createTask(db, worker, { room: "build", brief: "target", target: "svc" });
+    const byRoom = await createTask(db, worker, { room: "ops", brief: "room agent" });
+    const labelOverRoom = await createTask(db, worker, { room: "ops", brief: "label wins", labels: { agent: "svc" } });
+    const targetOverRoom = await createTask(db, worker, { room: "ops", brief: "target wins", target: "svc" });
+    const notAnAgent = await createTask(db, worker, { room: "build", brief: "free", target: "someone" });
+    const unknownLabel = await createTask(db, worker, { room: "build", brief: "free too", labels: { agent: "gone" } });
+
+    // A CLI worker gets only the tasks no registered agent owns.
+    const got = [];
+    for (let c; (c = await claimNext(db, worker, { room: "*" })); ) got.push(c.task.id);
+    assert.deepEqual(got, [notAnAgent.id, unknownLabel.id]);
+    await assert.rejects(claimTask(db, worker, byLabel.id), routedTo("svc"));
+    await assert.rejects(claimTask(db, worker, byTarget.id), routedTo("svc"));
+    await assert.rejects(claimTask(db, worker, byRoom.id), routedTo("ops-agent"));
+    await assert.rejects(claimTask(db, roomAgent, labelOverRoom.id), routedTo("svc"));
+    await assert.rejects(claimTask(db, roomAgent, targetOverRoom.id), routedTo("svc"));
+
+    // Each agent claims its own, and only its own.
+    assert.equal((await claimNext(db, roomAgent, { room: "*" }))?.task.id, byRoom.id);
+    assert.equal(await claimNext(db, roomAgent, { room: "*" }), null);
+    assert.equal((await claimTask(db, svc, byTarget.id)).task.id, byTarget.id);
+    assert.equal((await claimNext(db, svc, { room: "*" }))?.task.id, byLabel.id);
+
+    // A disabled agent owns nothing: its tasks are anyone's again.
+    await setAgentEnabled(db, "svc", false);
+    assert.equal((await claimNext(db, worker, { room: "*" }))?.task.id, labelOverRoom.id);
+    assert.equal((await claimTask(db, roomAgent, targetOverRoom.id)).task.id, targetOverRoom.id, "the room agent again");
+  });
+});
+
+test("an answered approval waiting to resume stays with its agent", async () => {
+  await withTestDb(async (db) => {
+    const worker = await agentAuth(db, "worker");
+    const ada = await personAuth(db, "ada", "admin");
+    const svc = agentAuthContext(await registerAgent(db, { name: "svc", url: "http://127.0.0.1:9/svc", rooms: ["build"] }));
+    await setRoom(db, "build", { agent: "svc" });
+    const t = await createTask(db, worker, { room: "build", brief: "ship it" });
+    const c = await claimTask(db, svc, t.id);
+    await block(db, svc, t.id, c.claimId, { question: "Ship?", kind: "awaiting_approval" });
+    await answer(db, ada, t.id, { text: "yes" });
+    assert.ok((await loadTask(db, t.id))!.pendingResume);
+
+    assert.equal(await claimNext(db, worker, { room: "*" }), null);
+    await assert.rejects(claimTask(db, worker, t.id), routedTo("svc"));
+    assert.equal((await claimNext(db, svc, { room: "build" }))?.task.id, t.id);
   });
 });

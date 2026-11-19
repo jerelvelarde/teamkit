@@ -153,9 +153,19 @@ export async function setAgentEnabled(db: Db, name: string, enabled: boolean): P
 }
 
 /**
- * Ready tasks routed to an enabled registered agent: the task label `agent`, else the task's
- * `target` when it names an enabled registered agent, else the room's agent.
+ * SQL for the name of the agent a task is routed to: the task label `agent`, else the task's
+ * `target` when it names an enabled registered agent, else the room's agent. The query must
+ * name the task row `t` and its thread `th`. The name may be of no agent, or a disabled one:
+ * the task is routed to an agent only when the name is of an enabled registered agent.
  */
+export function routedAgentName(q: Q) {
+  return q`coalesce(
+    th.labels->>'agent',
+    (select ta.name from agents ta where ta.name = t.target and ta.enabled),
+    (select r.agent from rooms r where r.name = th.room))`;
+}
+
+/** Ready tasks routed to an enabled registered agent (see routedAgentName). */
 export async function listDispatchable(
   db: Db,
   limit: number,
@@ -164,9 +174,7 @@ export async function listDispatchable(
     select t.thread_id as task_id, a.*
     from tasks t
     join threads th on th.id = t.thread_id
-    join rooms r on r.name = th.room
-    left join agents ta on ta.name = t.target and ta.enabled
-    join agents a on a.name = coalesce(th.labels->>'agent', ta.name, r.agent)
+    join agents a on a.name = ${routedAgentName(db)}
     where t.state = 'ready' and a.enabled
     order by th.created_at, t.thread_id
     limit ${limit}`;

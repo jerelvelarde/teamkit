@@ -11,6 +11,7 @@ import {
   type Task,
 } from "@copilotkit/teamkit-protocol";
 import type { Db, Q, Tx } from "../db/pool.js";
+import { routedAgentName } from "../dispatch/registry.js";
 import { requirePerm, type AuthContext } from "./actors.js";
 import { appendEvent } from "./events.js";
 import { assertText } from "./rows.js";
@@ -77,6 +78,18 @@ async function claimedEvent(
   return { task, claimId, leaseExpiresAt };
 }
 
+/** A task routed to an enabled registered agent is that agent's alone to claim (see routedAgentName). */
+async function requireRoutedTo(tx: Tx, auth: AuthContext, taskId: string): Promise<void> {
+  const [routed] = await tx<{ name: string; actor_id: string }[]>`
+    select a.name, a.actor_id
+    from tasks t join threads th on th.id = t.thread_id
+    join agents a on a.name = ${routedAgentName(tx)}
+    where t.thread_id = ${taskId} and a.enabled`;
+  if (routed && routed.actor_id !== auth.actor.id) {
+    throw new BoardError("forbidden", `task ${taskId} is routed to agent ${routed.name}`);
+  }
+}
+
 export async function claimTask(
   db: Db,
   auth: AuthContext,
@@ -87,6 +100,7 @@ export async function claimTask(
     const existing = await loadTask(tx, taskId);
     if (!existing) throw new BoardError("not_found", `task ${taskId} not found`);
     await requirePerm(tx, auth, existing.room, "claim");
+    await requireRoutedTo(tx, auth, taskId);
     const claimId = newId(ID_PREFIXES.claim);
     if (!(await takeClaim(tx, auth, taskId, claimId))) {
       const now = await loadTask(tx, taskId);
@@ -107,6 +121,7 @@ function roomFilter(q: Q, room: string) {
   return q`and th.room = ${room}`;
 }
 
+/** Claims the oldest ready task in the room that the caller may claim; never one routed to another agent. */
 export async function claimNext(
   db: Db,
   auth: AuthContext,
@@ -134,6 +149,9 @@ export async function claimNext(
         ${roomFilter(tx, input.room)}
         and th.labels @> ${tx.json(labels)}
         ${grantCheck}
+        and not exists (
+          select 1 from agents ra
+          where ra.name = ${routedAgentName(tx)} and ra.enabled and ra.actor_id <> ${auth.actor.id})
       order by th.created_at, t.thread_id
       for update of t skip locked
       limit 1`;
