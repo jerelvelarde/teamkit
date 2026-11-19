@@ -17,6 +17,9 @@ export interface ListTasksInput {
 
 export async function listTasks(db: Db, auth: AuthContext, input: ListTasksInput = {}): Promise<Task[]> {
   const { room, state, labels } = input;
+  if (auth.scope === "admin") {
+    throw new BoardError("forbidden", `${auth.actor.name} uses an admin token, which cannot list tasks`);
+  }
   if (room !== undefined && (typeof room !== "string" || !isValidRoomPattern(room))) {
     throw new BoardError("invalid_input", `invalid room: ${String(room)}`);
   }

@@ -81,6 +81,22 @@ test("an exact grant on a room does not reach its children through a prefix quer
   });
 });
 
+test("an admin-scope token is forbidden, wildcard included", async () => {
+  await withTestDb(async (db) => {
+    await base(db);
+    await seedTask(db, "t1", "build", "ready");
+    const p = await personAuth(db, "ann", "admin");
+    const adminPerson = { ...p, via: "token" as const, scope: "admin" as const };
+    const adminAgent = { ...(await agentAuth(db, "ops")), scope: "admin" as const };
+    for (const auth of [adminPerson, adminAgent]) {
+      for (const q of [{}, { room: "*" }, { room: "build" }]) {
+        await assert.rejects(listTasks(db, auth, q), code("forbidden"), JSON.stringify(q));
+      }
+    }
+    assert.deepEqual(ids(await listTasks(db, p, {})), ["t1"]);
+  });
+});
+
 test("labels filter by containment", async () => {
   await withTestDb(async (db) => {
     await base(db);
@@ -111,5 +127,6 @@ test("bad state or room is invalid_input", async () => {
     const p = await personAuth(db, "ann");
     await assert.rejects(listTasks(db, p, { state: "bogus" as never }), code("invalid_input"));
     await assert.rejects(listTasks(db, p, { room: "Bad Room" }), code("invalid_input"));
+    await assert.rejects(listTasks(db, p, { room: "build\u0000" }), code("invalid_input"));
   });
 });
