@@ -46,7 +46,12 @@ export async function main(argv: string[], overrides: Partial<CliContext> = {}):
       const errCode = (e as { code?: unknown }).code;
       ctx.err(
         argv.includes("--json")
-          ? JSON.stringify({ error: { code: typeof errCode === "string" ? errCode : "error", message } })
+          ? JSON.stringify({
+              error: {
+                code: typeof errCode === "string" ? errCode : "error",
+                message: message.replace(`error: ${typeof errCode === "string" ? `${errCode}: ` : ""}`, ""),
+              },
+            })
           : message,
       );
     }

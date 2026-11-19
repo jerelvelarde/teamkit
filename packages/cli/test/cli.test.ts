@@ -99,7 +99,15 @@ test("tasks create usage and server errors", async () => {
 
     const unknown = await runCli(["tasks", "create", "build", "x", "--needs", "th_nope", "--json"], env);
     assert.equal(unknown.code, 1);
-    assert.equal(JSON.parse(unknown.stderr).error.code, "invalid_input");
+    const parsed = JSON.parse(unknown.stderr).error as { code: string; message: string };
+    assert.equal(parsed.code, "invalid_input");
+    assert.ok(!parsed.message.startsWith("error:") && !parsed.message.startsWith("invalid_input:"), parsed.message);
+
+    const file = planFile([{ key: "a", text: "one" }]);
+    for (const extra of [["brief"], ["--label", "a=b"], ["--needs", "th_x"], ["--target", "t"]]) {
+      const args = extra[0] === "brief" ? ["tasks", "create", "build", "brief", "--file", file] : ["tasks", "create", "build", "--file", file, ...extra];
+      assert.equal((await runCli(args, env)).code, 2, extra.join(" "));
+    }
 
     const missing = await runCli(["tasks", "create", "build", "--file", "/nonexistent/plan.json"], env);
     assert.equal(missing.code, 2);

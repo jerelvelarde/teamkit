@@ -8,6 +8,16 @@ import { firstLine } from "../format.js";
 
 const MAX_SLICE_MS = 25_000;
 
+/** Runs a claims-file update after the server call succeeded; a failure only warns, on stderr. */
+function bestEffort(ctx: CliContext, what: string, fn: () => unknown): void {
+  try {
+    if (fn() !== false) return;
+  } catch {
+    // fall through to the warning
+  }
+  ctx.err(`warning: could not ${what} in the claims file; pass --claim on later commands`);
+}
+
 export function registerTaskClaims(tasks: Command, ctx: CliContext): void {
   tasks
     .command("claim [id]")
@@ -28,17 +38,21 @@ export function registerTaskClaims(tasks: Command, ctx: CliContext): void {
         claim = null;
         for (;;) {
           const left = Math.max(0, deadline - Date.now());
-          claim = await client.claimNext(room, { labels, waitMs: Math.min(left, MAX_SLICE_MS) });
+          claim = await client.claimNext(room, {
+            labels,
+            waitMs: Math.min(left, MAX_SLICE_MS),
+          });
           if (claim || Date.now() >= deadline) break;
         }
         if (!claim) throw new CliExit(3, `nothing ready in ${room}`);
       }
-      saveClaim(claim.task.id, claim.claimId, ctx.env);
       ctx.out(
         globalOpts(cmd).json
           ? JSON.stringify(claim)
           : `${claim.task.id}\t${claim.claimId}\t${firstLine(claim.task.brief)}`,
       );
+      const { task, claimId } = claim;
+      bestEffort(ctx, "save the claim", () => saveClaim(task.id, claimId, ctx.env));
     });
 
   tasks
@@ -61,8 +75,8 @@ export function registerTaskClaims(tasks: Command, ctx: CliContext): void {
     .option("--claim <c>", "claim id (default: the stored claim)")
     .action(async (id: string, o: { claim?: string }, cmd: Command) => {
       const task = await clientFor(cmd, ctx).release(id, resolveClaimId(id, o, ctx.env));
-      forgetClaim(id, ctx.env);
       finish(task, cmd);
+      bestEffort(ctx, "forget the claim", () => forgetClaim(id, ctx.env));
     });
 
   tasks
@@ -71,8 +85,8 @@ export function registerTaskClaims(tasks: Command, ctx: CliContext): void {
     .option("--claim <c>", "claim id (default: the stored claim)")
     .action(async (id: string, result: string | undefined, o: { claim?: string }, cmd: Command) => {
       const task = await clientFor(cmd, ctx).complete(id, resolveClaimId(id, o, ctx.env), result);
-      forgetClaim(id, ctx.env);
       finish(task, cmd);
+      bestEffort(ctx, "forget the claim", () => forgetClaim(id, ctx.env));
     });
 
   tasks
@@ -81,8 +95,8 @@ export function registerTaskClaims(tasks: Command, ctx: CliContext): void {
     .option("--claim <c>", "claim id (default: the stored claim)")
     .action(async (id: string, reason: string, o: { claim?: string }, cmd: Command) => {
       const task = await clientFor(cmd, ctx).fail(id, resolveClaimId(id, o, ctx.env), reason);
-      forgetClaim(id, ctx.env);
       finish(task, cmd);
+      bestEffort(ctx, "forget the claim", () => forgetClaim(id, ctx.env));
     });
 
   tasks
@@ -105,8 +119,8 @@ export function registerTaskClaims(tasks: Command, ctx: CliContext): void {
           kind: o.kind as BlockKind,
           ...(options && options.length > 0 ? { options } : {}),
         });
-        forgetClaim(id, ctx.env);
         finish(task, cmd);
+        bestEffort(ctx, "forget the claim", () => forgetClaim(id, ctx.env));
       },
     );
 

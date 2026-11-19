@@ -1,4 +1,6 @@
 import assert from "node:assert/strict";
+import { writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { test } from "node:test";
 import { createClient } from "@copilotkit/teamkit-client";
 import { agentToken, startTestServer } from "../../../apps/server/test/helpers/server.js";
@@ -129,6 +131,31 @@ test("claim --ready --label claims the matching task, never the older reviewer o
     const claim = JSON.parse(r.stdout) as { task: { id: string } };
     assert.equal(claim.task.id, worker.id);
     assert.notEqual(claim.task.id, reviewer.id);
+  } finally {
+    await srv.stop();
+  }
+});
+
+test("an unwritable state dir only warns: claim prints its JSON and complete succeeds", async () => {
+  const { srv, client, env } = await setup();
+  try {
+    const t = await client.createTask({ room: "build", brief: "sandboxed" });
+    const blocked = join(env.XDG_STATE_HOME as string, "file");
+    writeFileSync(blocked, "x");
+    const sandbox = { ...env, XDG_STATE_HOME: join(blocked, "state") };
+    const r = await runCli(["tasks", "claim", t.id, "--json"], sandbox);
+    assert.equal(r.code, 0, r.stderr);
+    assert.equal(r.stdout.trim().split("\n").length, 1);
+    const claim = JSON.parse(r.stdout) as { claimId: string };
+    assert.match(r.stderr, /warning/);
+
+    const done = await runCli(["tasks", "complete", t.id, "done"], {
+      ...sandbox,
+      TEAMKIT_TASK: t.id,
+      TEAMKIT_CLAIM: claim.claimId,
+    });
+    assert.equal(done.code, 0, done.stderr);
+    assert.equal(done.stdout.trim(), `${t.id}\tcompleted`);
   } finally {
     await srv.stop();
   }

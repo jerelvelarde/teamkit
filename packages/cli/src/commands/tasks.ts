@@ -88,12 +88,28 @@ export function registerTasks(program: Command, ctx: CliContext): void {
       async (
         room: string,
         brief: string | undefined,
-        opts: { needs?: string[]; label?: string[]; target?: string; file?: string },
+        opts: {
+          needs?: string[];
+          label?: string[];
+          target?: string;
+          file?: string;
+        },
         cmd: Command,
       ) => {
         const json = globalOpts(cmd).json;
         const labels = parseLabels(opts.label);
         if (opts.file !== undefined) {
+          const ignored = [
+            brief !== undefined && "[brief]",
+            opts.label?.length && "--label",
+            opts.needs?.length && "--needs",
+            opts.target !== undefined && "--target",
+          ].filter(Boolean);
+          if (ignored.length > 0) {
+            throw new UsageError(
+              `--file creates a plan from the file; ${ignored.join(", ")} cannot be combined with it`,
+            );
+          }
           const created = await clientFor(cmd, ctx).createPlan(room, readPlan(opts.file));
           ctx.out(
             json
