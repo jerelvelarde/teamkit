@@ -185,3 +185,56 @@ test("agents register with a bad url or a malformed header exits 1 without echoi
     assert.equal(await getAgent(db, "bot"), null);
   });
 });
+
+test("triggers add a webhook prints the info and the secret once; list shows no secret; remove deletes", async () => {
+  await withTestDb(async (_db, url) => {
+    const r = run(url, [
+      "triggers", "add", "notify", "--room", "build/", "--kinds", "task.completed,task.failed",
+      "--label", "team=a", "--webhook", "http://127.0.0.1:9/hook",
+    ]);
+    assert.equal(r.code, 0, r.err);
+    const lines = r.out.split("\n").filter(Boolean);
+    assert.equal(lines.length, 2);
+    const info = JSON.parse(lines[0]!);
+    assert.equal(info.name, "notify");
+    assert.deepEqual(info.labels, { team: "a" });
+    assert.match(lines[1]!, /^secret\twhsec_[A-Za-z0-9_-]{43}$/);
+
+    const l = run(url, ["triggers", "list"]);
+    assert.equal(l.code, 0, l.err);
+    assert.match(
+      l.out,
+      /^notify\tbuild\/\ttask\.completed,task\.failed\twebhook http:\/\/127\.0\.0\.1:9\/hook\t\d+\n$/,
+    );
+    assert.ok(!l.out.includes("whsec_"));
+
+    assert.equal(run(url, ["triggers", "remove", "notify"]).code, 0);
+    assert.equal(run(url, ["triggers", "list"]).out, "");
+    const again = run(url, ["triggers", "remove", "notify"]);
+    assert.equal(again.code, 1);
+    assert.match(again.err, /^error: not_found: /);
+  });
+});
+
+test("triggers add for an unregistered agent exits 1 invalid_input; a registered one prints no secret", async () => {
+  await withTestDb(async (_db, url) => {
+    const bad = run(url, ["triggers", "add", "wake", "--room", "build/", "--kinds", "task.completed", "--agent", "ghost"]);
+    assert.equal(bad.code, 1);
+    assert.match(bad.err, /^error: invalid_input: /);
+    assert.equal(bad.out, "");
+    assert.equal(run(url, ["agents", "register", "lead", "--url", "http://127.0.0.1:9/a", "--rooms", "build"]).code, 0);
+    const ok = run(url, ["triggers", "add", "wake", "--room", "build/", "--kinds", "task.completed", "--agent", "lead"]);
+    assert.equal(ok.code, 0, ok.err);
+    assert.equal(ok.out.split("\n").filter(Boolean).length, 1);
+    assert.deepEqual(JSON.parse(ok.out).action, { type: "agent", agent: "lead" });
+  });
+});
+
+test("triggers add needs exactly one of --webhook and --agent (exit 2) and creates nothing", async () => {
+  await withTestDb(async (_db, url) => {
+    const base = ["triggers", "add", "t", "--room", "build/", "--kinds", "task.completed"];
+    assert.equal(run(url, [...base, "--webhook", "http://127.0.0.1:9/h", "--agent", "lead"]).code, 2);
+    assert.equal(run(url, base).code, 2);
+    assert.equal(run(url, ["triggers", "list"]).out, "");
+  });
+});
