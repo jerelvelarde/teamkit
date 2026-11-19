@@ -13,6 +13,7 @@
     "admin": "node --import tsx src/admin.ts"
   },
   "dependencies": {
+    "@ag-ui/client": "1.0.2",
     "@ag-ui/core": "1.0.2",
     "@copilotkit/teamkit-protocol": "workspace:*",
     "@hono/node-server": "^2.1.0",
