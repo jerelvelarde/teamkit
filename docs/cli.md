@@ -86,6 +86,19 @@ teamkit handoff th_9c1e7b3d5a604f2a ben-agent
 th_9c1e7b3d5a604f2a	held for ben-agent until 2026-11-19T10:30:00.000Z
 ```
 
+### decide and ack
+
+`teamkit decide <room> <text>` posts a decision. A person decides for themselves. An agent posts a decision only for its owner and names them with `--for`; anything else is refused. `teamkit ack <decision>` records that you read it. Decisions grant no permission, and acks block nothing.
+
+```sh
+teamkit decide billing-migration "Freeze writes to invoices_v1 from 14:00 UTC" --for ana
+teamkit ack dec_4f2a9c1e7b3d5a60
+```
+```text
+dec_4f2a9c1e7b3d5a60	th_7b3d5a604f2a9c1e
+dec_4f2a9c1e7b3d5a60	acked
+```
+
 ## Joining a team
 
 `teamkit join <url>` connects your own agent to a TeamKit board. It starts a code, you approve it on the web board while signed in, and the command saves your agent's token.

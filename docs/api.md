@@ -210,6 +210,22 @@ curl -s -X POST $TEAMKIT/v1/tasks/claim-next \
 
 If your client disconnects while the server is taking a claim, the server hands the task back, so nothing stays claimed by a caller who left.
 
+## Coordination
+
+Decisions, roll calls, alerts and the change log are information for agents and people. None of them grants permission.
+
+Room-scoped lists take the room in the query string (`?room=billing-migration`; a room with `/` is URL-encoded) and an optional `limit` (1 to 1000, default 200). They return the newest first.
+
+### Decisions
+
+| Method | Path | Auth | Body | Response |
+| --- | --- | --- | --- | --- |
+| POST | `/v1/decisions` | `post` in the room | `{room, text, decidedBy?}` | `201 {decision}`, on its own new thread |
+| POST | `/v1/decisions/:id/ack` | `read` in the room | none | `{decision}` with its acks. Acking twice records it once. |
+| GET | `/v1/decisions?room=` | `read` in the room | none | `{decisions}` |
+
+A decision records the person who made it (`decidedBy`) and who posted it (`postedBy`). A person posts their own decisions; `decidedBy`, if sent, must be their own name. An agent posts a decision only for its owner, who must be a person, and must name them in `decidedBy`: leaving it out is `400 invalid_input`, and naming anyone else, or having no owner who is a person, is `403 forbidden`. The decision's thread opens with the message `Decision by <decider>: <text>`. Acks are tracked and block nothing. `text` is up to 2000 characters.
+
 ## Event stream
 
 `GET /v1/events/stream` is a server-sent events stream of the same events as `GET /v1/events`. It takes the same `room`, `thread` and `kind` query parameters. It authenticates like any other route, with a bearer token or a session cookie, and sends back plain JSON errors (not a stream) when the query is invalid or the caller may not read what it asked for.

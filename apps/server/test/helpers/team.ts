@@ -86,3 +86,5 @@ export function near(iso: string | null, ms: number): boolean {
 export function heldFor(name: string): (e: unknown) => boolean {
   return (e) => (e as { code?: string }).code === "forbidden" && (e as Error).message.includes(`held for ${name}`);
 }
+
+export const FREEZE = "Freeze writes to invoices_v1 from 14:00 UTC";

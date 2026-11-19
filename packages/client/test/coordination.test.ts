@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { startTestServer } from "../../../apps/server/test/helpers/server.js";
 import {
   BRIEF,
+  FREEZE,
   PROD_APPROVAL,
   billingTeam,
   sessionFetch,
@@ -44,6 +45,30 @@ test("handoff returns the held task; handing to a person is 400 invalid_input", 
     const task2 = await ana.createTask({ room: "billing-migration", brief: BRIEF });
     await assert.rejects(ana.handoff(task2.id, "ben"),
       (e) => e instanceof TeamkitError && e.code === "invalid_input" && e.status === 400);
+  } finally {
+    await srv.stop();
+  }
+});
+
+test("decisions round-trip through the client, and an agent without decidedBy gets 400", async () => {
+  const { srv, t, as } = await team();
+  try {
+    const d = await as(t.anaAgent).postDecision({ room: "billing-migration", text: FREEZE, decidedBy: "ana" });
+    assert.equal(d.decidedBy.name, "ana");
+    assert.equal((await as(t.benAgent).ackDecision(d.id)).acks.length, 1);
+    assert.equal((await as(t.benAgent).decisions("billing-migration"))[0]!.id, d.id);
+    await assert.rejects(as(t.anaAgent).postDecision({ room: "billing-migration", text: FREEZE }),
+      (e) => e instanceof TeamkitError && e.code === "invalid_input" && e.status === 400);
+  } finally {
+    await srv.stop();
+  }
+});
+
+test("a room with a slash works on ?room= and in the body", async () => {
+  const { srv, t, person } = await team();
+  try {
+    await person(t.sam).postDecision({ room: "billing-migration/backfill", text: FREEZE });
+    assert.equal((await person(t.sam).decisions("billing-migration/backfill")).length, 1);
   } finally {
     await srv.stop();
   }

@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createClient } from "@copilotkit/teamkit-client";
 import { startTestServer } from "../../../apps/server/test/helpers/server.js";
-import { BRIEF, billingTeam, type TeamAgent } from "../../../apps/server/test/helpers/team.js";
+import { BRIEF, FREEZE, billingTeam, type TeamAgent } from "../../../apps/server/test/helpers/team.js";
 import { isolatedEnv, runCli } from "./helpers/cli.js";
 
 async function setup() {
@@ -43,6 +43,24 @@ test("handoff prints the hold and forgets the stored claim", async () => {
     assert.equal(r.code, 0, r.stderr);
     assert.match(r.stdout, /^th_\S+\theld for sam-agent until \S+Z\n$/);
     assert.equal((await runCli(["tasks", "complete", id], e)).code, 2);
+  } finally {
+    await srv.stop();
+  }
+});
+
+test("decide --for the owner, then ack", async () => {
+  const { srv, team, env } = await setup();
+  try {
+    const d = await runCli(["decide", "billing-migration", FREEZE, "--for", "ana"], env(team.anaAgent));
+    assert.equal(d.code, 0, d.stderr);
+    assert.match(d.stdout, /^dec_\S+\tth_\S+\n$/);
+    const decId = d.stdout.split("\t")[0]!;
+    const a = await runCli(["ack", decId], env(team.benAgent));
+    assert.equal(a.code, 0, a.stderr);
+    assert.equal(a.stdout, `${decId}\tacked\n`);
+    const bad = await runCli(["decide", "billing-migration", FREEZE], env(team.anaAgent));
+    assert.equal(bad.code, 1);
+    assert.match(bad.stderr, /invalid_input/);
   } finally {
     await srv.stop();
   }

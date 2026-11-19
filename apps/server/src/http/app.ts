@@ -12,6 +12,7 @@ import { registerRoutes } from "./routes.js";
 import { registerSlackRoutes } from "./slack-routes.js";
 import { registerStream } from "./stream.js";
 import type { Mailer } from "../mail.js";
+import { registerCoordinationRoutes } from "./coordination-routes.js";
 import { registerJoinRoutes } from "./join-routes.js";
 import { registerTaskRoutes } from "./task-routes.js";
 
@@ -65,6 +66,7 @@ export function createApp(deps: AppDeps, opts: AppOptions = {}): Hono {
   registerRoutes(v1, deps);
   registerClaimNext(v1, deps);
   registerTaskRoutes(v1, deps);
+  registerCoordinationRoutes(v1, deps);
   registerStream(v1, deps, { pingMs: opts.streamPingMs, maxMs: opts.streamMaxMs });
   registerPeopleRoutes(v1, deps, {
     deviceStartLimit: opts.deviceStartLimit,

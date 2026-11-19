@@ -2,6 +2,7 @@ import type {
   BlockKind,
   BoardEvent,
   Claim,
+  Decision,
   EventQuery,
   PlanItem,
   RoomSummary,
@@ -77,6 +78,10 @@ export interface TeamkitClient {
   answer(taskId: string, input: { text?: string; choice?: string }): Promise<Task>;
   /** Hands the task to a named agent and holds it for them. */
   handoff(taskId: string, to: string): Promise<Task>;
+  /** Posts a decision a person made; an agent passes its owner as `decidedBy`. */
+  postDecision(input: { room: string; text: string; decidedBy?: string }): Promise<Decision>;
+  ackDecision(id: string): Promise<Decision>;
+  decisions(room: string, opts?: { limit?: number }): Promise<Decision[]>;
   events(q?: EventQuery): Promise<{ events: BoardEvent[]; cursor: string }>;
   stream(q: EventQuery, opts?: { signal?: AbortSignal }): AsyncIterable<BoardEvent>;
 }
@@ -88,6 +93,13 @@ function eventParams(q: EventQuery | undefined): URLSearchParams {
   if (q?.thread !== undefined) params.set("thread", q.thread);
   for (const k of q?.kinds ?? []) params.append("kind", k);
   if (q?.limit !== undefined) params.set("limit", String(q.limit));
+  return params;
+}
+
+/** `?room=` (and `limit`) for the room-scoped coordination lists; a room may contain `/`. */
+function roomParams(room: string, extra: Record<string, string | number | undefined> = {}): URLSearchParams {
+  const params = new URLSearchParams({ room });
+  for (const [k, v] of Object.entries(extra)) if (v !== undefined) params.set(k, String(v));
   return params;
 }
 
@@ -220,6 +232,10 @@ export function createClient(opts: ClientOptions): TeamkitClient {
       (await json<{ task: Task }>("POST", `/tasks/${enc(taskId)}/answer`, input)).task,
     handoff: async (taskId, to) =>
       (await json<{ task: Task }>("POST", `/tasks/${enc(taskId)}/handoff`, { to })).task,
+    postDecision: async (input) => (await json<{ decision: Decision }>("POST", "/decisions", input)).decision,
+    ackDecision: async (id) => (await json<{ decision: Decision }>("POST", `/decisions/${enc(id)}/ack`, {})).decision,
+    decisions: async (room, opts) =>
+      (await json<{ decisions: Decision[] }>("GET", withQuery("/decisions", roomParams(room, { limit: opts?.limit })))).decisions,
     events: (q) => json("GET", withQuery("/events", eventParams(q))),
     stream: (q, o) => streamEvents(q, o?.signal),
   };
