@@ -1,6 +1,8 @@
 import {
+  AGENT_STYLE_NAME_ERROR,
   BoardError,
   PERMISSIONS,
+  isAgentStyleName,
   isValidRoomPattern,
   newId,
   newTokenSecret,
@@ -152,6 +154,7 @@ export async function createPerson(
   input: { name: string; role: "admin" | "member" },
 ): Promise<ActorRef> {
   checkName(input.name);
+  if (isAgentStyleName(input.name)) throw new BoardError("invalid_input", AGENT_STYLE_NAME_ERROR);
   if (input.role !== "admin" && input.role !== "member") {
     throw new BoardError("invalid_input", "role must be admin or member");
   }

@@ -18,10 +18,17 @@ export function personAgentName(person: string): string {
   return `${person}-agent`;
 }
 
+/** True for a name only an agent may carry: a person named `ben-agent` would take ben's agent's name. */
+export function isAgentStyleName(name: string): boolean {
+  return name.endsWith("-agent");
+}
+
+export const AGENT_STYLE_NAME_ERROR = "a person's name cannot end in -agent; that is how agent names end";
+
 /** Trimmed and lower-cased, or null when it could not name a person and their agent. */
 export function normalizeJoinName(raw: string): string | null {
   const name = raw.trim().toLowerCase();
-  return JOIN_NAME.test(name) ? name : null;
+  return JOIN_NAME.test(name) && !isAgentStyleName(name) ? name : null;
 }
 
 /** Trimmed, lower-cased and without one leading `@`; null unless it has two or more valid labels. */

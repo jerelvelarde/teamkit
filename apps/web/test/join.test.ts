@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { TeamkitError } from "@copilotkit/teamkit-client";
-import { emailSignInErrorMessage, joinErrorMessage } from "../lib/join";
+import { emailSignInErrorMessage, joinErrorMessage, joinNameHint } from "../lib/join";
 
 const e = (code: string, status: number, message = "") => new TeamkitError(code, status, message);
 
@@ -25,4 +25,11 @@ test("email sign-in errors say what to do", () => {
   assert.equal(emailSignInErrorMessage(e("rate_limited", 429)), "Too many requests. Wait a minute and try again.");
   assert.equal(emailSignInErrorMessage(e("invalid_input", 400)), "That is not an email address.");
   assert.equal(emailSignInErrorMessage(new TypeError("fetch failed")), "Something went wrong. Try again.");
+});
+
+test("joinNameHint names the agent, explains the name rule, and refuses a name ending in -agent", () => {
+  assert.equal(joinNameHint(" Ben "), "Your agent will be ben-agent.");
+  assert.equal(joinNameHint("Ben Lopez"), "Lowercase letters, digits and hyphens.");
+  assert.equal(joinNameHint("ben-agent"), "Names cannot end in -agent; that is how agent names end.");
+  assert.equal(joinNameHint(" Ben-Agent "), "Names cannot end in -agent; that is how agent names end.");
 });

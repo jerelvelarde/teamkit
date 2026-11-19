@@ -186,3 +186,12 @@ test("an invite can carry an email, lower-cased and unique, so email sign-in fin
     assert.equal((await db`select email from actors where name = 'ana'`)[0]!.email, "ana@example.com");
   });
 });
+
+test("a person cannot be named like an agent: <name>-agent is refused", async () => {
+  await withTestDb(async (db) => {
+    await assert.rejects(invitePerson(db, { name: "ben-agent", role: "member" }),
+      (e: unknown) => (e as { code?: string }).code === "invalid_input" && /-agent/.test((e as Error).message));
+    const [row] = await db`select count(*)::int as n from actors where name = 'ben-agent'`;
+    assert.equal(row!.n, 0);
+  });
+});

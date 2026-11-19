@@ -10,7 +10,8 @@ test("normalizeJoinName trims and lower-cases, and refuses what an agent name ca
   assert.equal(normalizeJoinName("  Ana "), "ana");
   assert.equal(normalizeJoinName("ben-2"), "ben-2");
   assert.equal(normalizeJoinName("a".repeat(57)), "a".repeat(57));
-  for (const bad of ["", "Ana Lopez", "-ana", "ana_b", "ána", "a".repeat(58)]) {
+  // A person named like an agent would take that agent's name from its owner.
+  for (const bad of ["", "Ana Lopez", "-ana", "ana_b", "ána", "a".repeat(58), "ben-agent", " Ben-Agent "]) {
     assert.equal(normalizeJoinName(bad), null, bad);
   }
 });

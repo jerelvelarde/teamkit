@@ -95,6 +95,10 @@ test("names are trimmed and lower-cased; a name an agent name cannot carry is in
         code("invalid_input", /lowercase letters, digits and hyphens, up to 57 characters/));
     }
     await assert.rejects(redeemJoinLink(db, { code: secret, name: "ben", email: "ben" }), code("invalid_input", /not an email address/));
+    // A person named ben-agent would take ben's agent name before ben's agent exists.
+    for (const name of ["ben-agent", " Ben-Agent "]) {
+      await assert.rejects(redeemJoinLink(db, { code: secret, name, email: "ben@example.com" }), code("invalid_input", /-agent/));
+    }
   });
 });
 

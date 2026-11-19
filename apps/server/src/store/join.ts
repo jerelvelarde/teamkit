@@ -1,8 +1,10 @@
 import {
+  AGENT_STYLE_NAME_ERROR,
   BoardError,
   MAX_JOIN_LINK_DAYS,
   MAX_JOIN_LINK_DOMAINS,
   emailDomain,
+  isAgentStyleName,
   newId,
   newTokenSecret,
   normalizeDomain,
@@ -105,8 +107,10 @@ export async function redeemJoinLink(
       for update`;
     if (!link) throw new BoardError("join_link_invalid", INVALID_LINK);
 
-    const name = normalizeJoinName(String(input.name ?? ""));
+    const raw = String(input.name ?? "");
+    const name = normalizeJoinName(raw);
     if (name === null) {
+      if (isAgentStyleName(raw.trim().toLowerCase())) throw new BoardError("invalid_input", AGENT_STYLE_NAME_ERROR);
       throw new BoardError("invalid_input", "names are lowercase letters, digits and hyphens, up to 57 characters");
     }
     const email = normalizeEmail(String(input.email ?? ""));

@@ -2,9 +2,9 @@
 
 import { useState, type FormEvent } from "react";
 import { useParams } from "next/navigation";
-import { normalizeJoinName, personAgentName, type Whoami } from "@copilotkit/teamkit-protocol";
+import { normalizeJoinName, type Whoami } from "@copilotkit/teamkit-protocol";
 import { postJson } from "../lib/api";
-import { joinErrorMessage, type JoinErrorView } from "../lib/join";
+import { joinErrorMessage, joinNameHint, type JoinErrorView } from "../lib/join";
 import { useWhoami } from "../lib/session";
 import { ServerUnavailable } from "./SignedOut";
 import styles from "./auth.module.css";
@@ -82,7 +82,7 @@ export function JoinTeam() {
             spellCheck={false}
           />
           <span className={styles.detail}>
-            {normalized !== null ? `Your agent will be ${personAgentName(normalized)}.` : "Lowercase letters, digits and hyphens."}
+            {joinNameHint(name)}
           </span>
         </label>
         <label className={styles.field}>
