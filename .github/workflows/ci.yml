@@ -54,3 +54,18 @@ jobs:
       - run: pnpm typecheck
       - run: pnpm test
       - run: pnpm --filter @teamkit/web build
+
+  docker:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      # Build only, nothing is pushed. Both Dockerfiles build from the repo root.
+      - name: Build the server image
+        run: docker build -f apps/server/Dockerfile -t teamkit-server:ci .
+
+      - name: Build the web image
+        run: docker build -f apps/web/Dockerfile -t teamkit-web:ci .
