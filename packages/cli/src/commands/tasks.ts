@@ -58,7 +58,13 @@ function readPlan(file: string): PlanItem[] {
 export function registerTasks(program: Command, ctx: CliContext): void {
   const tasks = program
     .command("tasks")
-    .description("list, create and work on tasks")
+    .description("list, create and work on tasks");
+
+  // The parent declares no options of its own: commander gives an option written after a subcommand to the
+  // parent when both declare it, so list is the default subcommand and owns --state/--label.
+  tasks
+    .command("list", { isDefault: true })
+    .description("list tasks (the default: `tasks [room]`)")
     .argument("[room]", "only tasks in this room")
     .option("--state <s>", "task state, or all")
     .option("--label <k=v>", "label filter (repeatable)", collect)
@@ -86,8 +92,7 @@ export function registerTasks(program: Command, ctx: CliContext): void {
         cmd: Command,
       ) => {
         const json = globalOpts(cmd).json;
-        // commander hands a --label that follows a subcommand to the parent's option of the same name.
-        const labels = parseLabels([...(opts.label ?? []), ...((cmd.parent?.opts().label as string[] | undefined) ?? [])]);
+        const labels = parseLabels(opts.label);
         if (opts.file !== undefined) {
           const created = await clientFor(cmd, ctx).createPlan(room, readPlan(opts.file));
           ctx.out(

@@ -118,3 +118,18 @@ test("renew prints leaseExpiresAt; release returns the task to ready", async () 
     await srv.stop();
   }
 });
+
+test("claim --ready --label claims the matching task, never the older reviewer one", async () => {
+  const { srv, client, env } = await setup();
+  try {
+    const reviewer = await client.createTask({ room: "swarm", brief: "review", labels: { role: "reviewer" } });
+    const worker = await client.createTask({ room: "swarm", brief: "work", labels: { role: "worker" } });
+    const r = await runCli(["tasks", "claim", "--ready", "swarm", "--label", "role=worker", "--json"], env);
+    assert.equal(r.code, 0, r.stderr);
+    const claim = JSON.parse(r.stdout) as { task: { id: string } };
+    assert.equal(claim.task.id, worker.id);
+    assert.notEqual(claim.task.id, reviewer.id);
+  } finally {
+    await srv.stop();
+  }
+});
