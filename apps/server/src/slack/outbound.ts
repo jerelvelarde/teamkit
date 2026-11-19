@@ -1,13 +1,11 @@
-import type { BoardEvent } from "@copilotkit/teamkit-protocol";
 import type { Db } from "../db/pool.js";
 import type { Notifier } from "../notifier.js";
 import { currentCursor, listEvents } from "../store/events.js";
-import { loadTask } from "../store/task-load.js";
-import { toSlackMessage } from "./blocks.js";
-import { BlockedCard, OutcomeCard, type CardTask } from "./cards.js";
-import { getServiceCursor, getSlackThread, saveSlackThread, setServiceCursor, slackRoomSettings } from "./mirror.js";
+import { getServiceCursor, setServiceCursor } from "./mirror.js";
+import { TASK_EVENT_KINDS } from "./parent-rule.js";
 import { startPassLoop } from "./pass-loop.js";
-import { callSlack, type SlackApi } from "./web-api.js";
+import { postTaskEvent } from "./task-posts.js";
+import type { SlackApi } from "./web-api.js";
 
 const CURSOR_NAME = "slack-outbound";
 const PAGE = 100;
@@ -24,91 +22,16 @@ export interface OutboundOptions {
   log?: (line: string) => void;
 }
 
-/** What one pass did. `retry` is set when Slack or the network failed and the pass stopped. */
+/** What one event's posts came to. A retry ends the pass; the event is tried again next pass. */
+export type EventOutcome = { kind: "done"; posted: number } | { kind: "retry"; reason: string; afterMs: number | null };
+
+/**
+ * What one pass did. `posted` counts every Slack write that succeeded (posts and edits); `retry`
+ * is set when Slack or the network failed and the pass stopped.
+ */
 export interface OutboundPass {
   posted: number;
   retry: { reason: string; afterMs: number | null } | null;
-}
-
-type Message = { blocks: unknown[]; text: string };
-
-/** Posts what one event calls for. "retry" leaves the event for the next pass. */
-async function handleEvent(
-  o: OutboundOptions,
-  e: BoardEvent,
-): Promise<{ kind: "done"; posted: 0 | 1 } | { kind: "retry"; reason: string; afterMs: number | null }> {
-  const skip = { kind: "done", posted: 0 } as const;
-  if (e.threadId === null) return skip;
-  const taskId = e.threadId;
-  const settings = await slackRoomSettings(o.db, e.room);
-  if (settings.channel === null || settings.announce === "none") return skip;
-  const task = await loadTask(o.db, taskId);
-  if (!task) return skip;
-  const card: CardTask = {
-    id: taskId,
-    room: e.room,
-    state: task.state,
-    brief: task.brief,
-    url: `${o.publicUrl.replace(/\/+$/, "")}/t/${taskId}`,
-  };
-
-  const blocked = e.data as { interruptId?: string; kind?: string; question?: string; options?: string[] | null };
-  // A question that was answered (or replaced) since: its buttons could only fail, and after a
-  // pause (a rate limit, a bad token) the stale ones would arrive as a flood.
-  if (e.kind === "task.blocked" && (task.state !== "blocked" || task.block?.interruptId !== blocked.interruptId)) {
-    return skip;
-  }
-  const mirror = await getSlackThread(o.db, taskId);
-  const inThread = mirror?.channel != null && mirror.ts != null;
-  // Outside a thread the task already has, only a question (or, with announce "all", any
-  // outcome) starts one at the top level.
-  if (!inThread && !(e.kind === "task.blocked" || settings.announce === "all")) return skip;
-
-  let message: Message;
-  if (e.kind === "task.blocked") {
-    const d = blocked;
-    message = toSlackMessage(
-      BlockedCard({
-        task: card,
-        interruptId: String(d.interruptId ?? ""),
-        kind: d.kind === "awaiting_approval" ? "awaiting_approval" : "awaiting_input",
-        question: String(d.question ?? ""),
-        options: Array.isArray(d.options) ? d.options : [],
-        askedBy: e.actor?.name ?? null,
-      }),
-    );
-  } else if (e.kind === "task.completed") {
-    message = toSlackMessage(OutcomeCard({ task: card, outcome: "completed", text: task.result ?? "" }));
-  } else {
-    const d = e.data as { reason?: string };
-    message = toSlackMessage(OutcomeCard({ task: card, outcome: "failed", text: String(d.reason ?? "") }));
-  }
-
-  const channel = inThread ? (mirror.channel as string) : settings.channel;
-  const sent = await callSlack(o.slack, "chat.postMessage", {
-    channel,
-    ...(inThread ? { thread_ts: mirror.ts as string } : {}),
-    ...message,
-  });
-  if (sent.kind === "retry") return sent;
-  // An ok with no ts cannot start or join a thread: treat it as a refusal of this one post.
-  const result: { kind: "ok"; ts: string } | { kind: "permanent"; reason: string } =
-    sent.kind === "ok"
-      ? sent.ts === null
-        ? { kind: "permanent", reason: "slack error no_ts" }
-        : { kind: "ok", ts: sent.ts }
-      : sent;
-  if (result.kind === "permanent") {
-    o.log?.(`slack-outbound: dropped the ${e.kind} post for task ${taskId} to ${channel}: ${result.reason}`);
-    return skip;
-  }
-  if (!inThread) {
-    // The new top-level message starts the task's Slack thread. Its conversation key is left
-    // for the first turn from that thread to fill in (the managed Channel's key is opaque);
-    // a key the task already has, from the mention that created it, is kept.
-    await saveSlackThread(o.db, { taskId, channel, ts: result.ts, conversationKey: null });
-  }
-  return { kind: "done", posted: 1 };
 }
 
 /**
@@ -128,13 +51,9 @@ export async function processOutboundOnce(o: OutboundOptions): Promise<OutboundP
   }
   let posted = 0;
   for (;;) {
-    const page = await listEvents(o.db, {
-      after,
-      kinds: ["task.blocked", "task.completed", "task.failed"],
-      limit: PAGE,
-    });
+    const page = await listEvents(o.db, { after, kinds: [...TASK_EVENT_KINDS], limit: PAGE });
     for (const e of page.events) {
-      const r = await handleEvent(o, e);
+      const r = await postTaskEvent(o, e);
       if (r.kind === "retry") return { posted, retry: { reason: r.reason, afterMs: r.afterMs } };
       posted += r.posted;
       await setServiceCursor(o.db, CURSOR_NAME, e.cursor);

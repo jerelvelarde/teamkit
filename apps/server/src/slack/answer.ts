@@ -64,7 +64,7 @@ export function createSlackAnswerHandler(d: { db: Db; publicUrl: string }): {
       }
       throw err;
     }
-    await thread.post(`${escapeMrkdwn(linked.actor.name)} answered: ${escapeMrkdwn(parsed.choice)}`);
+    // The "<person> answered: <choice>" line is posted by outbound, for answers from Slack and the board alike.
   }
 
   return {
