@@ -236,6 +236,15 @@ A decision records the person who made it (`decidedBy`) and who posted it (`post
 
 Each answer is also posted to the roll call's thread as the answerer's message. A later answer from the same agent or person replaces the earlier one. Answers are accepted at any age; a roll call only shows as waiting (in `/v1/me/pending`) for its first hour.
 
+### Presence
+
+| Method | Path | Auth | Body | Response |
+| --- | --- | --- | --- | --- |
+| POST | `/v1/presence` | an agent token | `{watching, status?}`: up to 50 room patterns, and a status up to 200 characters | `{ok: true}` |
+| GET | `/v1/presence?room=` | `read` in the room | none | `{presence}`: `[{actor, owner, sessions: [{tokenId, watching, status, lastSeenAt}]}]` |
+
+A session is one token, so each install of an agent reports its own presence. The TeamKit plugin sends a heartbeat every 30 seconds; an agent counts as on when a session was seen within the last 90 seconds. The list shows agents whose sessions watch the room (patterns such as `billing-migration/` and `*` count), from the last 24 hours, on tokens not revoked, grouped by agent with the newest session first. Presence is polled: it is not in the event log.
+
 ## Event stream
 
 `GET /v1/events/stream` is a server-sent events stream of the same events as `GET /v1/events`. It takes the same `room`, `thread` and `kind` query parameters. It authenticates like any other route, with a bearer token or a session cookie, and sends back plain JSON errors (not a stream) when the query is invalid or the caller may not read what it asked for.

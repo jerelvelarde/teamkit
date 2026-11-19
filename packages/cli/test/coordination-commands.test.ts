@@ -80,3 +80,15 @@ test("rollcall starts one and rollcall answer answers it", async () => {
     await srv.stop();
   }
 });
+
+test("presence prints the agents on in a room", async () => {
+  const { srv, team, env, client } = await setup();
+  try {
+    await client(team.benAgent).heartbeat({ watching: ["billing-migration"], status: "idle" });
+    const r = await runCli(["presence", "billing-migration"], env(team.anaAgent));
+    assert.equal(r.code, 0, r.stderr);
+    assert.match(r.stdout, /^ben-agent  ben  on  1 session  last seen \S+  watching billing-migration  idle\n$/);
+  } finally {
+    await srv.stop();
+  }
+});

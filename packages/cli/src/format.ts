@@ -1,4 +1,4 @@
-import type { BoardEvent, RoomView, Task, ThreadView } from "@copilotkit/teamkit-protocol";
+import { PRESENCE_ON_MS, type BoardEvent, type Presence, type RoomView, type Task, type ThreadView } from "@copilotkit/teamkit-protocol";
 
 export function firstLine(s: string, max = 80): string {
   const line = s.split(/\r?\n/, 1)[0] ?? "";
@@ -56,4 +56,22 @@ export function formatThread(v: ThreadView): string {
 export function formatRoom(v: RoomView): string {
   const lines = v.threads.map((t) => `${t.id}  [${t.state ?? "discussion"}]  ${firstLine(t.brief ?? "")}`.trimEnd());
   return [v.room.name, ...lines].join("\n");
+}
+
+/** One line per agent: name, owner, on or off, sessions, last seen, what it watches, and its newest status. */
+export function formatPresence(list: Presence[], nowMs: number): string {
+  if (list.length === 0) return "no agents";
+  return list
+    .map((p) => {
+      const newest = p.sessions[0];
+      const seen = newest ? Date.parse(newest.lastSeenAt) : 0;
+      const on = newest !== undefined && nowMs - seen <= PRESENCE_ON_MS;
+      const watching = [...new Set(p.sessions.flatMap((s) => s.watching))].join(",");
+      const n = p.sessions.length;
+      let line = `${p.actor.name}  ${p.owner?.name ?? "-"}  ${on ? "on" : "off"}  ${n} session${n === 1 ? "" : "s"}`;
+      line += `  last seen ${newest?.lastSeenAt ?? "never"}  watching ${watching}`;
+      if (newest?.status) line += `  ${newest.status}`;
+      return line;
+    })
+    .join("\n");
 }

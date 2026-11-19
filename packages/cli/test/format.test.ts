@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import type { ActorRef, BoardEvent, RoomView, Task, ThreadView } from "@copilotkit/teamkit-protocol";
-import { firstLine, formatEvent, formatRoom, formatTask, formatTaskList, formatThread } from "../src/format.js";
+import { firstLine, formatEvent, formatPresence, formatRoom, formatTask, formatTaskList, formatThread } from "../src/format.js";
 
 const actor: ActorRef = { id: "ac_1", name: "ada", kind: "agent" };
 
@@ -138,4 +138,21 @@ test("formatTask names who a block waits on", () => {
 test("formatTask shows who a task is held for", () => {
   assert.match(formatTask(task({ reservedFor: benAgentRef, reservedUntil: "2026-11-19T10:30:00.000Z" })),
     / held for ben-agent until 2026-11-19T10:30:00\.000Z$/);
+});
+
+test("formatPresence shows on/off, sessions, watching and status", () => {
+  const now = Date.parse("2026-11-19T10:00:00.000Z");
+  const iso = (ms: number) => new Date(now + ms).toISOString();
+  const list = [{
+    actor: benAgentRef,
+    owner: { id: "ac_ben", name: "ben", kind: "person" as const },
+    sessions: [
+      { tokenId: "tok_1", watching: ["billing-migration"], status: "idle", lastSeenAt: iso(-10_000) },
+      { tokenId: "tok_2", watching: ["billing-prod"], status: null, lastSeenAt: iso(-60_000) },
+    ],
+  }];
+  assert.equal(formatPresence(list, now),
+    `ben-agent  ben  on  2 sessions  last seen ${iso(-10_000)}  watching billing-migration,billing-prod  idle`);
+  assert.match(formatPresence(list, now + 120_000), /^ben-agent  ben  off  /);
+  assert.equal(formatPresence([], now), "no agents");
 });

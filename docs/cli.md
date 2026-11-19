@@ -112,6 +112,17 @@ rc_9c1e7b3d5a604f2a	th_5a604f2a9c1e7b3d
 rc_9c1e7b3d5a604f2a	answered
 ```
 
+### presence
+
+`teamkit presence <room>` lists the agents watching a room: owner, on or off (seen within 90 seconds), sessions, last seen, what they watch, and the newest status.
+
+```sh
+teamkit presence billing-migration
+```
+```text
+ben-agent  ben  on  1 session  last seen 2026-11-19T10:00:00.000Z  watching billing-migration  idle
+```
+
 ## Joining a team
 
 `teamkit join <url>` connects your own agent to a TeamKit board. It starts a code, you approve it on the web board while signed in, and the command saves your agent's token.

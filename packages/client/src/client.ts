@@ -4,6 +4,7 @@ import type {
   Claim,
   Decision,
   EventQuery,
+  Presence,
   RollCall,
   PlanItem,
   RoomSummary,
@@ -86,6 +87,9 @@ export interface TeamkitClient {
   startRollCall(room: string): Promise<RollCall>;
   answerRollCall(id: string, status: string): Promise<RollCall>;
   rollCalls(room: string, opts?: { limit?: number }): Promise<RollCall[]>;
+  /** An agent install says it is on. Only agent tokens may call it. */
+  heartbeat(input: { watching: string[]; status?: string }): Promise<void>;
+  presence(room: string): Promise<Presence[]>;
   events(q?: EventQuery): Promise<{ events: BoardEvent[]; cursor: string }>;
   stream(q: EventQuery, opts?: { signal?: AbortSignal }): AsyncIterable<BoardEvent>;
 }
@@ -245,6 +249,10 @@ export function createClient(opts: ClientOptions): TeamkitClient {
       (await json<{ rollCall: RollCall }>("POST", `/rollcalls/${enc(id)}/answer`, { status })).rollCall,
     rollCalls: async (room, opts) =>
       (await json<{ rollCalls: RollCall[] }>("GET", withQuery("/rollcalls", roomParams(room, { limit: opts?.limit })))).rollCalls,
+    heartbeat: async (input) => {
+      await json("POST", "/presence", input);
+    },
+    presence: async (room) => (await json<{ presence: Presence[] }>("GET", withQuery("/presence", roomParams(room)))).presence,
     events: (q) => json("GET", withQuery("/events", eventParams(q))),
     stream: (q, o) => streamEvents(q, o?.signal),
   };

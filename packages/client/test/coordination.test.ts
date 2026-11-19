@@ -84,3 +84,15 @@ test("roll calls round-trip through the client", async () => {
     await srv.stop();
   }
 });
+
+test("heartbeat then presence over HTTP", async () => {
+  const { srv, t, as, person } = await team();
+  try {
+    await as(t.benAgent).heartbeat({ watching: ["billing-migration"] });
+    assert.equal((await person(t.ana).presence("billing-migration"))[0]!.sessions[0]!.tokenId, t.benAgent.tokenId);
+    await assert.rejects(person(t.ben).heartbeat({ watching: [] }),
+      (e) => e instanceof TeamkitError && e.code === "forbidden" && e.status === 403);
+  } finally {
+    await srv.stop();
+  }
+});

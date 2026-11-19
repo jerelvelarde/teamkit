@@ -1,9 +1,11 @@
 import type { Hono } from "hono";
 import type { AppDeps } from "./app.js";
 import type { AppEnv } from "./auth.js";
-import { limitQuery, optString, pathParam, readBody, roomQuery } from "./body.js";
+import { BoardError } from "@copilotkit/teamkit-protocol";
+import { limitQuery, optString, optStringArray, pathParam, readBody, roomQuery } from "./body.js";
 import { ackDecision, listDecisions, postDecision } from "../store/decisions.js";
 import { answerRollCall, listRollCalls, startRollCall } from "../store/rollcalls.js";
+import { heartbeat, listPresence } from "../store/presence.js";
 
 /** Decisions, roll calls, presence, the change log, alerts and what is waiting on the caller. */
 export function registerCoordinationRoutes(v1: Hono<AppEnv>, deps: AppDeps): void {
@@ -39,5 +41,17 @@ export function registerCoordinationRoutes(v1: Hono<AppEnv>, deps: AppDeps): voi
 
   v1.get("/rollcalls", async (c) => {
     return c.json({ rollCalls: await listRollCalls(db, c.get("auth"), roomQuery(c), { limit: limitQuery(c) }) });
+  });
+
+  v1.post("/presence", async (c) => {
+    const b = await readBody(c);
+    const watching = optStringArray(b, "watching");
+    if (watching === undefined) throw new BoardError("invalid_input", "watching is required");
+    await heartbeat(db, c.get("auth"), { watching, status: optString(b, "status") });
+    return c.json({ ok: true });
+  });
+
+  v1.get("/presence", async (c) => {
+    return c.json({ presence: await listPresence(db, c.get("auth"), roomQuery(c)) });
   });
 }
