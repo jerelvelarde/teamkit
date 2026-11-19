@@ -33,8 +33,11 @@ function toInfo(r: Record<string, unknown>): RoomInfo {
   };
 }
 
-/** Rooms the actor can read (people see all), sorted by name. */
+/** Rooms the actor can read (people see all), sorted by name. Admin-scope tokens are refused. */
 export async function listRooms(db: Db, auth: AuthContext): Promise<RoomSummary[]> {
+  if (auth.scope === "admin") {
+    throw new BoardError("forbidden", `${auth.actor.name} uses an admin token, which cannot list rooms`);
+  }
   const rows: Record<string, unknown>[] = [...(await db`select name, created_at from rooms order by name`)];
   let visible = rows;
   if (auth.actor.kind !== "person") {

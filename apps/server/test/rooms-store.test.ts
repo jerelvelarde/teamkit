@@ -97,3 +97,17 @@ test("an agent sees only rooms it has a grant for", async () => {
     assert.deepEqual((await listRooms(db, ada)).map((r) => r.name), ["alpha", "beta", "team/x"]);
   });
 });
+
+test("an admin-scope token cannot list rooms, but the person's session can", async () => {
+  await withTestDb(async (db) => {
+    await setRoom(db, "build", {});
+    const p = await personAuth(db, "ann", "admin");
+    await assert.rejects(
+      listRooms(db, { ...p, via: "token", scope: "admin" }),
+      (e) =>
+        (e as { code?: string }).code === "forbidden" &&
+        (e as Error).message === "ann uses an admin token, which cannot list rooms",
+    );
+    assert.deepEqual((await listRooms(db, p)).map((r) => r.name), ["build"]);
+  });
+});
