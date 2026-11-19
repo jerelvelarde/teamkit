@@ -5,6 +5,7 @@ import { createDb, type Db } from "./db/pool.js";
 import { migrate } from "./db/migrate.js";
 import { createAgent, createAgentTokens, listTokens, revokeToken, type Grant } from "./store/actors.js";
 import { getRoomInfo, setRoom, type RoomSettings } from "./store/rooms.js";
+import { DEFAULT_PUBLIC_URL, invitePerson, listPeople, signInUrl } from "./store/people.js";
 
 const DEFAULT_DATABASE_URL = "postgres://teamkit@127.0.0.1:54329/teamkit";
 
@@ -108,6 +109,26 @@ function buildProgram(): Command {
         process.stdout.write(`${JSON.stringify(info)}\n`);
       },
     );
+
+  const people = program.command("people").exitOverride();
+  people
+    .command("invite <name>")
+    .description("create a person if needed and print a one-time sign-in link (valid 24 hours)")
+    .option("--admin", "make a new person an admin")
+    .exitOverride()
+    .action(async (name: string, opts: { admin?: boolean }) => {
+      const { secret } = await withDb((db) => invitePerson(db, { name, role: opts.admin ? "admin" : "member" }));
+      process.stdout.write(`${signInUrl(process.env.TEAMKIT_PUBLIC_URL || DEFAULT_PUBLIC_URL, secret)}\n`);
+    });
+  people
+    .command("list")
+    .description("list people as name, role, last sign-in")
+    .exitOverride()
+    .action(async () => {
+      for (const p of await withDb(listPeople)) {
+        process.stdout.write(`${p.actor.name}\t${p.role}\t${p.lastSignInAt ?? "never"}\n`);
+      }
+    });
 
   return program;
 }

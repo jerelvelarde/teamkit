@@ -5,13 +5,19 @@ import { fileURLToPath } from "node:url";
 import { withTestDb } from "./helpers/db.js";
 import { authenticate } from "../src/store/actors.js";
 import { getRoomInfo } from "../src/store/rooms.js";
+import { consumeSignInLink } from "../src/store/people.js";
 
 const CWD = fileURLToPath(new URL("..", import.meta.url));
 
-function run(url: string, args: string[], entry: string[] = ["--import", "tsx", "src/admin.ts"]) {
+function run(
+  url: string,
+  args: string[],
+  entry: string[] = ["--import", "tsx", "src/admin.ts"],
+  extraEnv: Record<string, string> = {},
+) {
   const r = spawnSync(process.execPath, [...entry, ...args], {
     cwd: CWD,
-    env: { ...process.env, DATABASE_URL: url },
+    env: { ...process.env, TEAMKIT_PUBLIC_URL: "", ...extraEnv, DATABASE_URL: url },
     encoding: "utf8",
   });
   return { code: r.status, out: r.stdout, err: r.stderr };
@@ -99,5 +105,39 @@ test("the bin wrapper runs", async () => {
   await withTestDb(async (_db, url) => {
     const r = run(url, ["tokens", "list"], ["bin/teamkit-admin.mjs"]);
     assert.equal(r.code, 0, r.err);
+  });
+});
+
+test("people invite prints one sign-in link and people list shows the person", async () => {
+  await withTestDb(async (db, url) => {
+    const r = run(url, ["people", "invite", "ada", "--admin"]);
+    assert.equal(r.code, 0, r.err);
+    const lines = r.out.split("\n").filter(Boolean);
+    assert.equal(lines.length, 1);
+    assert.match(lines[0]!, /^http:\/\/127\.0\.0\.1:3000\/signin\/sl_[A-Za-z0-9_-]{43}$/);
+    const secret = lines[0]!.split("/signin/")[1]!;
+
+    const custom = run(url, ["people", "invite", "ada"], undefined, { TEAMKIT_PUBLIC_URL: "https://board.example.com/" });
+    assert.equal(custom.code, 0, custom.err);
+    assert.ok(custom.out.startsWith("https://board.example.com/signin/sl_"), custom.out);
+
+    const l = run(url, ["people", "list"]);
+    assert.equal(l.code, 0, l.err);
+    assert.equal(l.out, "ada\tadmin\tnever\n");
+
+    assert.equal((await consumeSignInLink(db, secret)).role, "admin");
+    // Re-inviting without --admin kept the existing role.
+    const again = custom.out.trim().split("/signin/")[1]!;
+    assert.equal((await consumeSignInLink(db, again)).role, "admin");
+  });
+});
+
+test("people invite refuses a name an agent holds", async () => {
+  await withTestDb(async (_db, url) => {
+    assert.equal(run(url, ["agents", "create", "bot", "--rooms", "*:read"]).code, 0);
+    const r = run(url, ["people", "invite", "bot"]);
+    assert.equal(r.code, 1);
+    assert.match(r.err, /invalid_input/);
+    assert.equal(r.out, "");
   });
 });
