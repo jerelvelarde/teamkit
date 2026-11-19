@@ -5,14 +5,14 @@ import { useSearchParams } from "next/navigation";
 import { TeamkitError } from "@copilotkit/teamkit-client";
 import { postJson } from "../lib/api";
 import { useWhoami } from "../lib/session";
-import { SignedOut } from "./SignedOut";
+import { ServerUnavailable, SignedOut } from "./SignedOut";
 import styles from "./auth.module.css";
 
 type Result = { kind: "idle" } | { kind: "approved" } | { kind: "error"; message: string };
 
 export function DeviceApprove() {
   const initial = useSearchParams().get("code") ?? "";
-  const { state } = useWhoami();
+  const { state, refresh } = useWhoami();
   const [code, setCode] = useState(initial.toUpperCase());
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<Result>({ kind: "idle" });
@@ -21,6 +21,7 @@ export function DeviceApprove() {
   if (state === "signed_out") {
     return <SignedOut hint="Sign in with your invite link first, then reopen this page." />;
   }
+  if (state === "unavailable") return <ServerUnavailable onRetry={refresh} />;
 
   async function approve(e: FormEvent) {
     e.preventDefault();
