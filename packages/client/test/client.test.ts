@@ -1,5 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { createServer, type Socket } from "node:net";
 import type { BoardEvent } from "@copilotkit/teamkit-protocol";
 import { agentToken, startTestServer } from "../../../apps/server/test/helpers/server.js";
 import { createTestDatabase } from "../../../apps/server/test/helpers/db.js";
@@ -8,7 +9,7 @@ import { createApp, type AppOptions } from "../../../apps/server/src/http/app.js
 import { createNotifier } from "../../../apps/server/src/notifier.js";
 import { listTokens, revokeToken } from "../../../apps/server/src/store/actors.js";
 import type { Db } from "../../../apps/server/src/db/pool.js";
-import { createClient, TeamkitError } from "../src/client.js";
+import { createClient, TeamkitError, type TeamkitClient } from "../src/client.js";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -31,6 +32,101 @@ async function withServer(opts: AppOptions, fn: (ctx: { url: string; db: Db }) =
     await t.drop();
   }
 }
+
+/** A server that accepts connections and never answers; `onData` sees what each request sent. */
+async function withStallServer(
+  fn: (url: string) => Promise<void>,
+  onData: (socket: Socket, data: string) => void = () => {},
+): Promise<void> {
+  const sockets = new Set<Socket>();
+  const server = createServer((socket) => {
+    sockets.add(socket);
+    socket.setEncoding("utf8").on("data", (d: string) => onData(socket, d));
+    socket.on("error", () => {});
+    socket.on("close", () => sockets.delete(socket));
+  });
+  await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
+  const { port } = server.address() as { port: number };
+  try {
+    await fn(`http://127.0.0.1:${port}`);
+  } finally {
+    for (const s of sockets) s.destroy();
+    await new Promise((r) => server.close(r));
+  }
+}
+
+const isTimeout = (e: unknown): boolean => e instanceof TeamkitError && e.code === "timeout" && e.status === 0;
+
+async function elapsed(p: Promise<unknown>): Promise<{ ms: number; error: unknown }> {
+  const start = Date.now();
+  try {
+    await p;
+    return { ms: Date.now() - start, error: undefined };
+  } catch (error) {
+    return { ms: Date.now() - start, error };
+  }
+}
+
+test("a request to a server that never answers throws timeout after timeoutMs", async () => {
+  await withStallServer(async (url) => {
+    const c: TeamkitClient = createClient({ url, token: "t", timeoutMs: 200 });
+    for (const call of [() => c.whoami(), () => c.renew("th_x", "cl_x"), () => c.complete("th_x", "cl_x", "r")]) {
+      const { ms, error } = await elapsed(call());
+      assert.ok(isTimeout(error), String(error));
+      assert.ok(ms >= 190 && ms < 2000, `took ${ms} ms`);
+    }
+  });
+});
+
+test("a response whose body never finishes also times out", async () => {
+  await withStallServer(
+    async (url) => {
+      const c = createClient({ url, token: "t", timeoutMs: 200 });
+      const { error } = await elapsed(c.whoami());
+      assert.ok(isTimeout(error), String(error));
+    },
+    (socket) => socket.write("HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: 100\r\n\r\n{\"actor\""),
+  );
+});
+
+test("a caller abort is an abort, not a timeout; claimNext waits waitMs beyond the timeout", async () => {
+  await withStallServer(async (url) => {
+    const c = createClient({ url, token: "t", timeoutMs: 200 });
+    const ac = new AbortController();
+    setTimeout(() => ac.abort(), 50);
+    const aborted = await elapsed(c.claimNext("build", { waitMs: 5000, signal: ac.signal }));
+    assert.ok(!(aborted.error instanceof TeamkitError), String(aborted.error));
+    assert.equal((aborted.error as Error).name, "AbortError");
+
+    const polled = await elapsed(c.claimNext("build", { waitMs: 400 }));
+    assert.ok(isTimeout(polled.error), String(polled.error));
+    assert.ok(polled.ms >= 590, `claimNext gave up after ${polled.ms} ms, before waitMs + timeoutMs`);
+  });
+});
+
+test("stream is never cut off by the request timeout", async () => {
+  await withStallServer(
+    async (url) => {
+      const c = createClient({ url, token: "t", timeoutMs: 100 });
+      const ac = new AbortController();
+      const it = c.stream({ room: "build" }, { signal: ac.signal })[Symbol.asyncIterator]();
+      const next = it.next();
+      const outcome = await Promise.race([next.then(() => "settled", () => "rejected"), sleep(500).then(() => "open")]);
+      assert.equal(outcome, "open");
+      ac.abort();
+      assert.deepEqual(await next, { done: true, value: undefined });
+    },
+    (socket) => socket.write("HTTP/1.1 200 OK\r\ncontent-type: text/event-stream\r\n\r\n"),
+  );
+});
+
+test("timeoutMs 0 turns the timeout off", async () => {
+  await withStallServer(async (url) => {
+    const c = createClient({ url, token: "t", timeoutMs: 0 });
+    const outcome = await Promise.race([c.whoami().then(() => "settled", () => "rejected"), sleep(400).then(() => "open")]);
+    assert.equal(outcome, "open");
+  });
+});
 
 test("every client method round-trips against a real server", async () => {
   const srv = await startTestServer();

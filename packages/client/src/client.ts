@@ -17,7 +17,15 @@ export interface ClientOptions {
   url: string;
   token: string;
   fetch?: typeof fetch;
+  /**
+   * How long one request may take, response body included, before it throws a
+   * TeamkitError with code `timeout` (status 0). Default 15 s; 0 turns it off.
+   * A claimNext long poll gets its waitMs on top; stream() never times out.
+   */
+  timeoutMs?: number;
 }
+
+export const DEFAULT_TIMEOUT_MS = 15_000;
 
 export class TeamkitError extends Error {
   readonly code: string;
@@ -100,33 +108,55 @@ export function createClient(opts: ClientOptions): TeamkitClient {
   const doFetch = opts.fetch ?? fetch;
   const enc = encodeURIComponent;
 
-  async function send(
+  const defaultTimeoutMs = opts.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+
+  /**
+   * Sends one request and reads its response with `read`, under the caller's
+   * signal and the request timeout together. A timeout throws TeamkitError
+   * `timeout`; a caller's abort throws as fetch does.
+   */
+  async function request<T>(
     method: "GET" | "POST",
     path: string,
-    body?: unknown,
-    init: { signal?: AbortSignal; accept?: string } = {},
-  ): Promise<Response> {
+    body: unknown,
+    init: { signal?: AbortSignal; accept?: string; timeoutMs?: number },
+    read: (res: Response) => Promise<T>,
+  ): Promise<T> {
     const headers: Record<string, string> = { authorization: `Bearer ${opts.token}` };
     if (init.accept !== undefined) headers.accept = init.accept;
     if (body !== undefined) headers["content-type"] = "application/json";
-    const res = await doFetch(`${base}${path}`, {
-      method,
-      headers,
-      body: body === undefined ? undefined : JSON.stringify(body),
-      signal: init.signal,
-    });
-    if (!res.ok) throw await toError(res);
-    return res;
+    const ms = init.timeoutMs ?? defaultTimeoutMs;
+    const timer = ms > 0 && Number.isFinite(ms) ? AbortSignal.timeout(ms) : undefined;
+    const signals = [init.signal, timer].filter((s): s is AbortSignal => s !== undefined);
+    const signal = signals.length > 1 ? AbortSignal.any(signals) : signals[0];
+    try {
+      const res = await doFetch(`${base}${path}`, {
+        method,
+        headers,
+        body: body === undefined ? undefined : JSON.stringify(body),
+        signal,
+      });
+      if (!res.ok) throw await toError(res);
+      return await read(res);
+    } catch (e) {
+      // An error body cut off by the timeout reads as an http_error; any server code is kept.
+      const serverCode = e instanceof TeamkitError && e.code !== "http_error";
+      if (timer?.aborted && !init.signal?.aborted && !serverCode) {
+        throw new TeamkitError("timeout", 0, `${method} ${path} got no response within ${ms} ms`);
+      }
+      throw e;
+    }
   }
 
-  async function json<T>(method: "GET" | "POST", path: string, body?: unknown): Promise<T> {
-    const res = await send(method, path, body);
-    const text = await res.text();
-    try {
-      return JSON.parse(text) as T;
-    } catch {
-      throw new TeamkitError("http_error", res.status, text);
-    }
+  function json<T>(method: "GET" | "POST", path: string, body?: unknown): Promise<T> {
+    return request(method, path, body, {}, async (res) => {
+      const text = await res.text();
+      try {
+        return JSON.parse(text) as T;
+      } catch {
+        throw new TeamkitError("http_error", res.status, text);
+      }
+    });
   }
 
   return {
@@ -156,16 +186,15 @@ export function createClient(opts: ClientOptions): TeamkitClient {
     createPlan: async (room, plan) =>
       (await json<{ tasks: Record<string, Task> }>("POST", "/tasks", { room, plan })).tasks,
     claim: (taskId) => json("POST", `/tasks/${enc(taskId)}/claim`, {}),
-    claimNext: async (room, o) => {
-      const res = await send(
+    claimNext: (room, o) =>
+      request(
         "POST",
         "/tasks/claim-next",
         { room, labels: o?.labels, waitMs: o?.waitMs },
-        { signal: o?.signal },
-      );
-      if (res.status === 204) return null;
-      return (await res.json()) as Claim;
-    },
+        // The server holds a long poll up to waitMs before it answers.
+        { signal: o?.signal, timeoutMs: defaultTimeoutMs > 0 ? defaultTimeoutMs + (o?.waitMs ?? 0) : 0 },
+        async (res) => (res.status === 204 ? null : ((await res.json()) as Claim)),
+      ),
     renew: (taskId, claimId) => json("POST", `/tasks/${enc(taskId)}/renew`, { claimId }),
     release: async (taskId, claimId) =>
       (await json<{ task: Task }>("POST", `/tasks/${enc(taskId)}/release`, { claimId })).task,
@@ -195,10 +224,13 @@ export function createClient(opts: ClientOptions): TeamkitClient {
       if (signal?.aborted) return;
       let res: Response;
       try {
-        res = await send("GET", withQuery("/events/stream", eventParams({ ...q, after })), undefined, {
-          signal,
-          accept: "text/event-stream",
-        });
+        res = await request(
+          "GET",
+          withQuery("/events/stream", eventParams({ ...q, after })),
+          undefined,
+          { signal, accept: "text/event-stream", timeoutMs: 0 },
+          async (r) => r,
+        );
       } catch (err) {
         if (signal?.aborted) return;
         throw err;
