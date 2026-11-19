@@ -5,7 +5,7 @@ import { createDb } from "../src/db/pool.js";
 import { MIGRATIONS_DIR, migrate } from "../src/db/migrate.js";
 import { TEST_ADMIN_URL, createTestDatabase, withTestDb } from "./helpers/db.js";
 
-const TABLES = ["actors", "tokens", "grants", "rooms", "threads", "tasks", "task_needs", "messages", "events", "schema_migrations", "sessions", "signin_links", "device_codes", "slack_links"];
+const TABLES = ["actors", "tokens", "grants", "rooms", "threads", "tasks", "task_needs", "messages", "events", "schema_migrations", "sessions", "signin_links", "device_codes", "slack_links", "agents"];
 
 async function migrationFiles(): Promise<string[]> {
   return (await readdir(MIGRATIONS_DIR)).filter((f) => f.endsWith(".sql")).sort();
