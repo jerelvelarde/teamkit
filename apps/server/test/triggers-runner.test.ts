@@ -4,7 +4,7 @@ import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import type { BoardEvent } from "@copilotkit/teamkit-protocol";
 import type { Db } from "../src/db/pool.js";
-import { registerAgent } from "../src/dispatch/registry.js";
+import { getAgent, registerAgent } from "../src/dispatch/registry.js";
 import { createNotifier, type Notifier } from "../src/notifier.js";
 import type { AuthContext } from "../src/store/actors.js";
 import { block } from "../src/store/blocks.js";
@@ -12,6 +12,7 @@ import { claimTask, complete } from "../src/store/claims.js";
 import { listEvents } from "../src/store/events.js";
 import { loadTask } from "../src/store/task-load.js";
 import { createTask } from "../src/store/tasks.js";
+import { findLeadThread } from "../src/triggers/lead.js";
 import { runTriggerOnce, startTriggers, type TriggerRunnerOptions } from "../src/triggers/runner.js";
 import {
   addTrigger,
@@ -318,9 +319,10 @@ test("an agent trigger wakes the lead, which answers the blocked task through a 
       await waitFor("the lead's answer", async () => (await loadTask(db, taskId))?.state === "ready", 5000);
       const task = (await loadTask(db, taskId))!;
       assert.equal(task.pendingResume?.[0]?.payload?.choice, "pg");
-      const [room] = await db`select lead_thread_id from rooms where name = 'build'`;
-      assert.ok(room?.lead_thread_id, "the lead thread exists");
-      assert.equal(fake.inputs[0]!.threadId, room!.lead_thread_id);
+      const lead = (await getAgent(db, "lead"))!;
+      const leadThread = await findLeadThread(db, lead, "build");
+      assert.ok(leadThread, "the lead thread exists");
+      assert.equal(fake.inputs[0]!.threadId, leadThread);
       await runner.idle();
       assert.equal(fake.calls(), 3, "one wake-up: read, answer, reply");
     } finally {

@@ -10,6 +10,7 @@ import { createNotifier } from "../apps/server/src/notifier.js";
 import { listEvents } from "../apps/server/src/store/events.js";
 import { loadTask } from "../apps/server/src/store/task-load.js";
 import { getThread } from "../apps/server/src/store/threads.js";
+import { findLeadThread } from "../apps/server/src/triggers/lead.js";
 import { addTrigger, listTriggers } from "../apps/server/src/triggers/store.js";
 import { startTriggers } from "../apps/server/src/triggers/runner.js";
 import { serveApp } from "../apps/server/test/helpers/notifier.js";
@@ -38,10 +39,7 @@ test("a trigger wakes the lead, which answers a blocked task; an approval is lef
     const token = await agentToken(srv.db, "worker", [{ room: "build", perms: ["read", "post", "claim", "create"] }]);
     const worker = createClient({ url: srv.url, token });
 
-    const leadThread = async (): Promise<string | null> => {
-      const [room] = await srv.db`select lead_thread_id from rooms where name = 'build'`;
-      return (room?.lead_thread_id as string | null | undefined) ?? null;
-    };
+    const leadThread = () => findLeadThread(srv.db, lead, "build");
     const bodies = async (): Promise<string[]> => {
       const id = await leadThread();
       if (!id) return [];
