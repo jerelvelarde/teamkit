@@ -4,18 +4,24 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { usePathname, useSearchParams } from "next/navigation";
 import { EVENT_KINDS } from "@copilotkit/teamkit-protocol";
-import type { Task, TaskState } from "@copilotkit/teamkit-protocol";
+import type { BoardEvent, Decision, Task, TaskState } from "@copilotkit/teamkit-protocol";
 import { api } from "../lib/api";
+import { parseTab, roomQuery } from "../lib/coord";
+import { useRoomList } from "../lib/records";
 import { useBoardStream } from "../lib/stream";
 import { PageHeader, useShell } from "./AppShell";
 import { IconBoard, IconHash, IconPlus, StatusIcon } from "./Icons";
+import { DecisionList } from "./DecisionList";
 import { NewTaskForm } from "./NewTaskForm";
+import { RoomTabs } from "./RoomTabs";
 import { SignedOut } from "./SignedOut";
 import { TaskCard } from "./TaskCard";
+import { TextDialog } from "./TextDialog";
 import styles from "./board.module.css";
 
 const ALL_ROOMS = "*";
-const TASK_KINDS: string[] = EVENT_KINDS.filter((k) => k.startsWith("task."));
+/** The board's one stream carries tasks, decisions, changes and alerts. */
+const STREAM_KINDS: string[] = EVENT_KINDS.filter((k) => /^(task|decision|change|alert)\./.test(k));
 const REFETCH_DEBOUNCE_MS = 150;
 const CLOCK_MS = 30_000;
 
@@ -28,11 +34,6 @@ const COLUMNS: Array<{ key: ColumnKey; title: string; icon: TaskState; states: T
   { key: "blocked", title: "Blocked", icon: "blocked", states: ["blocked"], empty: "No task needs an answer." },
   { key: "done", title: "Done", icon: "completed", states: ["completed", "failed"], empty: "Nothing has finished yet." },
 ];
-
-/** The query string that keeps the selected room when a task opens or closes. */
-export function roomQuery(room: string | null): string {
-  return room && room !== ALL_ROOMS ? `?room=${encodeURIComponent(room)}` : "";
-}
 
 function isTyping(target: EventTarget | null): boolean {
   const el = target as HTMLElement | null;
@@ -50,7 +51,13 @@ export function Board({ children }: { children?: ReactNode }) {
   const [error, setError] = useState<string | null>(null);
   const [now, setNow] = useState(() => Date.now());
   const [creating, setCreating] = useState(false);
+  const [deciding, setDeciding] = useState(false);
   const lastJson = useRef("");
+  const allRooms = selected === ALL_ROOMS;
+  const room = allRooms ? null : selected;
+  const tab = allRooms ? "board" : parseTab(params.get("view"));
+  const query = roomQuery(selected, tab);
+  const decisions = useRoomList<Decision>(room, "decision.", (r) => api.decisions(r));
 
   const load = useCallback(async () => {
     try {
@@ -87,9 +94,17 @@ export function Board({ children }: { children?: ReactNode }) {
   // Refetch on every (re)open too: a live tail that reopens after a failure skips what
   // happened while it was down.
   const { connected, signedOut } = useBoardStream(
-    { room: selected === ALL_ROOMS ? undefined : selected, kinds: TASK_KINDS },
-    refetch,
-    { onOpen: refetch },
+    { room: selected === ALL_ROOMS ? undefined : selected, kinds: STREAM_KINDS },
+    (e: BoardEvent) => {
+      if (e.kind.startsWith("task.")) refetch();
+      decisions.onEvent(e.kind);
+    },
+    {
+      onOpen: () => {
+        refetch();
+        decisions.reload();
+      },
+    },
   );
 
   // Lease countdowns advance on a slow clock; the cards do not need second precision.
@@ -98,16 +113,17 @@ export function Board({ children }: { children?: ReactNode }) {
     return () => clearInterval(id);
   }, []);
 
-  // "c" opens the new task form, as it does in Linear.
+  // "c" opens the tab's create form, as it does in Linear: a decision on Decisions, else a task.
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
       if (e.key !== "c" || e.metaKey || e.ctrlKey || e.altKey || isTyping(e.target)) return;
       e.preventDefault();
-      setCreating(true);
+      if (tab === "decisions") setDeciding(true);
+      else setCreating(true);
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, []);
+  }, [tab]);
 
   const briefs = useMemo(() => new Map((tasks ?? []).map((t) => [t.id, t.brief])), [tasks]);
 
@@ -124,9 +140,6 @@ export function Board({ children }: { children?: ReactNode }) {
 
   if (signedOut) return <SignedOut hint="Your session ended. Open a new sign-in link to continue." />;
 
-  const allRooms = selected === ALL_ROOMS;
-  const query = roomQuery(selected);
-
   return (
     <>
       <PageHeader title={allRooms ? "All rooms" : selected} icon={allRooms ? <IconBoard /> : <IconHash />}>
@@ -135,17 +148,31 @@ export function Board({ children }: { children?: ReactNode }) {
           {connected ? "Live" : "Reconnecting"}
         </span>
         <div className={styles.headerSpacer} />
-        <button
-          type="button"
-          className="tk-button tk-button-primary"
-          onClick={() => setCreating(true)}
-          aria-keyshortcuts="c"
-          title="New task (C)"
-        >
-          <IconPlus size={14} />
-          New task
-        </button>
+        {tab === "decisions" ? (
+          <button
+            type="button"
+            className="tk-button tk-button-primary"
+            onClick={() => setDeciding(true)}
+            aria-keyshortcuts="c"
+            title="New decision (C)"
+          >
+            <IconPlus size={14} />
+            New decision
+          </button>
+        ) : (
+          <button
+            type="button"
+            className="tk-button tk-button-primary"
+            onClick={() => setCreating(true)}
+            aria-keyshortcuts="c"
+            title="New task (C)"
+          >
+            <IconPlus size={14} />
+            New task
+          </button>
+        )}
       </PageHeader>
+      {room ? <RoomTabs room={room} tab={tab} /> : null}
 
       {error ? (
         <p className={styles.error} role="alert">
@@ -153,41 +180,45 @@ export function Board({ children }: { children?: ReactNode }) {
         </p>
       ) : null}
 
-      <div className={styles.columnsScroll}>
-        <div className={styles.columns}>
-          {columns.map((c) => (
-            <section key={c.key} className={styles.column} aria-label={c.title}>
-              <div className={styles.columnHead}>
-                <StatusIcon state={c.icon} />
-                <span className={styles.columnTitle}>{c.title}</span>
-                <span className={styles.count}>{tasks === null ? "" : c.tasks.length}</span>
-              </div>
-              <div className={styles.cards}>
-                {tasks === null ? (
-                  <>
-                    <div className={styles.skeleton} />
-                    <div className={styles.skeleton} />
-                  </>
-                ) : c.tasks.length === 0 ? (
-                  <p className={styles.empty}>{c.empty}</p>
-                ) : (
-                  c.tasks.map((t) => (
-                    <TaskCard
-                      key={t.id}
-                      task={t}
-                      now={now}
-                      href={`/t/${encodeURIComponent(t.id)}${query}`}
-                      selected={t.id === openId}
-                      showRoom={allRooms}
-                      briefs={briefs}
-                    />
-                  ))
-                )}
-              </div>
-            </section>
-          ))}
+      {tab === "decisions" && room ? (
+        <DecisionList decisions={decisions.items} room={room} openId={openId} query={query} />
+      ) : (
+        <div className={styles.columnsScroll}>
+          <div className={styles.columns}>
+            {columns.map((c) => (
+              <section key={c.key} className={styles.column} aria-label={c.title}>
+                <div className={styles.columnHead}>
+                  <StatusIcon state={c.icon} />
+                  <span className={styles.columnTitle}>{c.title}</span>
+                  <span className={styles.count}>{tasks === null ? "" : c.tasks.length}</span>
+                </div>
+                <div className={styles.cards}>
+                  {tasks === null ? (
+                    <>
+                      <div className={styles.skeleton} />
+                      <div className={styles.skeleton} />
+                    </>
+                  ) : c.tasks.length === 0 ? (
+                    <p className={styles.empty}>{c.empty}</p>
+                  ) : (
+                    c.tasks.map((t) => (
+                      <TaskCard
+                        key={t.id}
+                        task={t}
+                        now={now}
+                        href={`/t/${encodeURIComponent(t.id)}${query}`}
+                        selected={t.id === openId}
+                        showRoom={allRooms}
+                        briefs={briefs}
+                      />
+                    ))
+                  )}
+                </div>
+              </section>
+            ))}
+          </div>
         </div>
-      </div>
+      )}
 
       {children}
 
@@ -198,6 +229,23 @@ export function Board({ children }: { children?: ReactNode }) {
         selected={selected}
         onCreated={load}
       />
+      {room ? (
+        <TextDialog
+          open={deciding}
+          title="New decision"
+          room={room}
+          label="Decision"
+          placeholder="What did the team decide?"
+          submitLabel="Post decision"
+          busyLabel="Posting…"
+          emptyError="Write the decision first."
+          onSubmit={async (text) => {
+            await api.postDecision({ room, text });
+            decisions.reload();
+          }}
+          onClose={() => setDeciding(false)}
+        />
+      ) : null}
     </>
   );
 }

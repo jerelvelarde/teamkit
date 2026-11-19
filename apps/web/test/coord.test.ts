@@ -1,7 +1,18 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import type { TaskBlock, Whoami } from "@copilotkit/teamkit-protocol";
-import { approverList, heldText, mayAnswer, namesText, reservationLeft, shortDuration } from "../lib/coord.js";
+import {
+  ackText,
+  approverList,
+  heldText,
+  mayAnswer,
+  namesText,
+  parseTab,
+  reservationLeft,
+  roomQuery,
+  shortDuration,
+  whenText,
+} from "../lib/coord.js";
 
 const anaAgent = { id: "act_ana_agent", name: "ana-agent", kind: "agent" as const };
 const benAgent = { id: "act_ben_agent", name: "ben-agent", kind: "agent" as const };
@@ -61,5 +72,28 @@ describe("approvers", () => {
     assert.equal(mayAnswer(question(["sam"]), undefined, who("sam", "member")), true);
     assert.equal(mayAnswer(question(["sam"]), undefined, who("ana", "admin")), true);
     assert.equal(mayAnswer(question(null), ["sam"], who("ana", "member")), true);
+  });
+});
+
+describe("room views", () => {
+  it("tabs live in the query string next to the room", () => {
+    assert.deepEqual([null, "decisions", "changes", "Decisions", "board", "nope"].map(parseTab),
+      ["board", "decisions", "changes", "board", "board", "board"]);
+    assert.equal(roomQuery(null), "");
+    assert.equal(roomQuery("*", "decisions"), "");
+    assert.equal(roomQuery("billing-prod"), "?room=billing-prod");
+    assert.equal(roomQuery("billing-prod", "board"), "?room=billing-prod");
+    assert.equal(roomQuery("billing-migration", "decisions"), "?room=billing-migration&view=decisions");
+  });
+  it("ackText", () => {
+    assert.deepEqual([0, 1, 3].map(ackText), ["No acks yet", "1 ack", "3 acks"]);
+  });
+  it("whenText shows the time today and the date before today", () => {
+    const now = new Date(2026, 10, 19, 15, 0).getTime();
+    const today = new Date(2026, 10, 19, 10, 42);
+    const before = new Date(2026, 10, 18, 10, 42);
+    assert.equal(whenText(today.toISOString(), now), new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit" }).format(today));
+    assert.equal(whenText(before.toISOString(), now), new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric" }).format(before));
+    assert.equal(whenText("not a date", now), "");
   });
 });

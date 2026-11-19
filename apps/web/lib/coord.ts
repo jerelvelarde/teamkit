@@ -53,3 +53,43 @@ export function mayAnswer(block: TaskBlock, roomApprovers: string[] | null | und
   const list = approverList(block, roomApprovers);
   return list === null || list.includes(who.actor.name);
 }
+
+/** The three views of one room. */
+export type RoomTab = "board" | "decisions" | "changes";
+export const ROOM_TABS: { tab: RoomTab; label: string }[] = [
+  { tab: "board", label: "Board" },
+  { tab: "decisions", label: "Decisions" },
+  { tab: "changes", label: "Changes" },
+];
+
+/** The `?view=` value as a tab; anything else is the board. */
+export function parseTab(v: string | null): RoomTab {
+  return v === "decisions" || v === "changes" ? v : "board";
+}
+
+const ALL_ROOMS = "*";
+
+/**
+ * The query string that keeps the selected room (and the open tab) when a task opens or closes.
+ * The room always rides in `?room=`, never in a path segment, since room names may contain `/`.
+ */
+export function roomQuery(room: string | null, tab?: RoomTab): string {
+  if (!room || room === ALL_ROOMS) return "";
+  const view = tab === "decisions" || tab === "changes" ? `&view=${tab}` : "";
+  return `?room=${encodeURIComponent(room)}${view}`;
+}
+
+/** "No acks yet", "1 ack", "3 acks". */
+export function ackText(n: number): string {
+  return n === 0 ? "No acks yet" : n === 1 ? "1 ack" : `${n} acks`;
+}
+
+const CLOCK_TIME = new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit" });
+const MONTH_DAY = new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric" });
+
+/** The time for something from today (local), the month and day for anything earlier. */
+export function whenText(iso: string, now: number): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  return d.toDateString() === new Date(now).toDateString() ? CLOCK_TIME.format(d) : MONTH_DAY.format(d);
+}

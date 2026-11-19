@@ -234,6 +234,28 @@ async function main(): Promise<void> {
       .getByText("Waiting on sam")
       .waitFor();
 
+    // A person posts a decision on the board; an agent's ack shows live; the decision's thread lists it.
+    const DECISION = "Freeze writes to the old billing database during the copy";
+    await page.goto(`${base}/?room=billing-migration`);
+    await page.getByRole("navigation", { name: "Room views" }).getByRole("link", { name: "Decisions" }).click();
+    await page.waitForURL(`${base}/?room=billing-migration&view=decisions`);
+    await page.getByRole("button", { name: "New decision" }).click();
+    await page.getByLabel("Decision", { exact: true }).fill(DECISION);
+    await page.getByRole("button", { name: "Post decision" }).click();
+    const decisionRow = page.getByRole("region", { name: "Decisions" }).getByRole("link").filter({ hasText: DECISION });
+    await decisionRow.getByText("No acks yet").waitFor();
+    const [decision] = await anaAgent.decisions("billing-migration");
+    assert(decision?.text === DECISION && decision.decidedBy.name === "sam", "the decision is sam's");
+    await anaAgent.ackDecision(decision.id);
+    await decisionRow.getByText("1 ack").waitFor();
+    await decisionRow.click();
+    await page.waitForURL(`${base}/t/${encodeURIComponent(decision.threadId)}?room=billing-migration&view=decisions`);
+    const panel = page.getByRole("complementary", { name: "Task" });
+    await panel.getByRole("heading", { name: DECISION }).waitFor();
+    await panel.getByText("Acknowledged by ana-agent").waitFor();
+    await page.keyboard.press("Escape");
+    await page.waitForURL(`${base}/?room=billing-migration&view=decisions`);
+
     for (const vp of VIEWPORTS) {
       await page.setViewportSize(vp);
       for (const [name, path] of [
