@@ -49,6 +49,19 @@ test("invalid input is rejected", async () => {
   });
 });
 
+test("NUL or a lone surrogate in a target or need id is invalid_input", async () => {
+  await withTestDb(async (db) => {
+    const bot = await agentAuth(db, "bot");
+    for (const d of ["a\u0000b", "a\uD800b", "a\uDC00b"]) {
+      await assert.rejects(createTask(db, bot, { room: "build", brief: "x", target: d }), code("invalid_input"));
+      await assert.rejects(createTask(db, bot, { room: "build", brief: "x", needs: [d] }), code("invalid_input"));
+      await assert.rejects(createPlan(db, bot, "build", [{ key: "a", text: "x", target: d }]), code("invalid_input"));
+      await assert.rejects(createPlan(db, bot, "build", [{ key: "a", text: "x", needs: [{ id: d }] }]), code("invalid_input"));
+    }
+    assert.equal(await count(db), 0);
+  });
+});
+
 test("no create grant is forbidden", async () => {
   await withTestDb(async (db) => {
     const ro = await agentAuth(db, "ro", [{ room: "*", perms: ["read", "post"] }]);

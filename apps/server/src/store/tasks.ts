@@ -12,7 +12,15 @@ import {
 import type { Db, Q, Tx } from "../db/pool.js";
 import { can, requirePerm, type AuthContext } from "./actors.js";
 import { appendEvent, type AppendEventInput } from "./events.js";
-import { appendMessage, assertText, ensureRoom, insertThread, messageFor, validateLabels } from "./rows.js";
+import {
+  appendMessage,
+  assertCleanString,
+  assertText,
+  ensureRoom,
+  insertThread,
+  messageFor,
+  validateLabels,
+} from "./rows.js";
 import { loadTask } from "./task-load.js";
 import { withRetry } from "./tx.js";
 
@@ -33,6 +41,7 @@ function assertTarget(target: unknown): string | null {
   if (target.length > MAX_TARGET_LENGTH) {
     throw new BoardError("invalid_input", `target exceeds ${MAX_TARGET_LENGTH} characters`);
   }
+  assertCleanString("target", target);
   return target;
 }
 
@@ -41,6 +50,7 @@ function assertNeedIds(needs: unknown): string[] {
   if (!Array.isArray(needs) || needs.some((n) => typeof n !== "string" || n === "")) {
     throw new BoardError("invalid_input", "needs must be an array of task ids");
   }
+  for (const n of needs as string[]) assertCleanString("needs", n);
   return [...new Set(needs as string[])];
 }
 
@@ -180,7 +190,10 @@ function validatePlan(plan: unknown): ValidItem[] {
     const idNeeds = new Set<string>();
     for (const n of raw.needs ?? []) {
       if (n && typeof n === "object" && "key" in n && typeof n.key === "string") keyNeeds.add(n.key);
-      else if (n && typeof n === "object" && "id" in n && typeof n.id === "string" && n.id !== "") idNeeds.add(n.id);
+      else if (n && typeof n === "object" && "id" in n && typeof n.id === "string" && n.id !== "") {
+        assertCleanString(`need of "${key}"`, n.id);
+        idNeeds.add(n.id);
+      }
       else throw new BoardError("invalid_input", `invalid need in "${key}"`);
     }
     items.push({
