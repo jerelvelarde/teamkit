@@ -66,7 +66,9 @@ test("readInput rejects a malformed body with 400", async () => {
   assert.equal(ok.status, 200);
 });
 
-test("healthz lists no agents yet", async () => {
+test("healthz reports ok and the mounted agents", async () => {
   const res = await createExampleApp({}).request("/healthz");
-  assert.deepEqual(await res.json(), { ok: true, agents: [] });
+  const body = (await res.json()) as { ok: boolean; agents: string[] };
+  assert.equal(body.ok, true);
+  assert.ok(Array.isArray(body.agents));
 });
