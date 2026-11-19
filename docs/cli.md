@@ -590,6 +590,8 @@ added wake
 
 `teamkit triggers list` prints name, room, kinds, action and `enabled` or `disabled`. `triggers remove <name>`, `triggers enable <name>` and `triggers disable <name>` do what they say.
 
+An agent trigger that would wake its agent more than 20 times in a minute is disabled instead, so a loop between agents cannot run up a bill. The server logs it, and a note goes on the agent's lead thread in that room. The trigger keeps its place in the event log: `teamkit triggers enable <name>` picks up from the event it stopped at.
+
 ```sh
 teamkit triggers list
 ```
