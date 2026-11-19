@@ -43,7 +43,7 @@ export function validateEventQuery(q: EventQuery): EventQuery {
 /**
  * Reads events the caller may see. Permission is checked up front for an explicit
  * thread or room; for a wildcard read by a non-person, events in rooms they cannot
- * read are dropped. The returned cursor is listEvents' cursor, so a reader never
+ * read are dropped. An admin-scope token reads nothing, as requirePerm rules. The returned cursor is listEvents' cursor, so a reader never
  * stalls on a page of hidden events.
  */
 export async function readEvents(
@@ -52,6 +52,9 @@ export async function readEvents(
   q: EventQuery,
 ): Promise<{ events: BoardEvent[]; cursor: string }> {
   validateEventQuery(q);
+  if (auth.scope === "admin") {
+    throw new BoardError("forbidden", `${auth.actor.name} uses an admin token, which cannot read events`);
+  }
   if (q.thread !== undefined) {
     const thread = await loadThreadInfo(db, q.thread);
     if (!thread) throw new BoardError("not_found", `thread not found: ${q.thread}`);

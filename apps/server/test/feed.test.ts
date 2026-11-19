@@ -72,6 +72,19 @@ test("an unreadable room or thread is forbidden", async () => {
   });
 });
 
+test("an admin-scope token is forbidden from every read, wildcard included", async () => {
+  await withTestDb(async (db) => {
+    const person = await personAuth(db, "ada", "admin");
+    await seed(db, person.actor.id);
+    const adminToken = { ...person, via: "token" as const, scope: "admin" as const };
+    for (const q of [{}, { room: "*" }, { room: "build" }, { thread: "th_sec" }]) {
+      await assert.rejects(readEvents(db, adminToken, q), code("forbidden"), JSON.stringify(q));
+    }
+    const adminAgent = { ...(await agentAuth(db, "ops")), scope: "admin" as const };
+    await assert.rejects(readEvents(db, adminAgent, { room: "*" }), code("forbidden"));
+  });
+});
+
 test("an unknown thread is not_found", async () => {
   await withTestDb(async (db) => {
     const person = await personAuth(db, "ada", "admin");
