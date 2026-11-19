@@ -1,8 +1,9 @@
 import type { BoardEvent, ChangeEntry, Task } from "@copilotkit/teamkit-protocol";
+import { getRoomInfo } from "../store/rooms.js";
 import { loadTask } from "../store/task-load.js";
 import { toSlackMessage } from "./blocks.js";
 import { BlockedCard, OutcomeCard, TaskCard, type CardTask } from "./cards.js";
-import { entityIdOf, handoffTarget, loadChange } from "./coordination.js";
+import { entityIdOf, handoffTarget, loadChange, waitsOn } from "./coordination.js";
 import {
   answeredLine,
   changeLoggedLine,
@@ -11,7 +12,7 @@ import {
   handoffLine,
   progressLine,
 } from "./lines.js";
-import { getSlackThread, saveSlackThread, slackRoomSettings } from "./mirror.js";
+import { getSlackThread, saveSlackThread, slackRoomSettings, slackUserOf } from "./mirror.js";
 import type { EventOutcome, OutboundOptions } from "./outbound.js";
 import { placeTaskEvent } from "./parent-rule.js";
 import { callSlack } from "./web-api.js";
@@ -28,8 +29,30 @@ function replyText(e: BoardEvent): string {
     .join("");
 }
 
+/** At most this many people an ask waits on are looked up for a Slack mention. */
+const MENTIONS_MAX = 5;
+
+/** Who a blocked task waits on, and the linked Slack users to mention for them. */
+async function askAudience(o: OutboundOptions, task: Task): Promise<{ waitsOn: string[] | null; mentions: Record<string, string> }> {
+  if (!task.block) return { waitsOn: null, mentions: {} };
+  const room = await getRoomInfo(o.db, task.room);
+  const names = waitsOn(task.block, room?.approvers ?? null);
+  const mentions: Record<string, string> = {};
+  for (const name of (names ?? []).slice(0, MENTIONS_MAX)) {
+    const id = await slackUserOf(o.db, name);
+    if (id) mentions[name] = id;
+  }
+  return { waitsOn: names, mentions };
+}
+
 /** The card or line one event posts. */
-function render(o: OutboundOptions, e: BoardEvent, task: Task, change: ChangeEntry | null): Message {
+function render(
+  o: OutboundOptions,
+  e: BoardEvent,
+  task: Task,
+  change: ChangeEntry | null,
+  audience: { waitsOn: string[] | null; mentions: Record<string, string> } | null,
+): Message {
   const card: CardTask = {
     id: task.id,
     room: task.room,
@@ -51,6 +74,7 @@ function render(o: OutboundOptions, e: BoardEvent, task: Task, change: ChangeEnt
           question: String(d.question ?? ""),
           options: Array.isArray(d.options) ? (d.options as string[]) : [],
           askedBy: e.actor?.name ?? null,
+          ...(audience ? { waitsOn: audience.waitsOn, mentions: audience.mentions } : {}),
         }),
       );
     case "task.completed":
@@ -112,7 +136,7 @@ export async function postTaskEvent(o: OutboundOptions, e: BoardEvent): Promise<
   const hasParent = mirror?.channel != null && mirror.ts != null;
   const placement = placeTaskEvent({ kind: e.kind, announce: settings.announce, hasParent });
   if (placement === "skip") return SKIP;
-  const message = render(o, e, task, change);
+  const message = render(o, e, task, change, e.kind === "task.blocked" ? await askAudience(o, task) : null);
   const dropped = (channel: string, reason: string): EventOutcome => {
     o.log?.(`slack-outbound: dropped the ${e.kind} post for task ${taskId} to ${channel}: ${reason}`);
     return SKIP;

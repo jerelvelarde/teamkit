@@ -184,7 +184,7 @@ test("a linked non-approver cannot answer an approval from Slack", async () => {
     const thread = new StubThread("C1::1.0");
     await h.onMessage(turn(thread, "approve", "U3"));
     assert.equal(thread.ephemerals.length, 1);
-    assert.match(String(thread.ephemerals[0]!.ui), /^Only a listed approver/);
+    assert.equal(thread.ephemerals[0]!.ui, "This waits on ada. Only ada or an admin can answer it.");
     assert.equal((await loadTask(db, taskId))!.state, "blocked");
   });
 });

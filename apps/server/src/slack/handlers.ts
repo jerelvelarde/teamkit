@@ -1,6 +1,7 @@
 import { isBoardError, newId, type ActorRef, type Task } from "@copilotkit/teamkit-protocol";
 import type { Db } from "../db/pool.js";
 import { TaskCard } from "./cards.js";
+import { isNotAnswererError, refusalFor } from "./coordination.js";
 import { findLinkedPerson } from "./links.js";
 import {
   findTaskByConversation,
@@ -38,7 +39,7 @@ export interface SlackHandlerDeps {
 
 const GUEST_NAME = "slack-guest";
 const NATIVE_KEY_RE = /^([CDG][A-Z0-9]+)::(\d+\.\d+)$/;
-const NOT_MAPPED =
+export const NOT_MAPPED =
   "This Slack channel isn't mapped to a TeamKit room. An admin can run `teamkit rooms set <room> --slack-channel <channel id>`.";
 
 /** The agent actor that acts for Slack users who have not linked a TeamKit account. No token. */
@@ -199,10 +200,8 @@ export function createSlackHandlers(d: SlackHandlerDeps): {
       await answer(d.db, auth, task.id, input, { expectedInterruptId: block.interruptId });
       return true;
     } catch (e) {
-      if (isBoardError(e) && e.code === "approval_requires_person") {
-        await t.thread.postEphemeral(t.slackUserId, "Only a listed approver can answer this approval.", {
-          fallbackToDM: false,
-        });
+      if (isNotAnswererError(e)) {
+        await t.thread.postEphemeral(t.slackUserId, await refusalFor(d.db, task.id), { fallbackToDM: false });
         return true;
       }
       // Someone else answered between the read and the write: treat this as a plain reply.

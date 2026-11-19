@@ -83,7 +83,7 @@ test("a linked non-approver cannot answer an approval", async () => {
     const { t, value, handler } = await setup(db);
     const s = stubThread();
     await handler.onAnswer(click(s, "UBOB", value));
-    assert.match(String(s.ephemerals[0]!.ui), /^Only a listed approver/);
+    assert.equal(s.ephemerals[0]!.ui, "This waits on ada. Only ada or an admin can answer it.");
     assert.equal(s.posts.length, 0);
     assert.equal((await loadTask(db, t.id))!.state, "blocked");
   });

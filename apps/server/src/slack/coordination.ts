@@ -17,6 +17,9 @@ import { confirmAlert, loadAlerts, raiseAlert } from "../store/alerts.js";
 import { loadChanges } from "../store/changes.js";
 import { loadDecisions, postDecision } from "../store/decisions.js";
 import { loadPresence } from "../store/presence.js";
+import { getRoomInfo } from "../store/rooms.js";
+import { loadTask } from "../store/task-load.js";
+import { refusalLine } from "./lines.js";
 
 /**
  * Who an ask waits on: its named approvers; else, for an approval, the room's approvers; else
@@ -81,4 +84,16 @@ export async function alertAsPerson(db: Db, auth: AuthContext, room: string, tex
 /** True when an answer was refused because the person is not someone the ask waits on. */
 export function isNotAnswererError(e: unknown): boolean {
   return e instanceof BoardError && e.code === "approval_requires_person";
+}
+
+/**
+ * What a person sees when `answer()` refused them as someone the ask does not wait on: the task
+ * and room are read again so the words name who it waits on now. `answer()` alone decides who may
+ * answer; this only words the refusal.
+ */
+export async function refusalFor(q: Q, taskId: string): Promise<string> {
+  const task = await loadTask(q, taskId);
+  if (!task?.block) return refusalLine(null);
+  const room = await getRoomInfo(q, task.room);
+  return refusalLine(waitsOn(task.block, room?.approvers ?? null));
 }
