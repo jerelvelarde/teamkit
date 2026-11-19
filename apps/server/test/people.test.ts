@@ -130,3 +130,15 @@ test("revokeAdminToken only revokes admin-scope tokens", async () => {
     assert.equal(t!.revoked_at, null);
   });
 });
+
+test("a new sign-in link deletes expired links and keeps live ones", async () => {
+  await withTestDb(async (db) => {
+    const inv = await invitePerson(db, { name: "ana", role: "member" });
+    const short = await createSignInLink(db, inv.person.id, 1);
+    await sleep(20);
+    const fresh = await createSignInLink(db, inv.person.id);
+    const hashes = (await db`select hash from signin_links`).map((r) => r.hash as string).sort();
+    assert.deepEqual(hashes, [hashToken(inv.secret), hashToken(fresh)].sort());
+    assert.ok(!hashes.includes(hashToken(short)));
+  });
+});

@@ -88,3 +88,32 @@ test("normalizeUserCode", () => {
   assert.equal(normalizeUserCode("ABCD-EFGH"), null);
   assert.equal(normalizeUserCode("BCDF-GHJ"), null);
 });
+
+test("an approved code expires uncollected: polling after its expiry mints no token", async () => {
+  const prev = process.env.TEAMKIT_DEVICE_TTL_MS;
+  process.env.TEAMKIT_DEVICE_TTL_MS = "300";
+  try {
+    await withTestDb(async (db) => {
+      const ada = await personAuth(db, "ada", "admin");
+      const d = await startDevice(db);
+      await approveDevice(db, ada, d.userCode);
+      await sleep(400);
+      assert.deepEqual(await pollDevice(db, d.deviceCode), { status: "expired" });
+      assert.equal((await db`select count(*)::int as n from tokens where scope = 'admin'`)[0]!.n, 0);
+    });
+  } finally {
+    if (prev === undefined) delete process.env.TEAMKIT_DEVICE_TTL_MS;
+    else process.env.TEAMKIT_DEVICE_TTL_MS = prev;
+  }
+});
+
+test("starting a code deletes codes that expired over an hour ago and keeps recent ones", async () => {
+  await withTestDb(async (db) => {
+    await db`insert into device_codes (code, user_code, expires_at)
+             values ('old', 'BBBB-BBBB', now() - interval '2 hours'),
+                    ('recent', 'CCCC-CCCC', now() - interval '1 minute')`;
+    const d = await startDevice(db);
+    const codes = (await db`select code from device_codes order by code`).map((r) => r.code as string);
+    assert.deepEqual(codes, [hashToken(d.deviceCode), "recent"].sort());
+  });
+});

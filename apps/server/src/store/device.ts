@@ -7,6 +7,8 @@ export const DEVICE_POLL_INTERVAL_MS = 2000;
 const DEVICE_TTL_MS_DEFAULT = 600_000;
 const USER_CODE_ALPHABET = "BCDFGHJKLMNPQRSTVWXZ";
 const USER_CODE_ATTEMPTS = 5;
+/** Expired codes are deleted this long after they expire, so a CLI polling at the deadline still reads "expired". */
+const DEVICE_PRUNE_AFTER_MS = 3_600_000;
 
 /** Device-code lifetime in ms. Read at call time so tests can change TEAMKIT_DEVICE_TTL_MS. */
 export function deviceTtlMs(): number {
@@ -52,6 +54,10 @@ export async function startDevice(
 ): Promise<{ deviceCode: string; userCode: string; expiresAt: string }> {
   const ms = deviceTtlMs();
   const deviceCode = randomDeviceCode();
+  // device/start is public, so every start also clears out codes long past their expiry.
+  await db`
+    delete from device_codes
+    where expires_at < now() - (${DEVICE_PRUNE_AFTER_MS}::double precision / 1000) * interval '1 second'`;
   for (let attempt = 1; ; attempt++) {
     const userCode = randomUserCode();
     try {
@@ -95,9 +101,9 @@ export async function pollDevice(db: Db, deviceCode: string): Promise<DevicePoll
       where d.code = ${hash}
       for update of d`;
     if (!row) throw new BoardError("not_found", "unknown device code");
-    if (row.consumed_at) return { status: "expired" };
-    if (!row.approved_at) return row.expired ? { status: "expired" } : { status: "pending" };
-    // Approved before it expired (approve checks expiry); the CLI may collect it once.
+    // An approved code is collectable once, and only until it expires.
+    if (row.consumed_at || row.expired) return { status: "expired" };
+    if (!row.approved_at) return { status: "pending" };
     const token = newTokenSecret();
     const tokenId = newId("tok");
     await tx`insert into tokens (id, actor_id, hash, scope)

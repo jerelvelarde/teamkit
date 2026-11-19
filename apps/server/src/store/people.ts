@@ -30,6 +30,8 @@ function newSessionSecret(): string {
 
 async function insertLink(q: Q, actorId: string, ttlMs: number): Promise<string> {
   const secret = newLinkSecret();
+  // An expired link can never be used, so each new link clears the expired ones out.
+  await q`delete from signin_links where expires_at <= clock_timestamp()`;
   await q`
     insert into signin_links (hash, actor_id, expires_at)
     values (${hashToken(secret)}, ${actorId}, clock_timestamp() + ${ttlMs}::float8 * interval '1 millisecond')`;
