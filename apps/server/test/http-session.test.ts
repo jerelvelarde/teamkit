@@ -160,7 +160,7 @@ test("an admin-scope token is refused on every non-admin route", async () => {
       assert.equal(res.status, 403, path);
       assert.deepEqual(await errorOf(res), gated);
     }
-    for (const path of ["/v1/events/stream?after=0", "/v1/events", "/v1/rooms", "/v1/admin", "/v1/adminx/people"]) {
+    for (const path of ["/v1/events/stream?after=0", "/v1/events", "/v1/rooms", "/v1/adminx/people"]) {
       const res = await app.request(path, { headers: bearer(token) });
       assert.equal(res.status, 403, path);
     }
@@ -169,18 +169,25 @@ test("an admin-scope token is refused on every non-admin route", async () => {
     assert.equal(who.status, 200);
     assert.deepEqual(await who.json(), { actor: ada.actor, scope: "admin", role: "admin" });
 
-    // Admin paths get past the gate (the routes land in Wave 17).
+    // Admin paths get past the gate: an admin-scope token reads, but writes need a session.
     const admin = await app.request("/v1/admin/people", { headers: bearer(token) });
-    assert.equal(admin.status, 404);
+    assert.equal(admin.status, 200);
+    const write = await app.request("/v1/admin/people", {
+      method: "POST",
+      headers: { ...bearer(token), ...JSON_TYPE },
+      body: JSON.stringify({ name: "eve", role: "member" }),
+    });
+    assert.equal(write.status, 403);
   });
 });
 
 test("public paths reach routing with no credentials", async () => {
   await withApp(async ({ app }) => {
+    // The real handlers answer (device/start succeeds, the others reject the empty body), never with the auth layer's "missing bearer token".
     for (const path of ["/v1/signin", "/v1/device/start", "/v1/device/poll"]) {
       const res = await app.request(path, { method: "POST", headers: JSON_TYPE, body: "{}" });
-      assert.equal(res.status, 404, path);
-      assert.deepEqual(await errorOf(res), { code: "not_found", message: "no such route" });
+      assert.ok([200, 400, 401].includes(res.status), `${path} -> ${res.status}`);
+      if (res.status !== 200) assert.notEqual((await errorOf(res)).message, "missing bearer token", path);
     }
     const other = await app.request("/v1/signin/x", { method: "POST", headers: JSON_TYPE, body: "{}" });
     assert.equal(other.status, 401);
