@@ -7,6 +7,7 @@ import { migrate } from "./db/migrate.js";
 import { createApp } from "./http/app.js";
 import { createNotifier } from "./notifier.js";
 import { ensureBootstrapLink, signInUrl } from "./store/people.js";
+import { startSlackBridge } from "./slack/bridge.js";
 import { reapExpired } from "./store/reaper.js";
 
 const config = loadConfig();
@@ -48,6 +49,20 @@ if (!server.listening) {
 const { port } = server.address() as AddressInfo;
 console.log(`teamkit-server listening on http://127.0.0.1:${port}`);
 
+const { botToken } = config.slack;
+const outbound = botToken
+  ? await (await import("./slack/outbound.js")).startOutbound({
+      db,
+      notifier,
+      slack: { token: botToken, apiBase: config.slack.apiBase },
+      publicUrl: config.publicUrl,
+    })
+  : null;
+if (outbound) console.log("slack outbound started");
+
+const bridge = await startSlackBridge({ db, config: config.slack.bridge });
+if (!bridge) console.log("slack bridge off (set CPK_INTELLIGENCE_API_KEY and TEAMKIT_SLACK_CHANNEL_NAME)");
+
 let shuttingDown = false;
 async function shutdown(): Promise<void> {
   if (shuttingDown) return;
@@ -55,6 +70,8 @@ async function shutdown(): Promise<void> {
   clearInterval(reaper);
   server.closeAllConnections();
   await new Promise<void>((resolve) => server.close(() => resolve()));
+  await bridge?.stop();
+  await outbound?.stop();
   await notifier.close();
   await db.end({ timeout: 5 });
   process.exit(0);

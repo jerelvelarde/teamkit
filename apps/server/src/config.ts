@@ -1,3 +1,4 @@
+import { slackBridgeConfigFromEnv, type SlackBridgeConfig } from "./slack/bridge-config.js";
 import { DEFAULT_PUBLIC_URL } from "./store/people.js";
 
 export interface Config {
@@ -7,6 +8,12 @@ export interface Config {
   reapIntervalMs: number;
   /** The web board's public origin, no trailing slash; used for links shown to people. */
   publicUrl: string;
+  slack: {
+    bridge: SlackBridgeConfig;
+    /** SLACK_BOT_TOKEN; Slack outbound starts only when it is set. */
+    botToken?: string;
+    apiBase: string;
+  };
 }
 
 function intVar(env: NodeJS.ProcessEnv, name: string, fallback: number, min: number): number {
@@ -36,11 +43,17 @@ function publicUrlVar(env: NodeJS.ProcessEnv): string {
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
   const port = intVar(env, "PORT", 8787, 0);
   if (port > 65535) throw new Error(`PORT must be at most 65535, got "${env.PORT}"`);
+  const publicUrl = publicUrlVar(env);
   return {
     databaseUrl: env.DATABASE_URL || "postgres://teamkit@127.0.0.1:54329/teamkit",
     port,
     host: env.HOST || "0.0.0.0",
     reapIntervalMs: intVar(env, "TEAMKIT_REAP_INTERVAL_MS", 15000, 1),
-    publicUrl: publicUrlVar(env),
+    publicUrl,
+    slack: {
+      bridge: slackBridgeConfigFromEnv(env, publicUrl),
+      botToken: env.SLACK_BOT_TOKEN || undefined,
+      apiBase: env.SLACK_API_BASE || "https://slack.com/api",
+    },
   };
 }

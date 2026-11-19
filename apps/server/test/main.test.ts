@@ -15,6 +15,18 @@ test("loadConfig defaults and validation", () => {
     host: "0.0.0.0",
     reapIntervalMs: 15000,
     publicUrl: "http://127.0.0.1:3000",
+    slack: {
+      bridge: {
+        intelligenceApiKey: undefined,
+        intelligenceApiUrl: undefined,
+        intelligenceWsUrl: undefined,
+        channelName: undefined,
+        publicUrl: "http://127.0.0.1:3000",
+        defaultRoom: null,
+      },
+      botToken: undefined,
+      apiBase: "https://slack.com/api",
+    },
   });
   assert.equal(loadConfig({ TEAMKIT_PUBLIC_URL: "https://b.example.com/" }).publicUrl, "https://b.example.com");
   assert.equal(loadConfig({ PORT: "0" }).port, 0);
@@ -69,6 +81,8 @@ test("main.ts migrates, serves, and exits 0 on SIGTERM", async () => {
 
 interface Started {
   out: string;
+  err: string;
+  exitCode: () => Promise<number | null>;
   stop: () => Promise<void>;
 }
 
@@ -78,7 +92,7 @@ async function startMain(databaseUrl: string, extraEnv: Record<string, string> =
     env: { ...process.env, DATABASE_URL: databaseUrl, PORT: "0", HOST: "127.0.0.1", ...extraEnv },
     stdio: ["ignore", "pipe", "pipe"],
   });
-  const exited = new Promise<void>((resolve) => child.once("exit", () => resolve()));
+  const exited = new Promise<number | null>((resolve) => child.once("exit", (code) => resolve(code)));
   const state = { out: "" };
   let err = "";
   child.stderr.on("data", (d) => (err += d));
@@ -86,7 +100,8 @@ async function startMain(databaseUrl: string, extraEnv: Record<string, string> =
     const timer = setTimeout(() => reject(new Error(`no listening line in 10s: ${state.out}${err}`)), 10_000);
     child.stdout.on("data", (d) => {
       state.out += d;
-      if (/teamkit-server listening on /.test(state.out)) {
+      // Slack startup logs follow the listening line, so wait for both.
+      if (/teamkit-server listening on /.test(state.out) && /slack bridge off/.test(state.out)) {
         clearTimeout(timer);
         resolve();
       }
@@ -99,6 +114,14 @@ async function startMain(databaseUrl: string, extraEnv: Record<string, string> =
   return {
     get out() {
       return state.out;
+    },
+    get err() {
+      return err;
+    },
+    exitCode: async () => {
+      child.kill("SIGTERM");
+      const code = await Promise.race([exited, new Promise<"timeout">((r) => setTimeout(() => r("timeout"), 5_000))]);
+      return code === "timeout" ? null : code;
     },
     stop: async () => {
       child.kill("SIGTERM");
@@ -141,6 +164,34 @@ test("main.ts builds the bootstrap link from TEAMKIT_PUBLIC_URL", async () => {
   const s = await startMain(t.url, { TEAMKIT_PUBLIC_URL: "https://board.example.com" });
   try {
     assert.ok(s.out.includes("https://board.example.com/signin/sl_"), s.out);
+  } finally {
+    await s.stop();
+    await t.drop();
+  }
+});
+
+test("main.ts logs that the Slack bridge is off, and no outbound line, without Slack env", async () => {
+  const t = await createTestDatabase({ migrate: false });
+  const s = await startMain(t.url);
+  try {
+    assert.match(s.out, /slack bridge off \(set CPK_INTELLIGENCE_API_KEY and TEAMKIT_SLACK_CHANNEL_NAME\)/);
+    assert.doesNotMatch(s.out, /slack outbound started/);
+  } finally {
+    await s.stop();
+    await t.drop();
+  }
+});
+
+test("main.ts starts Slack outbound with SLACK_BOT_TOKEN, exits 0, and never prints the token", async () => {
+  const t = await createTestDatabase({ migrate: false });
+  const s = await startMain(t.url, { SLACK_BOT_TOKEN: "xoxb-test", SLACK_API_BASE: "http://127.0.0.1:9" });
+  try {
+    assert.match(s.out, /slack outbound started/);
+    assert.match(s.out, /slack bridge off/);
+    const code = await s.exitCode();
+    assert.equal(code, 0);
+    assert.ok(!s.out.includes("xoxb-test"), "token in stdout");
+    assert.ok(!s.err.includes("xoxb-test"), "token in stderr");
   } finally {
     await s.stop();
     await t.drop();
