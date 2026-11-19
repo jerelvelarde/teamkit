@@ -12,6 +12,7 @@ import { claimTask, complete } from "../src/store/claims.js";
 import { listEvents } from "../src/store/events.js";
 import { loadTask } from "../src/store/task-load.js";
 import { createTask } from "../src/store/tasks.js";
+import { post, reply } from "../src/store/threads.js";
 import { findLeadThread } from "../src/triggers/lead.js";
 import { runTriggerOnce, startTriggers, type TriggerRunnerOptions } from "../src/triggers/runner.js";
 import {
@@ -110,6 +111,19 @@ function options(db: Db, notifier: Notifier, logs: string[], extra: Partial<Trig
     log: (l: string) => logs.push(l),
     ...extra,
   } satisfies TriggerRunnerOptions;
+}
+
+/** The runner's idle(), failing instead of hanging when its triggers never settle. */
+async function idleWithin(runner: { idle(): Promise<void> }, ms = 10_000): Promise<void> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const late = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`triggers still busy after ${ms} ms`)), ms);
+  });
+  try {
+    await Promise.race([runner.idle(), late]);
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 const isSorted = (cs: string[]) => cs.every((c, i) => i === 0 || BigInt(cs[i - 1]!) <= BigInt(c));
@@ -397,4 +411,98 @@ test("a disabled trigger is skipped and keeps its place; a removed one gets noth
   } finally {
     await rx.close();
   }
+});
+
+test("a lead on message.posted is not woken by its own wake-ups, its replies or its lead thread", async () => {
+  await withTestDb(async (db) => {
+    let threadId = "";
+    // Each wake-up: a teamkit_reply on the worker's thread, then a closing text.
+    const script: FakeScript = (i, call) =>
+      call % 2 === 0
+        ? [steps.started(i), ...steps.toolCall(`tc${call}`, "teamkit_reply", { threadId, text: "On it." }), steps.success(i)]
+        : [steps.started(i), ...steps.text(`m${call}`, "Replied."), steps.success(i)];
+    const fake = await startFakeAgui(script);
+    const notifier = await createNotifier(db);
+    const logs: string[] = [];
+    const runner = startTriggers(options(db, notifier, logs));
+    try {
+      const lead = await registerAgent(db, { name: "lead", url: fake.url, rooms: ["build"] });
+      await addTrigger(db, { name: "chat", room: "build", kinds: ["message.posted"], agent: "lead" });
+      const worker = await agentAuth(db, "worker");
+      ({ threadId } = await post(db, worker, { room: "build", text: "Hello" }));
+      await reply(db, worker, threadId, "Anyone there?");
+
+      await idleWithin(runner);
+      assert.equal(fake.calls(), 2, "one wake-up: the reply, then the text");
+      const replies = (await listEvents(db, { threadId, kinds: ["message.posted"] })).events;
+      assert.deepEqual(replies.map((e) => e.actor?.name), ["worker", "lead"]);
+
+      // A worker's message on the lead's own thread does not wake it either.
+      const leadThread = (await findLeadThread(db, lead, "build"))!;
+      await reply(db, worker, leadThread, "Status?");
+      await idleWithin(runner);
+      assert.equal(fake.calls(), 2);
+
+      // The trigger is still live for everyone else's messages.
+      await reply(db, worker, threadId, "Thanks.");
+      await idleWithin(runner);
+      assert.equal(fake.calls(), 4);
+      assert.equal((await listTriggers(db))[0]!.enabled, true);
+      const last = (await listEvents(db, { room: "build", kinds: ["message.posted"] })).events.at(-1)!;
+      assert.equal(await cursorOf(db, "chat"), last.cursor, "skipped events still move the cursor");
+    } finally {
+      await runner.stop();
+      await notifier.close();
+      await fake.stop();
+    }
+  });
+});
+
+test("two leads waking each other hit the wake cap: each trigger is disabled, logged and noted on its lead thread", async () => {
+  await withTestDb(async (db) => {
+    const fake = await startFakeAgui((i, call) => [steps.started(i), ...steps.text(`m${call}`, "Noted."), steps.success(i)]);
+    const notifier = await createNotifier(db);
+    const logs: string[] = [];
+    const runner = startTriggers(options(db, notifier, logs, { wakeLimit: { max: 3, windowMs: 60_000 } }));
+    try {
+      const a = await registerAgent(db, { name: "lead-a", url: fake.url, rooms: ["build"] });
+      const b = await registerAgent(db, { name: "lead-b", url: fake.url, rooms: ["build"] });
+      // Each lead's wake-up post is a message.posted the other lead's trigger matches.
+      await addTrigger(db, { name: "wake-a", room: "build", kinds: ["message.posted"], agent: "lead-a" });
+      await addTrigger(db, { name: "wake-b", room: "build", kinds: ["message.posted"], agent: "lead-b" });
+      const worker = await agentAuth(db, "worker");
+      const { threadId } = await post(db, worker, { room: "build", text: "Hello" });
+      await reply(db, worker, threadId, "Anyone there?");
+
+      await idleWithin(runner);
+      const threadA = (await findLeadThread(db, a, "build"))!;
+      const threadB = (await findLeadThread(db, b, "build"))!;
+      const runsOn = (t: string) => fake.inputs.filter((i) => i.threadId === t).length;
+      assert.equal(runsOn(threadA), 3, "lead-a woke up to the cap");
+      assert.equal(runsOn(threadB), 3, "lead-b woke up to the cap");
+      assert.deepEqual((await listTriggers(db)).map((t) => [t.name, t.enabled]), [["wake-a", false], ["wake-b", false]]);
+      for (const name of ["wake-a", "wake-b"]) {
+        assert.ok(logs.some((l) => l.startsWith(`triggers: ${name}: DISABLED`)), `loud log for ${name}`);
+      }
+      for (const t of [threadA, threadB]) {
+        const notes = (await listEvents(db, { threadId: t })).events.filter((e) =>
+          e.agui.some((x) => x.type === "CUSTOM" && x.name === "teamkit.trigger.disabled"),
+        );
+        assert.equal(notes.length, 1, "one disabled note on each lead thread");
+        assert.match(JSON.stringify(notes[0]!.agui), /would wake lead-. more than 3 times in 60 s/);
+      }
+
+      // Re-enabled, a trigger picks up at the event it stopped on, with a fresh window.
+      const held = await cursorOf(db, "wake-a");
+      await setTriggerEnabled(db, "wake-a", true);
+      await idleWithin(runner);
+      assert.ok(runsOn(threadA) > 3, "lead-a delivers the held events");
+      assert.ok(BigInt(await cursorOf(db, "wake-a")) > BigInt(held));
+      assert.equal((await listTriggers(db)).find((t) => t.name === "wake-a")!.enabled, true);
+    } finally {
+      await runner.stop();
+      await notifier.close();
+      await fake.stop();
+    }
+  });
 });

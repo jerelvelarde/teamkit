@@ -84,6 +84,20 @@ async function postToLeadThread(
   });
 }
 
+/**
+ * Tells the room, on the agent's lead thread there, that TeamKit disabled a trigger that
+ * woke the agent too often. The note is also in the agent's history for its next wake-up.
+ */
+export async function postTriggerDisabled(
+  db: Db,
+  o: { agent: RegisteredAgent; room: string; trigger: { id: string; name: string }; text: string },
+): Promise<void> {
+  const threadId = await ensureLeadThread(db, o.agent, o.room);
+  await postToLeadThread(db, o.agent, o.room, threadId, o.trigger.id, o.text, [
+    custom("teamkit.trigger.disabled", { triggerId: o.trigger.id, name: o.trigger.name }),
+  ]);
+}
+
 export interface WakeLeadOptions {
   agent: RegisteredAgent;
   room: string;

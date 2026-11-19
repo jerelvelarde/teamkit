@@ -1,16 +1,17 @@
 import { isBoardError, type BoardEvent } from "@copilotkit/teamkit-protocol";
 import type { Db } from "../db/pool.js";
-import { getAgent } from "../dispatch/registry.js";
+import { getAgent, type RegisteredAgent } from "../dispatch/registry.js";
 import type { Notifier } from "../notifier.js";
 import { listEvents } from "../store/events.js";
 import { loadThreadInfo } from "../store/rows.js";
-import { wakeLead } from "./lead.js";
+import { findLeadThread, postTriggerDisabled, wakeLead } from "./lead.js";
 import { advanceTrigger, listStoredTriggers, type StoredTrigger } from "./store.js";
 import { deliverWebhook } from "./webhook.js";
 
 const DEFAULT_POLL_MS = 5000;
 const DEFAULT_RETRY_DELAY_MS = 5000;
 const DEFAULT_BATCH = 100;
+const DEFAULT_WAKE_LIMIT = { max: 20, windowMs: 60_000 };
 
 export interface TriggerRunnerOptions {
   db: Db;
@@ -20,10 +21,13 @@ export interface TriggerRunnerOptions {
   retryDelayMs?: number;
   batch?: number;
   webhook?: { attempts?: number; backoffMs?: number[]; timeoutMs?: number };
+  /** An agent trigger that would wake its agent more than `max` times in `windowMs` is disabled instead. Default 20 per 60 s. */
+  wakeLimit?: { max: number; windowMs: number };
   log?: (l: string) => void;
 }
 
-type Step = "delivered" | "skipped" | "stalled";
+/** `disabled`: the wake cap disabled the trigger; the event stays undelivered. */
+type Step = "delivered" | "skipped" | "stalled" | "disabled";
 
 /** Log lines name the trigger and the event cursor; never a secret, a webhook url or an agent header. */
 function say(o: TriggerRunnerOptions, t: StoredTrigger, line: string): void {
@@ -52,11 +56,41 @@ async function labelsMatch(db: Db, labels: Record<string, string>, e: BoardEvent
   return Object.entries(labels).every(([k, v]) => info.labels[k] === v);
 }
 
+/** The agent caused the event, or it is on the agent's own lead thread: waking on it would wake on itself. */
+async function isOwnEvent(db: Db, agent: RegisteredAgent, e: BoardEvent): Promise<boolean> {
+  if (e.actor?.id === agent.actor.id) return true;
+  return e.threadId !== null && e.threadId === (await findLeadThread(db, agent, e.room));
+}
+
+/**
+ * Disables a trigger that hit the wake cap, says so loudly in the log, and notes it on the
+ * agent's lead thread in the event's room. A trigger already disabled or removed is left be.
+ */
+async function disableRunaway(
+  o: TriggerRunnerOptions,
+  t: StoredTrigger,
+  agent: RegisteredAgent,
+  e: BoardEvent,
+  limit: { max: number; windowMs: number },
+): Promise<void> {
+  const rows = await o.db`update triggers set enabled = false where id = ${t.id} and enabled returning id`;
+  if (rows.length === 0) return;
+  const why = `would wake ${agent.name} more than ${limit.max} times in ${limit.windowMs / 1000} s`;
+  say(o, t, `DISABLED: it ${why}; holding at event ${e.cursor}. Re-enable with: teamkit triggers enable ${t.name}`);
+  const text = `TeamKit disabled trigger ${t.name}: it ${why}. Re-enable it with \`teamkit triggers enable ${t.name}\`.`;
+  try {
+    await postTriggerDisabled(o.db, { agent, room: e.room, trigger: t, text });
+  } catch (err) {
+    say(o, t, `could not post the disabled note in ${e.room}: ${describe(err, t)}`);
+  }
+}
+
 async function handleEvent(
   o: TriggerRunnerOptions,
   t: StoredTrigger,
   e: BoardEvent,
   signal: AbortSignal | undefined,
+  wakes: number[],
 ): Promise<Step> {
   if (t.labels !== null && !(await labelsMatch(o.db, t.labels, e))) return "skipped";
 
@@ -73,9 +107,17 @@ async function handleEvent(
   }
 
   const agent = await getAgent(o.db, t.action.agent);
+  if (agent && (await isOwnEvent(o.db, agent, e))) return "skipped";
   if (!agent || !agent.enabled) {
     say(o, t, `agent ${t.action.agent} is ${agent ? "disabled" : "not registered"}; holding at event ${e.cursor}`);
     return "stalled";
+  }
+  const limit = o.wakeLimit ?? DEFAULT_WAKE_LIMIT;
+  const now = Date.now();
+  while (wakes.length > 0 && wakes[0]! <= now - limit.windowMs) wakes.shift();
+  if (wakes.length >= limit.max) {
+    await disableRunaway(o, t, agent, e, limit);
+    return "disabled";
   }
   try {
     const outcome = await wakeLead(o.db, { agent, room: e.room, event: e, triggerId: t.id, signal, fetch: o.fetch });
@@ -85,14 +127,16 @@ async function handleEvent(
       return "stalled";
     }
     if (outcome.type !== "success") say(o, t, `lead ${agent.name} ended event ${e.cursor} with ${outcome.type}`);
-    return "delivered";
   } catch (err) {
     // A board refusal (say, the agent has no grant in that room) would refuse every
-    // retry too; log it as a non-success and move on. Anything else stalls.
+    // retry too; log it as a non-success and move on. It woke nothing, so the cap
+    // does not count it. Anything else stalls.
     if (!isBoardError(err)) throw err;
     say(o, t, `lead ${agent.name} refused for event ${e.cursor} (${err.code})`);
     return "delivered";
   }
+  wakes.push(Date.now());
+  return "delivered";
 }
 
 /**
@@ -101,11 +145,15 @@ async function handleEvent(
  * the cursor write) repeats it rather than skipping it: delivery is at-least-once.
  * Updates `t.cursor` in place. `signal` (the runner's stop) ends the pass between
  * events and cancels a lead run in flight, which leaves its event undelivered.
+ * `wakes` holds the times of this trigger's recent wake-ups, for the wake cap; pass the
+ * same array to every pass of one trigger. The pass that hits the cap disables the
+ * trigger and ends on that event, undelivered.
  */
 export async function runTriggerOnce(
   o: TriggerRunnerOptions,
   t: StoredTrigger,
   signal?: AbortSignal,
+  wakes: number[] = [],
 ): Promise<{ delivered: number; stalled: boolean }> {
   const batch = o.batch ?? DEFAULT_BATCH;
   let delivered = 0;
@@ -118,8 +166,9 @@ export async function runTriggerOnce(
     });
     for (const e of page.events) {
       if (signal?.aborted || !(await stillEnabled(o.db, t.id))) return { delivered, stalled: false };
-      const step = await handleEvent(o, t, e, signal);
+      const step = await handleEvent(o, t, e, signal, wakes);
       if (step === "stalled") return { delivered, stalled: true };
+      if (step === "disabled") return { delivered, stalled: false };
       if (step === "delivered") delivered++;
       await advanceTrigger(o.db, t.id, e.cursor);
       t.cursor = e.cursor;
@@ -139,6 +188,8 @@ interface Worker {
   dirty: boolean;
   retry: ReturnType<typeof setTimeout> | null;
   retired: boolean;
+  /** Recent wake-up times, for the wake cap. A retired worker forgets them. */
+  wakes: number[];
 }
 
 /**
@@ -177,7 +228,7 @@ export function startTriggers(o: TriggerRunnerOptions): { stop(): Promise<void>;
       const t: StoredTrigger = { ...w.trigger, cursor: maxCursor(w.trigger.cursor, w.cursor) };
       let stalled: boolean;
       try {
-        stalled = (await runTriggerOnce(o, t, stopping.signal)).stalled;
+        stalled = (await runTriggerOnce(o, t, stopping.signal, w.wakes)).stalled;
       } catch (err) {
         say(o, t, `pass failed: ${describe(err, t)}; will retry`);
         stalled = true;
@@ -226,6 +277,7 @@ export function startTriggers(o: TriggerRunnerOptions): { stop(): Promise<void>;
       for (const [id, w] of workers) {
         if (ids.has(id)) continue;
         w.retired = true;
+        w.wakes = [];
         if (w.retry) clearTimeout(w.retry);
         w.retry = null;
         if (!w.running) workers.delete(id);
@@ -236,7 +288,7 @@ export function startTriggers(o: TriggerRunnerOptions): { stop(): Promise<void>;
           w.trigger = t;
           w.retired = false;
         } else {
-          w = { trigger: t, cursor: t.cursor, running: null, dirty: false, retry: null, retired: false };
+          w = { trigger: t, cursor: t.cursor, running: null, dirty: false, retry: null, retired: false, wakes: [] };
           workers.set(t.id, w);
         }
         wake(w);
