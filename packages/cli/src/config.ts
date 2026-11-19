@@ -16,6 +16,9 @@ export interface ConfigFile {
 
 type Env = Record<string, string | undefined>;
 
+/** Every environment variable that carries an admin credential. `teamkit run` keeps these away from agents. */
+export const ADMIN_ENV_KEYS = ["TEAMKIT_ADMIN_TOKEN"] as const;
+
 export function configPath(env: Env = process.env): string {
   const base = env.XDG_CONFIG_HOME || join(homedir(), ".config");
   return join(base, "teamkit", "config.json");

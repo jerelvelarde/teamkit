@@ -4,6 +4,7 @@ import type { Command } from "commander";
 import { createClient, TeamkitError, type TeamkitClient } from "@copilotkit/teamkit-client";
 import { CLAIM_NEXT_MAX_WAIT_MS, RENEW_EVERY_MS, type Claim, type Task } from "@copilotkit/teamkit-protocol";
 import { parseDuration, parseLabels } from "./args.js";
+import { ADMIN_ENV_KEYS } from "./config.js";
 import { collect, configFor, type CliContext } from "./context.js";
 import { CliExit, EXIT, UsageError } from "./errors.js";
 
@@ -197,12 +198,19 @@ export async function runTask(opts: RunTaskOptions): Promise<number> {
     }
 
     log(`teamkit run: claimed ${taskId} (${claimId}), starting ${command.join(" ")}`);
+    const baseEnv = opts.env ?? process.env;
+    const isAdminKey = (k: string): boolean =>
+      (ADMIN_ENV_KEYS as readonly string[]).includes(k) || k.startsWith("TEAMKIT_ADMIN_");
+    const agentEnv = Object.fromEntries(Object.entries(baseEnv).filter(([k]) => !isAdminKey(k)));
+    if (Object.keys(agentEnv).length !== Object.keys(baseEnv).length) {
+      log("teamkit run: admin credentials in this shell are not passed to the agent; do not export them where agents run");
+    }
     const c = spawn(command[0] as string, command.slice(1), {
       stdio: "inherit",
       // Its own process group: signals go to the agent and everything it started, exactly once.
       detached: true,
       env: {
-        ...(opts.env ?? process.env),
+        ...agentEnv,
         TEAMKIT_TASK: taskId,
         TEAMKIT_CLAIM: claimId,
         TEAMKIT_ROOM: claim.task.room,
