@@ -19,6 +19,29 @@ export type ViewItem =
   | { kind: "reasoning"; id: string; text: string; cursor: string }
   | { kind: "status"; id: string; label: string; tone: Tone; detail: string | null; cursor: string }
   | {
+      kind: "decision";
+      id: string;
+      decisionId: string;
+      text: string;
+      decidedBy: ActorView | null;
+      postedBy: ActorView | null;
+      acks: ActorView[];
+      cursor: string;
+    }
+  | {
+      kind: "change";
+      id: string;
+      changeId: string;
+      what: string;
+      where: string;
+      undo: string;
+      undoWhen: string | null;
+      status: ChangeRowStatus;
+      person: ActorView | null;
+      agent: ActorView | null;
+      cursor: string;
+    }
+  | {
       kind: "subagent";
       id: string;
       name: string;
@@ -37,7 +60,13 @@ export interface ThreadViewModel {
   items: ViewItem[];
   question: PendingQuestion | null;
   lastCursor: string;
+  /** The first decision's text, else the first raised alert's text, else null. */
+  headline: string | null;
 }
+
+export type ChangeRowStatus = "active" | "done" | "restored";
+const CHANGE_STATUSES: readonly ChangeRowStatus[] = ["active", "done", "restored"];
+const CHANGE_TONE: Record<ChangeRowStatus, Tone> = { active: "info", done: "success", restored: "neutral" };
 
 type Rec = Record<string, unknown>;
 type Item<K extends ViewItem["kind"]> = Extract<ViewItem, { kind: K }>;
@@ -96,6 +125,18 @@ function nameOf(v: unknown, fallback: string): string {
   return (isRec(v) ? str(v.name) : null) ?? fallback;
 }
 
+/** An actor reference from a CUSTOM value: a record with a string name and kind agent or person. */
+function actorView(v: unknown): ActorView | null {
+  if (!isRec(v)) return null;
+  const name = str(v.name);
+  return name && (v.kind === "agent" || v.kind === "person") ? { name, kind: v.kind } : null;
+}
+
+const sameActor = (a: ActorView | null, b: ActorView | null) => a !== null && b !== null && a.name === b.name && a.kind === b.kind;
+
+/** What `coordination` returns for a CUSTOM name it does not know, so the caller draws a plain line. */
+const UNHANDLED = "unhandled" as const;
+
 function choicesOf(schema: unknown): string[] | null {
   if (!isRec(schema) || !isRec(schema.properties) || !isRec(schema.properties.choice)) return null;
   const e = schema.properties.choice.enum;
@@ -123,11 +164,23 @@ class Folder {
   top = newScope();
   question: PendingQuestion | null = null;
   groups = new Map<string, { item: Item<"subagent">; scope: Scope }>();
+  decisions = new Map<string, Item<"decision">>();
+  changes = new Map<string, Item<"change">>();
+  alertTexts = new Map<string, string>();
+  firstDecision: string | null = null;
+  firstAlert: string | null = null;
+  /**
+   * The server writes a text message alongside a decision, a roll call, a roll-call answer and a
+   * raised alert; the row or line stands for it. A well-formed CUSTOM sets this so the message in
+   * the same event is not drawn too. Reset per BoardEvent.
+   */
+  skipMessage = false;
 
   fold(be: BoardEvent): void {
     const cursor = str(be.cursor) ?? "0";
     const agui: unknown[] = Array.isArray(be.agui) ? be.agui : [];
     const trusted = !fromAgentRun(be);
+    this.skipMessage = false;
     agui.forEach((ev, index) => {
       if (!isRec(ev)) return;
       try {
@@ -220,7 +273,7 @@ class Folder {
       case "RUN_ERROR":
         return this.runError(ev, scope, cursor, index, trusted);
       case "CUSTOM":
-        return this.custom(ev, scope, cursor, index, trusted);
+        return this.custom(ev, scope, cursor, index, actor, trusted);
       default:
         return; // STEP_*, STATE_*, MESSAGES_SNAPSHOT, ACTIVITY_*, RAW, unknown
     }
@@ -234,6 +287,7 @@ class Folder {
     actor: BoardEvent["actor"],
     trusted: boolean,
   ): void {
+    if (this.skipMessage) return;
     const messageId = str(ev.messageId);
     if (!messageId) return;
     const id = ownKey(actor, messageId);
@@ -323,7 +377,14 @@ class Folder {
     }
   }
 
-  private custom(ev: Rec, scope: Scope, cursor: string, index: number, trusted: boolean): void {
+  private custom(
+    ev: Rec,
+    scope: Scope,
+    cursor: string,
+    index: number,
+    actor: BoardEvent["actor"],
+    trusted: boolean,
+  ): void {
     const name = str(ev.name);
     if (!name) return;
     const value = isRec(ev.value) ? ev.value : {};
@@ -366,7 +427,114 @@ class Folder {
       case "teamkit.message.posted":
         return;
       default:
-        return s(name, "neutral");
+        if (this.coordination(name, value, scope, cursor, actor, s) === UNHANDLED) s(name, "neutral");
+        return;
+    }
+  }
+
+  /** Decisions, changes, handoffs, roll calls and alerts (plan 02). Returns UNHANDLED for any other name. */
+  private coordination(
+    name: string,
+    value: Rec,
+    scope: Scope,
+    cursor: string,
+    actor: BoardEvent["actor"],
+    s: (label: string, tone: Tone, detail?: string | null) => void,
+  ): void | typeof UNHANDLED {
+    const who = (v: unknown) => actorView(v)?.name ?? "someone";
+    switch (name) {
+      case "teamkit.task.handed_off": {
+        const by = actorView(actor);
+        return s(`Handed off to ${nameOf(value.to, "an agent")}`, "info", by ? `by ${by.name}` : null);
+      }
+      case "teamkit.decision.posted": {
+        const decisionId = str(value.decisionId);
+        const text = str(value.text);
+        if (!decisionId || text === null) return s("Decision posted", "info");
+        this.skipMessage = true;
+        if (this.decisions.has(decisionId)) return;
+        const row: Item<"decision"> = {
+          kind: "decision",
+          id: `decision-${decisionId}`,
+          decisionId,
+          text,
+          decidedBy: actorView(value.decidedBy),
+          postedBy: actorView(value.postedBy),
+          acks: [],
+          cursor,
+        };
+        this.decisions.set(decisionId, row);
+        this.firstDecision ??= text;
+        scope.items.push(row);
+        return;
+      }
+      case "teamkit.decision.acked": {
+        const by = actorView(value.by);
+        const row = this.decisions.get(str(value.decisionId) ?? "");
+        if (!row || !by) return s(`${by?.name ?? "someone"} acknowledged a decision`, "success");
+        if (!row.acks.some((a) => sameActor(a, by))) row.acks.push(by);
+        return;
+      }
+      case "teamkit.rollcall.started":
+        if (str(value.rollCallId)) this.skipMessage = true;
+        return s(`Roll call by ${who(value.askedBy)}`, "info");
+      case "teamkit.rollcall.answered":
+        if (str(value.rollCallId) && actorView(value.by)) this.skipMessage = true;
+        return s(`Roll call: ${who(value.by)}`, "neutral", str(value.status));
+      case "teamkit.alert.raised": {
+        const alertId = str(value.alertId);
+        const text = str(value.text);
+        if (alertId && text !== null) {
+          this.skipMessage = true;
+          this.alertTexts.set(alertId, text);
+          this.firstAlert ??= text;
+        }
+        return s(`Suspected alert from ${who(value.raisedBy)}`, "warning", text);
+      }
+      case "teamkit.alert.confirmed": {
+        const text = this.alertTexts.get(str(value.alertId) ?? "") ?? null;
+        return s(`Alert confirmed by ${who(value.by)}`, "danger", text);
+      }
+      case "teamkit.alert.resolved": {
+        const by = actorView(value.by);
+        const source = actorView(value.source);
+        const forWhom = by && source && !sameActor(by, source) ? ` for ${source.name}` : "";
+        const text = this.alertTexts.get(str(value.alertId) ?? "") ?? null;
+        return s(`Alert resolved by ${by?.name ?? "someone"}${forWhom}`, "success", text);
+      }
+      case "teamkit.change.logged": {
+        const c = isRec(value.change) ? value.change : null;
+        const changeId = c ? str(c.id) : null;
+        const what = c ? str(c.what) : null;
+        if (!c || !changeId || what === null) return s("Change logged", "info");
+        if (this.changes.has(changeId)) return;
+        const status = CHANGE_STATUSES.includes(c.status as ChangeRowStatus) ? (c.status as ChangeRowStatus) : "active";
+        const row: Item<"change"> = {
+          kind: "change",
+          id: `change-${changeId}`,
+          changeId,
+          what,
+          where: str(c.where) ?? "",
+          undo: str(c.undo) ?? "",
+          undoWhen: str(c.undoWhen),
+          status,
+          person: actorView(c.person),
+          agent: actorView(c.agent),
+          cursor,
+        };
+        this.changes.set(changeId, row);
+        scope.items.push(row);
+        return;
+      }
+      case "teamkit.change.updated": {
+        const row = this.changes.get(str(value.changeId) ?? "") ?? null;
+        const status = CHANGE_STATUSES.includes(value.status as ChangeRowStatus) ? (value.status as ChangeRowStatus) : null;
+        if (status === null) return s("Change updated", "neutral", row?.what ?? null);
+        if (row) row.status = status;
+        return s(`Change marked ${status}`, CHANGE_TONE[status], row?.what ?? null);
+      }
+      default:
+        return UNHANDLED;
     }
   }
 }
@@ -385,5 +553,10 @@ export function foldEvents(events: BoardEvent[]): ThreadViewModel {
     }
     lastCursor = str(be.cursor) ?? lastCursor;
   }
-  return { items: folder.top.items, question: folder.question, lastCursor };
+  return {
+    items: folder.top.items,
+    question: folder.question,
+    lastCursor,
+    headline: folder.firstDecision ?? folder.firstAlert,
+  };
 }
