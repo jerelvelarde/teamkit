@@ -5,6 +5,7 @@ import { createDb, type Db } from "./db/pool.js";
 import { migrate } from "./db/migrate.js";
 import { createAgent, createAgentTokens, listTokens, revokeToken, type Grant } from "./store/actors.js";
 import { getRoomInfo, setRoom, type RoomSettings } from "./store/rooms.js";
+import { listAgents, registerAgent, toAgentInfo } from "./dispatch/registry.js";
 import { DEFAULT_PUBLIC_URL, invitePerson, listPeople, signInUrl } from "./store/people.js";
 
 const DEFAULT_DATABASE_URL = "postgres://teamkit@127.0.0.1:54329/teamkit";
@@ -21,6 +22,13 @@ function parseGrant(spec: string, previous: Grant[] | undefined): Grant[] {
   // A grant with no permissions would create an agent that can do nothing.
   if (perms.length === 0) throw new InvalidArgumentError(`no permissions after ":" in ${spec}`);
   return [...(previous ?? []), { room: spec.slice(0, i), perms }];
+}
+
+/** "k=v" split at the FIRST "="; repeated options accumulate. The value is a secret, so errors never echo it. */
+function parseHeader(spec: string, previous: Record<string, string> | undefined): Record<string, string> {
+  const i = spec.indexOf("=");
+  if (i <= 0) throw new BoardError("invalid_input", "--header must be name=value");
+  return { ...(previous ?? {}), [spec.slice(0, i)]: spec.slice(i + 1) };
 }
 
 function parseCount(v: string): number {
@@ -56,6 +64,31 @@ function buildProgram(): Command {
           : createAgentTokens(db, { baseName: name, count: opts.count, grants: opts.rooms }),
       );
       for (const a of created) process.stdout.write(`${a.actor.name}\t${a.token}\n`);
+    });
+
+  agents
+    .command("register <name>")
+    .description("register an AG-UI agent TeamKit calls itself and print its info as JSON (header values are never printed)")
+    .requiredOption("--url <url>", "the agent's AG-UI endpoint")
+    .requiredOption("--rooms <list>", "comma-separated room patterns the agent may work in")
+    .option("--header <k=v>", "header sent to the agent; repeat for more", parseHeader)
+    .exitOverride()
+    .action(async (name: string, opts: { url: string; rooms: string; header?: Record<string, string> }) => {
+      const rooms = opts.rooms
+        .split(",")
+        .map((r) => r.trim())
+        .filter((r) => r !== "");
+      const agent = await withDb((db) => registerAgent(db, { name, url: opts.url, rooms, headers: opts.header }));
+      process.stdout.write(`${JSON.stringify(toAgentInfo(agent))}\n`);
+    });
+  agents
+    .command("list")
+    .description("list registered agents as name, url, rooms, enabled|disabled")
+    .exitOverride()
+    .action(async () => {
+      for (const a of await withDb(listAgents)) {
+        process.stdout.write(`${a.name}\t${a.url}\t${a.rooms.join(",")}\t${a.enabled ? "enabled" : "disabled"}\n`);
+      }
     });
 
   const tokens = program.command("tokens").exitOverride();

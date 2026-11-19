@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import { withTestDb } from "./helpers/db.js";
 import { authenticate } from "../src/store/actors.js";
 import { getRoomInfo } from "../src/store/rooms.js";
+import { getAgent } from "../src/dispatch/registry.js";
 import { consumeSignInLink } from "../src/store/people.js";
 
 const CWD = fileURLToPath(new URL("..", import.meta.url));
@@ -139,5 +140,48 @@ test("people invite refuses a name an agent holds", async () => {
     assert.equal(r.code, 1);
     assert.match(r.err, /invalid_input/);
     assert.equal(r.out, "");
+  });
+});
+
+test("agents register prints info without header values, and agents list shows the line", async () => {
+  await withTestDb(async (db, url) => {
+    const r = run(url, [
+      "agents", "register", "researcher", "--url", "http://127.0.0.1:9/agent",
+      "--rooms", "research,lab", "--header", "Authorization=Bearer-x",
+    ]);
+    assert.equal(r.code, 0, r.err);
+    const info = JSON.parse(r.out);
+    assert.deepEqual(info.headerNames, ["Authorization"]);
+    assert.deepEqual(info.rooms, ["research", "lab"]);
+    assert.ok(!r.out.includes("Bearer-x"));
+    assert.equal((await getAgent(db, "researcher"))?.headers.Authorization, "Bearer-x");
+    const l = run(url, ["agents", "list"]);
+    assert.equal(l.code, 0, l.err);
+    assert.equal(l.out, "researcher\thttp://127.0.0.1:9/agent\tresearch,lab\tenabled\n");
+    assert.ok(!l.out.includes("Bearer-x"));
+  });
+});
+
+test("agents register splits a header at the first '=' and accepts several", async () => {
+  await withTestDb(async (db, url) => {
+    const r = run(url, [
+      "agents", "register", "bot", "--url", "http://127.0.0.1:9/a", "--rooms", "lab",
+      "--header", "X-Key=a=b", "--header", "X-Other=c",
+    ]);
+    assert.equal(r.code, 0, r.err);
+    assert.deepEqual((await getAgent(db, "bot"))?.headers, { "X-Key": "a=b", "X-Other": "c" });
+  });
+});
+
+test("agents register with a bad url or a malformed header exits 1 without echoing the secret", async () => {
+  await withTestDb(async (db, url) => {
+    const bad = run(url, ["agents", "register", "bot", "--url", "not a url", "--rooms", "lab"]);
+    assert.equal(bad.code, 1);
+    assert.match(bad.err, /^error: invalid_input: /);
+    const h = run(url, ["agents", "register", "bot", "--url", "http://127.0.0.1:9/a", "--rooms", "lab", "--header", "s3cret"]);
+    assert.equal(h.code, 1);
+    assert.match(h.err, /^error: invalid_input: /);
+    assert.ok(!h.err.includes("s3cret"));
+    assert.equal(await getAgent(db, "bot"), null);
   });
 });
