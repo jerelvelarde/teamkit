@@ -4,6 +4,7 @@ import type {
   Claim,
   Decision,
   EventQuery,
+  RollCall,
   PlanItem,
   RoomSummary,
   RoomView,
@@ -82,6 +83,9 @@ export interface TeamkitClient {
   postDecision(input: { room: string; text: string; decidedBy?: string }): Promise<Decision>;
   ackDecision(id: string): Promise<Decision>;
   decisions(room: string, opts?: { limit?: number }): Promise<Decision[]>;
+  startRollCall(room: string): Promise<RollCall>;
+  answerRollCall(id: string, status: string): Promise<RollCall>;
+  rollCalls(room: string, opts?: { limit?: number }): Promise<RollCall[]>;
   events(q?: EventQuery): Promise<{ events: BoardEvent[]; cursor: string }>;
   stream(q: EventQuery, opts?: { signal?: AbortSignal }): AsyncIterable<BoardEvent>;
 }
@@ -236,6 +240,11 @@ export function createClient(opts: ClientOptions): TeamkitClient {
     ackDecision: async (id) => (await json<{ decision: Decision }>("POST", `/decisions/${enc(id)}/ack`, {})).decision,
     decisions: async (room, opts) =>
       (await json<{ decisions: Decision[] }>("GET", withQuery("/decisions", roomParams(room, { limit: opts?.limit })))).decisions,
+    startRollCall: async (room) => (await json<{ rollCall: RollCall }>("POST", "/rollcalls", { room })).rollCall,
+    answerRollCall: async (id, status) =>
+      (await json<{ rollCall: RollCall }>("POST", `/rollcalls/${enc(id)}/answer`, { status })).rollCall,
+    rollCalls: async (room, opts) =>
+      (await json<{ rollCalls: RollCall[] }>("GET", withQuery("/rollcalls", roomParams(room, { limit: opts?.limit })))).rollCalls,
     events: (q) => json("GET", withQuery("/events", eventParams(q))),
     stream: (q, o) => streamEvents(q, o?.signal),
   };

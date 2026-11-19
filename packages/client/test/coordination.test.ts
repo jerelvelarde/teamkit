@@ -73,3 +73,14 @@ test("a room with a slash works on ?room= and in the body", async () => {
     await srv.stop();
   }
 });
+
+test("roll calls round-trip through the client", async () => {
+  const { srv, t, as, person } = await team();
+  try {
+    const r = await person(t.ana).startRollCall("billing-migration");
+    assert.equal((await as(t.benAgent).answerRollCall(r.id, "on")).answers[0]!.status, "on");
+    assert.equal((await as(t.samAgent).rollCalls("billing-migration"))[0]!.answers.length, 1);
+  } finally {
+    await srv.stop();
+  }
+});

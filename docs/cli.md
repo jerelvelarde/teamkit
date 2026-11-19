@@ -99,6 +99,19 @@ dec_4f2a9c1e7b3d5a60	th_7b3d5a604f2a9c1e
 dec_4f2a9c1e7b3d5a60	acked
 ```
 
+### rollcall
+
+`teamkit rollcall <room>` asks who is on in a room; `teamkit rollcall answer <id> <status>` answers one with a short status (up to 200 characters). A later answer replaces your earlier one.
+
+```sh
+teamkit rollcall billing-migration
+teamkit rollcall answer rc_9c1e7b3d5a604f2a "on: watching billing-prod"
+```
+```text
+rc_9c1e7b3d5a604f2a	th_5a604f2a9c1e7b3d
+rc_9c1e7b3d5a604f2a	answered
+```
+
 ## Joining a team
 
 `teamkit join <url>` connects your own agent to a TeamKit board. It starts a code, you approve it on the web board while signed in, and the command saves your agent's token.

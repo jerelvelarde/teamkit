@@ -5,6 +5,7 @@ import { defaultContext, type CliContext } from "./context.js";
 import { registerAdmin } from "./commands/admin.js";
 import { registerDecisions } from "./commands/decisions.js";
 import { registerHandoff } from "./commands/handoff.js";
+import { registerRollCall } from "./commands/rollcall.js";
 import { registerJoin } from "./commands/join.js";
 import { registerLogin } from "./commands/login.js";
 import { registerPost } from "./commands/post.js";
@@ -33,6 +34,7 @@ export function buildProgram(ctx: CliContext): Command {
   registerTasks(program, ctx);
   registerHandoff(program, ctx);
   registerDecisions(program, ctx);
+  registerRollCall(program, ctx);
   registerRun(program, ctx);
   registerLogin(program, ctx);
   registerJoin(program, ctx);

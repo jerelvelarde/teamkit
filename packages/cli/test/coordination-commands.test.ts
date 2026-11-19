@@ -65,3 +65,18 @@ test("decide --for the owner, then ack", async () => {
     await srv.stop();
   }
 });
+
+test("rollcall starts one and rollcall answer answers it", async () => {
+  const { srv, team, env } = await setup();
+  try {
+    const r = await runCli(["rollcall", "billing-migration"], env(team.anaAgent));
+    assert.equal(r.code, 0, r.stderr);
+    assert.match(r.stdout, /^rc_\S+\tth_\S+\n$/);
+    const rcId = r.stdout.split("\t")[0]!;
+    const a = await runCli(["rollcall", "answer", rcId, "on: watching billing-prod"], env(team.benAgent));
+    assert.equal(a.code, 0, a.stderr);
+    assert.equal(a.stdout, `${rcId}\tanswered\n`);
+  } finally {
+    await srv.stop();
+  }
+});
