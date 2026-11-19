@@ -28,6 +28,41 @@ export async function findTaskByConversation(q: Q, key: string): Promise<string 
   return r ? (r.thread_id as string) : null;
 }
 
+/**
+ * The task mirrored at a Slack thread's coordinates, for a turn whose conversation key is not
+ * stored yet: a thread Slack outbound started has channel and ts but no key, since the managed
+ * Channel's key is not known until the first turn arrives from it. A row with no key gets this
+ * key, so later turns match on it directly; a key that is already stored is never replaced.
+ */
+export async function findTaskByCoordinates(
+  q: Q,
+  coordinates: { channel: string; ts: string },
+  conversationKey: string,
+): Promise<string | null> {
+  const [r] = await q`
+    select thread_id, conversation_key from slack_threads
+    where channel = ${coordinates.channel} and ts = ${coordinates.ts}`;
+  if (!r) return null;
+  const taskId = r.thread_id as string;
+  if (r.conversation_key === null) {
+    try {
+      await q`
+        update slack_threads set conversation_key = ${conversationKey}
+        where thread_id = ${taskId} and conversation_key is null
+          and not exists (select 1 from slack_threads where conversation_key = ${conversationKey})`;
+    } catch (e) {
+      // Another turn stored this key for some row between the check and the write: keep that one.
+      if (!isUniqueViolation(e)) throw e;
+    }
+  }
+  return taskId;
+}
+
+/** Postgres unique_violation. */
+export function isUniqueViolation(e: unknown): boolean {
+  return typeof e === "object" && e !== null && (e as { code?: unknown }).code === "23505";
+}
+
 /** Upsert by task id. A null column in `row` keeps whatever is already stored. */
 export async function saveSlackThread(q: Q, row: SlackThreadRow): Promise<SlackThreadRow> {
   const [r] = await q`
@@ -40,11 +75,6 @@ export async function saveSlackThread(q: Q, row: SlackThreadRow): Promise<SlackT
     returning *`;
   if (!r) throw new Error("saveSlackThread: row missing");
   return toRow(r);
-}
-
-/** The conversation key the native Slack adapter uses for a thread. */
-export function nativeConversationKey(channel: string, ts: string): string {
-  return `${channel}::${ts}`;
 }
 
 /** The first room (by name) mapped to a Slack channel, or null. */

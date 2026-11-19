@@ -2,9 +2,9 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   findTaskByConversation,
+  findTaskByCoordinates,
   getServiceCursor,
   getSlackThread,
-  nativeConversationKey,
   roomForSlackChannel,
   saveSlackThread,
   setServiceCursor,
@@ -26,7 +26,31 @@ test("saveSlackThread keeps columns a later save leaves null", async () => {
     assert.deepEqual(await getSlackThread(db, "thr_1"), row);
     assert.equal(await findTaskByConversation(db, "K1"), "thr_1");
     assert.equal(await findTaskByConversation(db, "nope"), null);
-    assert.equal(nativeConversationKey("C1", "1.2"), "C1::1.2");
+  });
+});
+
+test("findTaskByCoordinates fills in a missing conversation key and never replaces one", async () => {
+  await withTestDb(async (db) => {
+    const a = await agentAuth(db, "bot");
+    await setRoom(db, "build", {});
+    for (const id of ["thr_1", "thr_2"]) {
+      await db`insert into threads (id, room, is_task, created_by) values (${id}, 'build', true, ${a.actor.id})`;
+    }
+    // thr_1: a thread Slack outbound started (no key yet). thr_2: a mention's thread, key stored.
+    await saveSlackThread(db, { taskId: "thr_1", channel: "C1", ts: "1.0", conversationKey: null });
+    await saveSlackThread(db, { taskId: "thr_2", channel: "C1", ts: "2.0", conversationKey: "cth_mention" });
+
+    assert.equal(await findTaskByCoordinates(db, { channel: "C1", ts: "1.0" }, "cth_card"), "thr_1");
+    assert.equal((await getSlackThread(db, "thr_1"))?.conversationKey, "cth_card");
+    assert.equal(await findTaskByConversation(db, "cth_card"), "thr_1");
+
+    assert.equal(await findTaskByCoordinates(db, { channel: "C1", ts: "2.0" }, "cth_other"), "thr_2");
+    assert.equal((await getSlackThread(db, "thr_2"))?.conversationKey, "cth_mention");
+    assert.equal(await findTaskByCoordinates(db, { channel: "C1", ts: "9.9" }, "cth_x"), null);
+
+    // A later save with no key (Slack outbound) keeps the stored one.
+    await saveSlackThread(db, { taskId: "thr_2", channel: "C1", ts: "2.0", conversationKey: null });
+    assert.equal((await getSlackThread(db, "thr_2"))?.conversationKey, "cth_mention");
   });
 });
 
