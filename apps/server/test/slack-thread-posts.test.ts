@@ -5,6 +5,7 @@ import { ensureSlackGuest } from "../src/slack/handlers.js";
 import { saveSlackThread } from "../src/slack/mirror.js";
 import { processOutboundOnce } from "../src/slack/outbound.js";
 import { answer, block } from "../src/store/blocks.js";
+import { logChange, updateChange } from "../src/store/changes.js";
 import { claimTask, complete } from "../src/store/claims.js";
 import { setRoom } from "../src/store/rooms.js";
 import { createTask } from "../src/store/tasks.js";
@@ -160,6 +161,30 @@ test("a handoff and a change-log line go in the task's thread; a change with no 
     ]);
   } finally {
     await s.stop();
+    await slack.close();
+  }
+});
+
+test("two quick status changes post each status, not the latest twice", async () => {
+  const slack = await fakeSlack();
+  try {
+    await withTestDb(async (db) => {
+      const b = await seedBilling(db);
+      await processOutboundOnce(out(db, slack.apiBase));
+      const t = await askedTask(db, b);
+      const c = await logChange(db, b.samAgent, { room: "billing-migration", threadId: t.id, what: "Switched invoice writes to the new database",
+        where: "billing-prod", undo: "Point invoice writes back to the old database" });
+      await processOutboundOnce(out(db, slack.apiBase));
+      const n = slack.requests.length;
+      await updateChange(db, b.samAgent, c.id, "done");
+      await updateChange(db, b.samAgent, c.id, "restored");
+      await processOutboundOnce(out(db, slack.apiBase));
+      assert.deepEqual(texts(slack.requests.slice(n)), [
+        "sam-agent marked a change done: Switched invoice writes to the new database",
+        "sam-agent marked a change restored: Switched invoice writes to the new database",
+      ]);
+    });
+  } finally {
     await slack.close();
   }
 });

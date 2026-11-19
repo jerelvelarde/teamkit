@@ -1,4 +1,4 @@
-import type { BoardEvent, ChangeEntry, Task } from "@copilotkit/teamkit-protocol";
+import { CHANGE_STATUSES, type BoardEvent, type ChangeEntry, type Task } from "@copilotkit/teamkit-protocol";
 import { getRoomInfo } from "../store/rooms.js";
 import { loadTask } from "../store/task-load.js";
 import { toSlackMessage } from "./blocks.js";
@@ -97,8 +97,11 @@ function render(
       return { text: progressLine(by, replyText(e)) };
     case "change.logged":
       return { text: changeLoggedLine(change!) };
-    case "change.updated":
-      return { text: changeUpdatedLine(change!, by) };
+    case "change.updated": {
+      // The status this event set: by the time a pass reads the change, a later update may have moved it on.
+      const status = CHANGE_STATUSES.find((s) => s === d.status) ?? change!.status;
+      return { text: changeUpdatedLine({ ...change!, status }, by) };
+    }
     default:
       return { text: "" };
   }
