@@ -393,3 +393,121 @@ test("an interrupt whose options the board refuses fails the task instead of loo
     },
   );
 });
+
+test("an agent that hangs is stopped after idleMs and released with an attempt counted; the open run is closed", async () => {
+  await withClaim(
+    (i) => [steps.started(i), { delayMs: 10_000 }, steps.success(i)],
+    async ({ claim, run, task, events, logs }) => {
+      const t0 = Date.now();
+      assert.equal(await run(await claim(), { idleMs: 300 }), "released");
+      assert.ok(Date.now() - t0 < 2000, `took ${Date.now() - t0} ms`);
+      const t = await task();
+      assert.equal(t.state, "ready");
+      assert.equal(t.attempts, 1);
+      assert.deepEqual(settled(await events(), "task.released").at(-1)!.agui.map((a) => a.type), ["RUN_ERROR"]);
+      assert.match(logs.at(-1)!, /released \(transport_error: the agent sent no event for 300 ms\)/);
+    },
+  );
+});
+
+test("a claim that runs past maxRunMs is stopped and released with an attempt counted", async () => {
+  await withEnv({ TEAMKIT_AGENT_MAX_RUN_MS: "500" }, async () => {
+    await withClaim(
+      (i) => [
+        steps.started(i),
+        ...Array.from({ length: 100 }, (_, k) => [{ delayMs: 50 }, { event: { type: "CUSTOM", name: "tick", value: k } }]).flat(),
+        steps.success(i),
+      ],
+      async ({ claim, run, task, logs }) => {
+        assert.equal(await run(await claim()), "released");
+        assert.equal((await task()).attempts, 1);
+        assert.match(logs.at(-1)!, /passed its 500 ms limit/);
+      },
+    );
+  });
+});
+
+test("a run too large is released with an attempt counted, and the run it left open is closed", async () => {
+  const big = "x".repeat(6 * 1024 * 1024);
+  await withClaim(
+    (i) => [
+      steps.started(i),
+      { delayMs: 50 },
+      { event: { type: "TEXT_MESSAGE_START", messageId: "b1", role: "assistant" } },
+      { event: { type: "TEXT_MESSAGE_CONTENT", messageId: "b1", delta: big } },
+      steps.success(i),
+    ],
+    async ({ claim, run, task, events, logs }) => {
+      assert.equal(await run(await claim()), "released");
+      assert.equal((await task()).attempts, 1);
+      assert.deepEqual(settled(await events(), "task.released").at(-1)!.agui.map((a) => a.type), ["RUN_ERROR"]);
+      assert.match(logs.at(-1)!, /agent_error: run too large/);
+    },
+  );
+});
+
+test("more than 20 pending board tool calls fail the task without carrying any out", async () => {
+  await withClaim(
+    (i) => [
+      steps.started(i),
+      ...Array.from({ length: 300 }, (_, k) =>
+        steps.toolCall(`t${k}`, "teamkit_create_task", { room: "research", brief: `spawn ${k}` }),
+      ).flat(),
+      steps.success(i),
+    ],
+    async ({ db, taskId, claim, run, task }) => {
+      assert.equal(await run(await claim()), "failed");
+      assert.equal((await task()).state, "failed");
+      const [failed] = (await listEvents(db, { threadId: taskId, kinds: ["task.failed"] })).events;
+      assert.equal(failed!.data.reason, "the agent asked for 300 board tool calls in one run; the limit is 20");
+      assert.deepEqual(failed!.agui.map((a) => [a.type, a.name]), [["CUSTOM", "teamkit.task.failed"]]);
+      const [{ n }] = await db<{ n: number }[]>`select count(*)::int as n from tasks`;
+      assert.equal(n, 1);
+    },
+  );
+});
+
+test("a run whose claim was reaped and re-claimed stops at its next write and leaves nothing after the re-claim", async () => {
+  await withClaim(
+    (i) => [
+      steps.started(i),
+      { event: { type: "TEXT_MESSAGE_START", messageId: "m", role: "assistant" } },
+      ...Array.from({ length: 30 }, (_, k) => [
+        { delayMs: 100 },
+        { event: { type: "TEXT_MESSAGE_CONTENT", messageId: "m", delta: `t${k} ` } },
+      ]).flat(),
+      { event: { type: "TEXT_MESSAGE_END", messageId: "m" } },
+      ...steps.toolCall("x", "teamkit_reply", { threadId: i.threadId, text: "stale run reply" }),
+      steps.success(i),
+    ],
+    async ({ db, agent, taskId, claim, run, task, events, logs }) => {
+      const other = await agentAuth(db, "other");
+      const stale = await claim();
+      const takeOver = (async () => {
+        await sleep(400);
+        await db`update tasks set lease_expires_at = now() - interval '1 second' where thread_id = ${taskId}`;
+        assert.equal(await reapExpired(db), 1);
+        await claimTask(db, other, taskId, { opensRun: true });
+      })();
+      const t0 = Date.now();
+      const [result] = await Promise.all([run(stale), takeOver]);
+      assert.equal(result, "lost");
+      assert.ok(Date.now() - t0 < 2000, `took ${Date.now() - t0} ms`);
+      assert.match(logs.at(-1)!, /: lost/);
+
+      const t = await task();
+      assert.equal(t.state, "claimed");
+      assert.equal(t.claim?.actor.id, other.actor.id);
+      const all = await events();
+      const reclaimed = all.findIndex((e) => e.kind === "task.claimed" && e.actor?.id === other.actor.id);
+      assert.ok(reclaimed > 0);
+      const after = all.slice(reclaimed + 1);
+      assert.deepEqual(after.filter((e) => e.data.claimId === stale.claimId), []);
+      assert.deepEqual(after.filter((e) => e.actor?.id === agent.actor.id), []);
+      // The stale run had started, so the reaper closed it.
+      assert.deepEqual(settled(all, "task.lease_expired")[0]!.agui.map((a) => a.type), ["RUN_ERROR"]);
+      const texts = (await getThread(db, agentAuthContext(agent), taskId)).messages.map((m) => String(m.content));
+      assert.equal(texts.some((c) => c.includes("stale run reply") || c.includes("t0 ")), false);
+    },
+  );
+});

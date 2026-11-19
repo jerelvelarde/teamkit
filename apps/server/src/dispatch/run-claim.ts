@@ -4,7 +4,7 @@ import { block } from "../store/blocks.js";
 import { clearPendingResume, complete, fail, leaseMs, release, renew } from "../store/claims.js";
 import { getThread } from "../store/threads.js";
 import { agentAuthContext, type RegisteredAgent } from "./registry.js";
-import { clip, runAgentLoop, type LoopOutcome } from "./run-loop.js";
+import { MAX_TOOL_CALLS, clip, runAgentLoop, type LoopOutcome } from "./run-loop.js";
 
 export type DispatchResult = "completed" | "blocked" | "released" | "failed" | "lost" | "aborted";
 
@@ -16,6 +16,10 @@ export interface RunClaimOptions {
   renewEveryMs?: number;
   /** Failed runs (agent or transport errors) before the task fails. Default 3. */
   maxAttempts?: number;
+  /** A run that sends no event for this long ends as a transport error. Default TEAMKIT_AGENT_IDLE_MS, else 120000. */
+  idleMs?: number;
+  /** The longest one claim may run, board tool rounds included. Default TEAMKIT_AGENT_MAX_RUN_MS, else 1800000. */
+  maxRunMs?: number;
   log?: (line: string) => void;
   fetch?: typeof fetch;
 }
@@ -91,7 +95,7 @@ async function settle(
   o: RunClaimOptions,
   agent: RegisteredAgent,
   claim: Claim,
-  outcome: LoopOutcome,
+  outcome: Exclude<LoopOutcome, { type: "claim_lost" }>,
 ): Promise<DispatchResult> {
   const { db } = o;
   const auth = agentAuthContext(agent);
@@ -123,9 +127,10 @@ async function settle(
     }
     case "agent_error":
     case "transport_error": {
-      // The agent's own RUN_ERROR or RUN_FINISHED ended an agent_error run. A transport error
-      // ended no run itself, so settling closes the one it left open, if any.
-      const closesRun = outcome.type === "transport_error" && (await runIsOpen(db, task.id, claimId));
+      // The agent's own RUN_ERROR or RUN_FINISHED ends most agent_error runs. A transport error,
+      // or a run TeamKit stopped for being too large, ended no run itself: settling closes the
+      // one it left open, if any.
+      const closesRun = await runIsOpen(db, task.id, claimId);
       if (task.attempts + 1 >= maxAttempts) {
         return failWith(`agent run failed ${maxAttempts} times: ${outcome.message}`, closesRun);
       }
@@ -134,6 +139,11 @@ async function settle(
     }
     case "too_many_rounds":
       return failWith("too many board tool rounds", false);
+    case "too_many_tool_calls":
+      return failWith(
+        `the agent asked for ${outcome.count} board tool calls in one run; the limit is ${MAX_TOOL_CALLS}`,
+        false,
+      );
     case "unknown_tool":
       return failWith(`agent called a tool the board does not provide: ${outcome.names.join(", ")}`, false);
     case "aborted":
@@ -145,9 +155,11 @@ async function settle(
 /**
  * Runs a registered agent on a task it has claimed (claimed with `opensRun: false`) and
  * settles the task from how the run ended. The claim is renewed while the run streams;
- * if it is lost, the run is stopped and nothing is settled. A resume stored by an answer
- * goes to the agent and is cleared once the agent has received it. Throws only when the
- * store does; the claim then lapses and the reaper returns the task.
+ * if it is lost (a renew finds it gone, or a write of the run does), the run is stopped and
+ * nothing is settled. A run that goes quiet for idleMs or passes maxRunMs ends as a
+ * transport error, which counts an attempt. A resume stored by an answer goes to the agent
+ * and is cleared once the agent has received it. Throws only when the store does; the claim
+ * then lapses and the reaper returns the task.
  */
 export async function runClaim(o: RunClaimOptions, agent: RegisteredAgent, claim: Claim): Promise<DispatchResult> {
   const { db } = o;
@@ -189,13 +201,16 @@ export async function runClaim(o: RunClaimOptions, agent: RegisteredAgent, claim
       claimId,
       taskId: task.id,
       signal: run.signal,
+      idleMs: o.idleMs,
+      maxRunMs: o.maxRunMs,
       fetch: o.fetch,
+      log,
     });
   } finally {
     o.signal?.removeEventListener("abort", onAbort);
     await renewing.stop();
   }
-  if (lost) return done("lost", " (claim lost while running)");
+  if (lost || outcome.type === "claim_lost") return done("lost", " (claim lost while running)");
 
   try {
     if (outcome.delivered && task.pendingResume) await clearPendingResume(db, auth, task.id, claimId);
