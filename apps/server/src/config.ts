@@ -8,6 +8,10 @@ export interface Config {
   reapIntervalMs: number;
   /** The web board's public origin, no trailing slash; used for links shown to people. */
   publicUrl: string;
+  /** Run agents' tasks inside this process (TEAMKIT_DISPATCH !== "off"). */
+  dispatch: boolean;
+  /** Claims the dispatcher runs at once. */
+  dispatchConcurrency: number;
   slack: {
     bridge: SlackBridgeConfig;
     /** SLACK_BOT_TOKEN; Slack outbound starts only when it is set. */
@@ -50,6 +54,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     host: env.HOST || "0.0.0.0",
     reapIntervalMs: intVar(env, "TEAMKIT_REAP_INTERVAL_MS", 15000, 1),
     publicUrl,
+    dispatch: env.TEAMKIT_DISPATCH !== "off",
+    dispatchConcurrency: intVar(env, "TEAMKIT_DISPATCH_CONCURRENCY", 4, 1),
     slack: {
       bridge: slackBridgeConfigFromEnv(env, publicUrl),
       botToken: env.SLACK_BOT_TOKEN || undefined,

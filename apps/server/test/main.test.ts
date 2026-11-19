@@ -16,6 +16,8 @@ test("loadConfig defaults and validation", () => {
     host: "0.0.0.0",
     reapIntervalMs: 15000,
     publicUrl: "http://127.0.0.1:3000",
+    dispatch: true,
+    dispatchConcurrency: 4,
     slack: {
       bridge: {
         intelligenceApiKey: undefined,
@@ -31,6 +33,11 @@ test("loadConfig defaults and validation", () => {
   });
   assert.equal(loadConfig({ TEAMKIT_PUBLIC_URL: "https://b.example.com/" }).publicUrl, "https://b.example.com");
   assert.equal(loadConfig({ PORT: "0" }).port, 0);
+  assert.equal(loadConfig({ TEAMKIT_DISPATCH: "off" }).dispatch, false);
+  assert.equal(loadConfig({ TEAMKIT_DISPATCH: "on" }).dispatch, true);
+  assert.equal(loadConfig({ TEAMKIT_DISPATCH_CONCURRENCY: "2" }).dispatchConcurrency, 2);
+  assert.throws(() => loadConfig({ TEAMKIT_DISPATCH_CONCURRENCY: "0" }), /TEAMKIT_DISPATCH_CONCURRENCY/);
+  assert.throws(() => loadConfig({ TEAMKIT_DISPATCH_CONCURRENCY: "x" }), /TEAMKIT_DISPATCH_CONCURRENCY/);
   assert.throws(() => loadConfig({ PORT: "abc" }), /PORT/);
   assert.throws(() => loadConfig({ TEAMKIT_PUBLIC_URL: "ftp://x" }), /TEAMKIT_PUBLIC_URL/);
   assert.throws(() => loadConfig({ TEAMKIT_PUBLIC_URL: "nope" }), /TEAMKIT_PUBLIC_URL/);
@@ -179,6 +186,36 @@ test("main.ts logs that the Slack bridge is off, and no outbound line, without S
     assert.doesNotMatch(s.out, /slack outbound started/);
   } finally {
     await s.stop();
+    await t.drop();
+  }
+});
+
+test("main.ts runs the dispatcher by default and exits 0 on SIGTERM", async () => {
+  const t = await createTestDatabase({ migrate: false });
+  const s = await startMain(t.url);
+  try {
+    assert.match(s.out, /dispatcher started \(concurrency 4\)/);
+    assert.equal(await s.exitCode(), 0);
+  } finally {
+    await s.stop();
+    await t.drop();
+  }
+});
+
+test("main.ts honours TEAMKIT_DISPATCH=off and TEAMKIT_DISPATCH_CONCURRENCY", async () => {
+  const t = await createTestDatabase({ migrate: false });
+  const off = await startMain(t.url, { TEAMKIT_DISPATCH: "off" });
+  try {
+    assert.doesNotMatch(off.out, /dispatcher started/);
+    assert.equal(await off.exitCode(), 0);
+  } finally {
+    await off.stop();
+  }
+  const two = await startMain(t.url, { TEAMKIT_DISPATCH_CONCURRENCY: "2" });
+  try {
+    assert.match(two.out, /dispatcher started \(concurrency 2\)/);
+  } finally {
+    await two.stop();
     await t.drop();
   }
 });

@@ -7,6 +7,7 @@ import { migrate } from "./db/migrate.js";
 import { createApp } from "./http/app.js";
 import { createNotifier } from "./notifier.js";
 import { ensureBootstrapLink, signInUrl } from "./store/people.js";
+import { startDispatcher, type Dispatcher } from "./dispatch/dispatcher.js";
 import { startSlackBridge, type SlackBridge } from "./slack/bridge.js";
 import { reapExpired } from "./store/reaper.js";
 
@@ -49,6 +50,7 @@ if (!server.listening) {
 const { port } = server.address() as AddressInfo;
 console.log(`teamkit-server listening on http://127.0.0.1:${port}`);
 
+let dispatcher: Dispatcher | null = null;
 let outbound: { stop(): Promise<void> } | null = null;
 let bridge: SlackBridge | null = null;
 
@@ -59,6 +61,8 @@ async function shutdown(): Promise<void> {
   clearInterval(reaper);
   server.closeAllConnections();
   await new Promise<void>((resolve) => server.close(() => resolve()));
+  // Abort runs and release their claims before Slack, the notifier and the db go away.
+  await dispatcher?.stop();
   await bridge?.stop();
   await outbound?.stop();
   await notifier.close();
@@ -74,6 +78,11 @@ for (const sig of ["SIGINT", "SIGTERM"] as const) {
       process.exit(1);
     });
   });
+}
+
+if (config.dispatch) {
+  dispatcher = startDispatcher({ db, notifier, concurrency: config.dispatchConcurrency });
+  console.log(`dispatcher started (concurrency ${config.dispatchConcurrency})`);
 }
 
 const { botToken } = config.slack;
