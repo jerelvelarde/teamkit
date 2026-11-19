@@ -79,7 +79,7 @@ export function requestAuth(db: Db, cookieName: string): MiddlewareHandler<AppEn
     if (cr.bearer !== undefined) {
       const found = await authenticate(db, cr.bearer);
       if (!found) throw new BoardError("unauthorized", "invalid token");
-      auth = { actor: found.actor, via: "token", scope: found.scope, role: found.role };
+      auth = { actor: found.actor, via: "token", scope: found.scope, role: found.role, tokenId: found.tokenId };
     } else if (cr.session !== undefined) {
       const found = await authenticateSession(db, cr.session);
       if (!found) throw new BoardError("unauthorized", "session expired or invalid");

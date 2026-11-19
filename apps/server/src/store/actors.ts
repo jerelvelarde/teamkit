@@ -17,6 +17,8 @@ export interface AuthContext {
   via: "token" | "session" | "system";
   scope: "agent" | "admin" | null;
   role: "admin" | "member" | null;
+  /** The bearer token's id, so each install reports its own presence. Unset for sessions. */
+  tokenId?: string;
 }
 
 export interface Grant {
@@ -196,10 +198,10 @@ export async function listTokens(db: Db): Promise<
 export async function authenticate(
   db: Db,
   bearer: string,
-): Promise<{ actor: ActorRef; scope: "agent" | "admin"; role: "admin" | "member" | null } | null> {
+): Promise<{ actor: ActorRef; scope: "agent" | "admin"; role: "admin" | "member" | null; tokenId: string } | null> {
   if (typeof bearer !== "string" || bearer === "") return null;
   const [r] = await db`
-    select a.id, a.name, a.kind, a.role, t.scope
+    select a.id, a.name, a.kind, a.role, t.scope, t.id as token_id
     from tokens t join actors a on a.id = t.actor_id
     where t.hash = ${hashToken(bearer)} and t.revoked_at is null`;
   if (!r) return null;
@@ -207,6 +209,7 @@ export async function authenticate(
     actor: { id: r.id as string, name: r.name as string, kind: r.kind as "agent" | "person" },
     scope: r.scope as "agent" | "admin",
     role: (r.role as "admin" | "member" | null) ?? null,
+    tokenId: r.token_id as string,
   };
 }
 
