@@ -26,9 +26,13 @@ export async function createTestDatabase(
       async drop() {
         if (dropped) return;
         dropped = true;
-        await d.end({ timeout: 5 });
-        await admin.unsafe(`drop database if exists "${name}" with (force)`);
-        await admin.end();
+        try {
+          await d.end({ timeout: 5 });
+          await admin.unsafe(`drop database if exists "${name}" with (force)`);
+        } finally {
+          // An open admin connection would keep the test file from exiting.
+          await admin.end({ timeout: 5 });
+        }
       },
     };
   } catch (err) {
@@ -43,7 +47,10 @@ export async function withTestDb(fn: (db: Db, url: string) => Promise<void>): Pr
   const t = await createTestDatabase();
   try {
     await fn(t.db, t.url);
-  } finally {
-    await t.drop();
+  } catch (err) {
+    // fn's error is the one worth reporting; a drop failure here would mask it.
+    await t.drop().catch(() => {});
+    throw err;
   }
+  await t.drop();
 }
