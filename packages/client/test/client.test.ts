@@ -138,3 +138,17 @@ test("a double claim throws task_claimed; a non-JSON error becomes http_error", 
     await srv.stop();
   }
 });
+
+test("complete with a null result omits it", async () => {
+  const srv = await startTestServer();
+  try {
+    const token = await agentToken(srv.db, "bot");
+    const c = createClient({ url: srv.url, token });
+    const t = await c.createTask({ room: "build", brief: "x" });
+    const claim = await c.claim(t.id);
+    const done = await c.complete(t.id, claim.claimId, null);
+    assert.equal(done.state, "completed");
+  } finally {
+    await srv.stop();
+  }
+});

@@ -170,7 +170,10 @@ export function createClient(opts: ClientOptions): TeamkitClient {
     release: async (taskId, claimId) =>
       (await json<{ task: Task }>("POST", `/tasks/${enc(taskId)}/release`, { claimId })).task,
     complete: async (taskId, claimId, result) =>
-      (await json<{ task: Task }>("POST", `/tasks/${enc(taskId)}/complete`, { claimId, result })).task,
+      (await json<{ task: Task }>("POST", `/tasks/${enc(taskId)}/complete`, {
+        claimId,
+        ...(result != null ? { result } : {}),
+      })).task,
     fail: async (taskId, claimId, reason) =>
       (await json<{ task: Task }>("POST", `/tasks/${enc(taskId)}/fail`, { claimId, reason })).task,
     block: async (taskId, claimId, input) =>
