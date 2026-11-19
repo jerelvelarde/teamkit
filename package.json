@@ -19,7 +19,9 @@
   "pnpm": {
     "overrides": {
       "@ag-ui/core": "1.0.2",
-      "@ag-ui/client": "1.0.2"
+      "@ag-ui/client": "1.0.2",
+      "@copilotkit/core": "1.88.0",
+      "@copilotkit/shared": "1.88.0"
     }
   }
 }
