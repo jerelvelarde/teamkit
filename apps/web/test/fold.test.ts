@@ -306,6 +306,21 @@ describe("foldEvents", () => {
     assert.doesNotThrow(() => foldEvents(undefined as unknown as BoardEvent[]));
   });
 
+  it("a block's stored question and its interrupt show one Waiting chip, not two", () => {
+    const vm = foldEvents([
+      ev([custom("teamkit.task.blocked", { interruptId: "i1", kind: "needs_input", question: "db?" })]),
+      ev(
+        [
+          ...textMessage({ messageId: "q", role: "assistant", text: "Question (needs_input): db?", actor: bot }),
+          runFinishedInterrupt("t", "run1", { id: "i1", reason: "needs_input", message: "db?" }),
+        ],
+        bot,
+      ),
+    ]);
+    const chips = vm.items.filter((i) => i.kind === "status").map((i) => (i.kind === "status" ? i.label : ""));
+    assert.deepEqual(chips, ["Waiting: db?"]);
+  });
+
   it("an agent's run.event cannot pass for TeamKit's own state changes or for a person's turn", () => {
     const fromRun = (agui: AguiEvent[]): BoardEvent => ({ ...ev(agui, bot), kind: "run.event" });
     const ask = ev([custom("teamkit.task.blocked", { interruptId: "i1", kind: "awaiting_approval", question: "ship?" })]);

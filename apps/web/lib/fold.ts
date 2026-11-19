@@ -146,6 +146,14 @@ class Folder {
     tone: Tone,
     detail: string | null = null,
   ): void {
+    // One block asks once: the stored question and the interrupt both say "Waiting: ...". Skip a chip
+    // identical to the previous one, looking back past plain messages only.
+    for (let i = scope.items.length - 1; i >= 0; i--) {
+      const prev = scope.items[i]!;
+      if (prev.kind === "message") continue;
+      if (prev.kind === "status" && prev.label === label && prev.tone === tone && prev.detail === detail) return;
+      break;
+    }
     scope.items.push({ kind: "status", id: `status-${cursor}-${index}`, label, tone, detail, cursor });
   }
 
