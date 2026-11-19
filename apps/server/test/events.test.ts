@@ -208,6 +208,9 @@ test("concurrent appends commit in cursor order, so a reader following the curso
         where locktype = 'advisory' and objid = 7731 and not granted
           and database = (select oid from pg_database where datname = current_database())`;
       assert.equal(waiting!.n, 1, "B must be waiting on the event-log advisory lock");
+      // B must wait BEFORE it allocates a cursor; otherwise a late commit of A could be skipped.
+      const [seq] = await db<{ last: string }[]>`select last_value::text as last from events_cursor_seq`;
+      assert.equal(seq!.last, a.event.cursor, "B allocated a cursor before taking the event-log lock");
 
       // Follow the log by cursor while A commits and B goes through.
       const seen: BoardEvent[] = [];
