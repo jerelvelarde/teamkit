@@ -120,6 +120,34 @@ importers:
         specifier: 3.25.76
         version: 3.25.76
 
+  examples/service-agent:
+    dependencies:
+      '@ag-ui/core':
+        specifier: 1.0.2
+        version: 1.0.2(zod@3.25.76)
+      '@hono/node-server':
+        specifier: ^2.1.0
+        version: 2.1.9(hono@4.13.19)
+      hono:
+        specifier: ^4.13.0
+        version: 4.13.19
+      tsx:
+        specifier: ^4.20.0
+        version: 4.23.15
+    devDependencies:
+      '@ag-ui/client':
+        specifier: 1.0.2
+        version: 1.0.2
+      '@types/node':
+        specifier: ^22.0.0
+        version: 22.20.5
+      typescript:
+        specifier: ~5.9.3
+        version: 5.9.3
+      zod:
+        specifier: 3.25.76
+        version: 3.25.76
+
   packages/cli:
     dependencies:
       '@copilotkit/teamkit-client':
