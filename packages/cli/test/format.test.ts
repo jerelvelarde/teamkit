@@ -53,7 +53,7 @@ test("formatTask blocked", () => {
       block: { interruptId: "i1", kind: "needs_input", question: "Which env?", options: null, blockedBy: actor },
     }),
   );
-  assert.match(s, /\[blocked\].*blocked: Which env\?$/);
+  assert.match(s, /\[blocked\].*blocked \(needs_input\): Which env\?$/);
 });
 
 test("formatTask waiting shows a failed need", () => {
@@ -109,4 +109,18 @@ test("formatThread and formatRoom include names and contents", () => {
   assert.ok(r.startsWith("eng\n"));
   assert.ok(r.includes("th_1  [ready]  Fix the build"));
   assert.ok(r.includes("th_2  [discussion]"));
+});
+
+test("formatThread prints labels, needs, block, result and cursor; formatTask shows kind and options", () => {
+  const info = { id: "th_1", room: "eng", isTask: true, labels: {}, createdBy: actor, createdAt: "t" };
+  const block = { interruptId: "i", kind: "needs_input" as const, question: "which?", options: ["a", "b"], blockedBy: actor };
+  const blocked = task({ state: "blocked", labels: { role: "worker" }, needs: ["th_0"], needStates: { th_0: "completed" }, block });
+  const out = formatThread({ thread: info, task: blocked, messages: [], cursor: "7" } as ThreadView);
+  assert.ok(out.includes("labels: role=worker"));
+  assert.ok(out.includes("needs: th_0(completed)"));
+  assert.ok(out.includes("blocked (needs_input): which? [options: a|b]"));
+  assert.ok(out.endsWith("cursor: 7"));
+  assert.ok(formatTask(blocked).includes("blocked (needs_input): which? [options: a|b]"));
+  const done = formatThread({ thread: info, task: task({ state: "completed", result: "shipped" }), messages: [], cursor: "8" } as ThreadView);
+  assert.ok(done.includes("result: shipped"));
 });
