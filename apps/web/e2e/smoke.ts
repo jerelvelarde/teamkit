@@ -220,6 +220,20 @@ async function main(): Promise<void> {
     await events.getByText("Copied invoices 1 to 500 to the new database").waitFor();
     await events.getByText("billing-db-new", { exact: true }).waitFor();
 
+    // An answered question is held for the agent that asked; the approval card names its approver.
+    await page.goto(`${base}/?room=billing-migration`);
+    await page
+      .getByRole("region", { name: "Ready" })
+      .locator("a", { hasText: "Copy invoices to the new database" })
+      .getByText("Held for ben-agent")
+      .waitFor();
+    await page.goto(`${base}/?room=billing-prod`);
+    await page
+      .getByRole("region", { name: "Blocked" })
+      .locator("a", { hasText: "Switch invoice writes to the new database" })
+      .getByText("Waiting on sam")
+      .waitFor();
+
     for (const vp of VIEWPORTS) {
       await page.setViewportSize(vp);
       for (const [name, path] of [

@@ -20,6 +20,12 @@ export function reservationLeft(task: Pick<Task, "state" | "reservedFor" | "rese
   return left === "" ? null : left;
 }
 
+/** "Held for ben-agent · 24m" on a held card, "" once the hold lapses (the board's clock moves it). */
+export function heldText(task: Pick<Task, "state" | "reservedFor" | "reservedUntil">, now: number): string {
+  const left = reservationLeft(task, now);
+  return left && task.reservedFor ? `Held for ${task.reservedFor.name} · ${left}` : "";
+}
+
 /** "sam", "sam or ana", "ana-agent, ben-agent and sam-agent". */
 export function namesText(names: string[], joiner: "and" | "or"): string {
   if (names.length <= 1) return names[0] ?? "";

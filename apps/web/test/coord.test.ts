@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import type { TaskBlock, Whoami } from "@copilotkit/teamkit-protocol";
-import { approverList, mayAnswer, namesText, reservationLeft, shortDuration } from "../lib/coord.js";
+import { approverList, heldText, mayAnswer, namesText, reservationLeft, shortDuration } from "../lib/coord.js";
 
 const anaAgent = { id: "act_ana_agent", name: "ana-agent", kind: "agent" as const };
 const benAgent = { id: "act_ben_agent", name: "ben-agent", kind: "agent" as const };
@@ -25,6 +25,14 @@ describe("durations and reservations", () => {
     assert.equal(reservationLeft({ ...t, reservedFor: null, reservedUntil: null }, now), null);
     assert.equal(reservationLeft({ ...t, reservedUntil: "not a date" }, now), null);
     assert.equal(reservationLeft(t, Date.parse("2026-11-19T10:30:00.000Z")), null);
+  });
+  it("heldText reads like the index and disappears when the hold lapses", () => {
+    const now = Date.parse("2026-11-19T10:06:00.000Z");
+    const t = { state: "ready" as const, reservedFor: benAgent, reservedUntil: "2026-11-19T10:30:00.000Z" };
+    assert.equal(heldText(t, now), "Held for ben-agent · 24m");
+    assert.equal(heldText(t, Date.parse("2026-11-19T10:30:00.000Z")), "");
+    assert.equal(heldText(t, Date.parse("2026-11-19T10:45:00.000Z")), "");
+    assert.equal(heldText({ ...t, state: "blocked" }, now), "");
   });
 });
 
