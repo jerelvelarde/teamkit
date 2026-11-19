@@ -38,7 +38,7 @@ export default function SignInPage() {
     <section className={`tk-glass ${styles.panel}`} aria-live="polite">
       {state.kind === "invalid" ? (
         <p className={styles.text}>
-          This sign-in link is invalid, used or expired. Ask an admin for a new one.
+          This sign-in link is invalid, used or expired. <a href="/signin">Get a new one by email</a> or ask an admin.
         </p>
       ) : (
         <>

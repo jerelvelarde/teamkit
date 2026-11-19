@@ -5,7 +5,8 @@ export function SignedOut({ hint }: { hint?: string }) {
     <section className={`tk-glass ${styles.notice}`}>
       <h1 className={styles.noticeTitle}>You&apos;re not signed in</h1>
       <p className={styles.noticeText}>
-        Ask an admin for a sign-in link (<code className={styles.code}>teamkit-admin people invite &lt;name&gt;</code>).
+        New here? Open your team&apos;s join link. Been here before? <a href="/signin">Email me a sign-in link</a>, or ask
+        an admin for one.
       </p>
       {hint ? <p className={styles.hint}>{hint}</p> : null}
     </section>
