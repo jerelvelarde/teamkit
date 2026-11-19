@@ -6,3 +6,6 @@ node_modules
 **/.next-*
 .env
 .env.local
+# The web image builds only the board; its tests and the smoke run import server code that is not in the image
+apps/web/e2e
+apps/web/test
