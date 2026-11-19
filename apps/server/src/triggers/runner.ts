@@ -4,7 +4,7 @@ import { getAgent, type RegisteredAgent } from "../dispatch/registry.js";
 import type { Notifier } from "../notifier.js";
 import { listEvents } from "../store/events.js";
 import { loadThreadInfo } from "../store/rows.js";
-import { findLeadThread, postTriggerDisabled, wakeLead } from "./lead.js";
+import { postTriggerDisabled, wakeLead } from "./lead.js";
 import { advanceTrigger, listStoredTriggers, type StoredTrigger } from "./store.js";
 import { deliverWebhook } from "./webhook.js";
 
@@ -56,10 +56,18 @@ async function labelsMatch(db: Db, labels: Record<string, string>, e: BoardEvent
   return Object.entries(labels).every(([k, v]) => info.labels[k] === v);
 }
 
-/** The agent caused the event, or it is on the agent's own lead thread: waking on it would wake on itself. */
+/**
+ * The event is the agent's own, or TeamKit's lead machinery: waking on it would wake on a
+ * wake-up. That covers anything the agent did, any message on ANY lead thread (another
+ * lead's wake-ups and replies would otherwise ping-pong between two leads), and events that
+ * carry a `teamkit.trigger.*` marker.
+ */
 async function isOwnEvent(db: Db, agent: RegisteredAgent, e: BoardEvent): Promise<boolean> {
   if (e.actor?.id === agent.actor.id) return true;
-  return e.threadId !== null && e.threadId === (await findLeadThread(db, agent, e.room));
+  if (e.agui.some((x) => x.type === "CUSTOM" && typeof x.name === "string" && x.name.startsWith("teamkit.trigger."))) return true;
+  if (e.threadId === null) return false;
+  const [lead] = await db`select 1 as one from lead_threads where thread_id = ${e.threadId} limit 1`;
+  return lead !== undefined;
 }
 
 /**
