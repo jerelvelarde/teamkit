@@ -642,3 +642,46 @@
     visibility: hidden;
   }
 }
+
+/* A decision's note under its text: who posted it for the decider, and who acknowledged it. */
+.rowMeta {
+  margin-top: 2px;
+  color: var(--tk-fg-3);
+  font-size: 12.5px;
+  line-height: 1.45;
+}
+
+/* A logged change's fields, on an 88px label column like the panel's property rows. */
+.fields {
+  display: grid;
+  grid-template-columns: 88px minmax(0, 1fr);
+  gap: 3px 10px;
+  margin: 6px 0 2px;
+  font-size: 12.5px;
+  line-height: 1.45;
+}
+
+.fields > div {
+  display: contents;
+}
+
+.fields dt {
+  color: var(--tk-fg-3);
+}
+
+.fields dd {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  margin: 0;
+  color: var(--tk-fg-2);
+  overflow-wrap: anywhere;
+}
+
+/* Who may answer, when it is not the viewer. */
+.askOnly {
+  margin: 8px 0 0;
+  color: var(--tk-fg-3);
+  font-size: 12.5px;
+}

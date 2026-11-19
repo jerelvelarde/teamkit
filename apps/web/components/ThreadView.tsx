@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import type { BoardEvent, ThreadView as ThreadData } from "@copilotkit/teamkit-protocol";
 import { api } from "../lib/api";
+import { reservationLeft } from "../lib/coord";
 import { foldEvents } from "../lib/fold";
 import type { ViewItem } from "../lib/fold";
 import { cursorAfter, useBoardStream } from "../lib/stream";
@@ -175,7 +176,8 @@ export function ThreadView({ id }: { id: string }) {
   const labels = thread ? Object.entries(thread.labels) : [];
   const needs = task ? task.needs : [];
   const briefLines = task ? task.brief.trim().split("\n") : [];
-  const title = task ? firstLine(task.brief, 400) : "Conversation thread";
+  const title = task ? firstLine(task.brief, 400) : (model.headline ?? "Conversation thread");
+  const held = task ? reservationLeft(task, Date.now()) : null;
   const description = briefLines.length > 1 ? briefLines.slice(1).join("\n").trim() : "";
 
   return (
@@ -233,6 +235,16 @@ export function ThreadView({ id }: { id: string }) {
                       <Avatar name={task.claim.actor.name} kind={task.claim.actor.kind} size={18} />
                       {task.claim.actor.name}
                       <span className={styles.propMuted}>· {leaseText(task.claim.leaseExpiresAt, Date.now())}</span>
+                    </dd>
+                  </div>
+                ) : null}
+                {held && task?.reservedFor ? (
+                  <div className={styles.prop}>
+                    <dt>Held for</dt>
+                    <dd>
+                      <Avatar name={task.reservedFor.name} kind={task.reservedFor.kind} size={18} />
+                      {task.reservedFor.name}
+                      <span className={styles.propMuted}>· {held} left</span>
                     </dd>
                   </div>
                 ) : null}

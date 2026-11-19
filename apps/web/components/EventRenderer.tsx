@@ -1,4 +1,5 @@
-import type { ViewItem } from "../lib/fold";
+import { namesText } from "../lib/coord";
+import type { ActorView, ViewItem } from "../lib/fold";
 import { Avatar } from "./Avatar";
 import { IconChevron, IconThought, IconTool } from "./Icons";
 import styles from "./thread.module.css";
@@ -14,6 +15,19 @@ function Time({ at, className }: { at?: string; className: string }) {
     <time className={className} dateTime={at} title={FULL.format(d)}>
       {TIME.format(d)}
     </time>
+  );
+}
+
+const CHANGE_STATUS = { active: "Active", done: "Done", restored: "Restored" } as const;
+
+/** The avatar, bold name, kind tag and time that open a Slack-style row. */
+function RowHead({ actor, tag, at }: { actor: ActorView; tag: string | null; at?: string }) {
+  return (
+    <div className={styles.msgHead}>
+      <span className={styles.msgName}>{actor.name}</span>
+      {tag ? <span className={styles.agentBadge}>{tag}</span> : null}
+      <Time at={at} className={styles.time} />
+    </div>
   );
 }
 
@@ -112,6 +126,72 @@ export function EventRenderer({ item, grouped = false, at }: { item: ViewItem; g
           <Time at={at} className={styles.sysTime} />
         </div>
       );
+    case "decision": {
+      const decider: ActorView = item.decidedBy ?? { name: "Someone", kind: "person" };
+      const poster = item.postedBy;
+      const postedNote =
+        poster && (poster.name !== decider.name || poster.kind !== decider.kind) ? `Posted by ${poster.name} · ` : "";
+      const acks =
+        item.acks.length > 0 ? `Acknowledged by ${namesText(item.acks.map((a) => a.name), "and")}` : "No acknowledgements yet";
+      return (
+        <div className={styles.msg}>
+          <div className={styles.gutter}>
+            <Avatar name={decider.name} kind={decider.kind} size={32} />
+          </div>
+          <div className={styles.msgBody}>
+            <RowHead actor={decider} tag="Decision" at={at} />
+            <div className={styles.msgText}>{item.text}</div>
+            <div className={styles.rowMeta}>
+              {postedNote}
+              {acks}
+            </div>
+          </div>
+        </div>
+      );
+    }
+    case "change": {
+      const by: ActorView = item.agent ?? item.person ?? { name: "Someone", kind: "person" };
+      return (
+        <div className={styles.msg}>
+          <div className={styles.gutter}>
+            <Avatar name={by.name} kind={by.kind} size={32} />
+          </div>
+          <div className={styles.msgBody}>
+            <RowHead actor={by} tag={by.kind === "agent" ? "Agent" : null} at={at} />
+            <div className={styles.msgText}>{item.what}</div>
+            <dl className={styles.fields}>
+              <div>
+                <dt>Where</dt>
+                <dd>{item.where}</dd>
+              </div>
+              <div>
+                <dt>Undo</dt>
+                <dd>{item.undo}</dd>
+              </div>
+              {item.undoWhen ? (
+                <div>
+                  <dt>Undo when</dt>
+                  <dd>{item.undoWhen}</dd>
+                </div>
+              ) : null}
+              <div>
+                <dt>Status</dt>
+                <dd>
+                  <span className="tk-status-dot" data-status={item.status} aria-hidden="true" />
+                  {CHANGE_STATUS[item.status]}
+                </dd>
+              </div>
+              {item.agent && item.person ? (
+                <div>
+                  <dt>For</dt>
+                  <dd>{item.person.name}</dd>
+                </div>
+              ) : null}
+            </dl>
+          </div>
+        </div>
+      );
+    }
     case "subagent":
       return (
         <section className={styles.subagent} aria-label={`Subagent ${item.name}`}>

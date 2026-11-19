@@ -1,5 +1,6 @@
 import Link from "next/link";
 import type { Task } from "@copilotkit/teamkit-protocol";
+import { shortDuration } from "../lib/coord";
 import { Avatar } from "./Avatar";
 import { IconHash, StatusIcon } from "./Icons";
 import styles from "./board.module.css";
@@ -17,11 +18,7 @@ export function leaseText(expiresAt: string, now: number): string {
   const ms = new Date(expiresAt).getTime() - now;
   if (!Number.isFinite(ms)) return "";
   if (ms <= 0) return "Lease expired";
-  const mins = Math.max(1, Math.ceil(ms / 60_000));
-  if (mins < 60) return `${mins}m left`;
-  const h = Math.floor(mins / 60);
-  const m = mins % 60;
-  return m === 0 || h >= 3 ? `${h}h left` : `${h}h ${m}m left`;
+  return `${shortDuration(ms)} left`;
 }
 
 const NEED_STATE: Record<string, string> = {

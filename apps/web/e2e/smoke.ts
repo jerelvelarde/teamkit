@@ -191,6 +191,35 @@ async function main(): Promise<void> {
     const view = await benAgent.thread(copy.id);
     assert(view.task?.state === "ready", `server state is ready (got ${view.task?.state})`);
 
+    // The ask card names its approver; only sam (or an admin) may answer the approval.
+    await page.goto(`${base}/t/${writes.id}?room=billing-prod`);
+    const ask = page.getByRole("region", { name: "Question" });
+    await ask.getByText("Approvers: sam").waitFor();
+    assert(await ask.getByRole("button", { name: "Approve" }).isEnabled(), "sam may approve");
+    const anaContext = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+    const anaPage = await anaContext.newPage();
+    anaPage.setDefaultTimeout(15_000);
+    await signIn(anaPage, ana.secret);
+    await anaPage.goto(`${base}/t/${writes.id}?room=billing-prod`);
+    const anaAsk = anaPage.getByRole("region", { name: "Question" });
+    await anaAsk.getByText("Only sam or an admin can answer this.").waitFor();
+    assert(await anaAsk.getByRole("button", { name: "Approve" }).isDisabled(), "ana may not approve");
+    await anaContext.close();
+
+    // A change logged on a task shows in its thread.
+    await benAgent.logChange({
+      room: "billing-migration",
+      threadId: copy.id,
+      what: "Copied invoices 1 to 500 to the new database",
+      where: "billing-db-new",
+      undo: "Delete the copied rows from billing-db-new",
+      undoWhen: "If the row counts differ",
+    });
+    await page.goto(`${base}/t/${copy.id}?room=billing-migration`);
+    const events = page.getByLabel("Events");
+    await events.getByText("Copied invoices 1 to 500 to the new database").waitFor();
+    await events.getByText("billing-db-new", { exact: true }).waitFor();
+
     for (const vp of VIEWPORTS) {
       await page.setViewportSize(vp);
       for (const [name, path] of [
