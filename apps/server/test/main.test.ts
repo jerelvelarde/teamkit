@@ -13,7 +13,7 @@ test("loadConfig defaults and validation", () => {
   assert.deepEqual(loadConfig({}), {
     databaseUrl: "postgres://teamkit@127.0.0.1:54329/teamkit",
     port: 8787,
-    host: "0.0.0.0",
+    host: "127.0.0.1",
     reapIntervalMs: 15000,
     publicUrl: "http://127.0.0.1:3000",
     dispatch: true,
@@ -252,11 +252,15 @@ test("main.ts boots with every loop on, stops them before the db, and leaves no 
     assert.match(s.out, /triggers started/);
     assert.match(s.out, /slack outbound started/);
     assert.equal(await s.exitCode(), 0);
-    // Both locks and their connections went with the process.
-    let rows = await t.db`select 1 from pg_locks where locktype = 'advisory'`;
+    // Both locks and their connections went with the process. Only this database's locks:
+    // test files running alongside hold their own.
+    const locks = () => t.db`
+      select 1 from pg_locks l join pg_database d on d.oid = l.database
+      where l.locktype = 'advisory' and d.datname = current_database()`;
+    let rows = await locks();
     for (let i = 0; i < 50 && rows.length > 0; i++) {
       await new Promise((r) => setTimeout(r, 20));
-      rows = await t.db`select 1 from pg_locks where locktype = 'advisory'`;
+      rows = await locks();
     }
     assert.equal(rows.length, 0);
   } finally {

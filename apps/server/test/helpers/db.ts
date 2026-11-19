@@ -5,6 +5,28 @@ import { migrate } from "../../src/db/migrate.js";
 export const TEST_ADMIN_URL =
   process.env.TEAMKIT_TEST_DATABASE_URL ?? "postgres://teamkit@127.0.0.1:54329/postgres";
 
+const LEFTOVER_AGE = "1 hour";
+let sweep: Promise<void> | null = null;
+
+/**
+ * Drops test databases a run left behind (a forced exit skips their drop), once per process.
+ * Only ones created over an hour ago, and only ones nobody is connected to: a run still
+ * using its database keeps it. Best effort: any failure leaves the leftovers for next time.
+ */
+async function dropLeftovers(admin: Db): Promise<void> {
+  try {
+    const old = await admin`
+      select datname from pg_database
+      where datname like 'teamkit\_test\_%'
+        and (pg_stat_file('base/' || oid || '/PG_VERSION')).modification < now() - ${LEFTOVER_AGE}::interval`;
+    for (const { datname } of old) {
+      await admin.unsafe(`drop database if exists "${datname as string}"`).catch(() => {});
+    }
+  } catch {
+    // pg_stat_file needs a superuser or pg_read_server_files; without it, nothing is swept.
+  }
+}
+
 export async function createTestDatabase(
   opts?: { migrate?: boolean },
 ): Promise<{ db: Db; url: string; drop(): Promise<void> }> {
@@ -12,6 +34,7 @@ export async function createTestDatabase(
   const admin = createDb(TEST_ADMIN_URL, { max: 1 });
   let db: Db | undefined;
   try {
+    await (sweep ??= dropLeftovers(admin));
     await admin.unsafe(`create database "${name}"`);
     const u = new URL(TEST_ADMIN_URL);
     u.pathname = `/${name}`;
