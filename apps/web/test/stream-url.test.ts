@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { cursorAfter, streamUrl } from "../lib/stream.ts";
+import { cursorAfter, streamUrl } from "../lib/stream";
 
 test("streamUrl puts room, thread, after, then repeated kinds", () => {
   assert.equal(
