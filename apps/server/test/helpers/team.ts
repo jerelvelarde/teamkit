@@ -1,8 +1,11 @@
-import type { ActorRef } from "@copilotkit/teamkit-protocol";
+import type { ActorRef, BlockKind, Task } from "@copilotkit/teamkit-protocol";
 import type { Db } from "../../src/db/pool.js";
 import { createAgent, type AuthContext, type Grant } from "../../src/store/actors.js";
 import { consumeSignInLink, invitePerson } from "../../src/store/people.js";
 import { setRoom } from "../../src/store/rooms.js";
+import { createTask } from "../../src/store/tasks.js";
+import { claimTask } from "../../src/store/claims.js";
+import { block } from "../../src/store/blocks.js";
 
 export interface TeamPerson { actor: ActorRef; auth: AuthContext; session: string }
 export interface TeamAgent { actor: ActorRef; auth: AuthContext; token: string; tokenId: string }
@@ -52,4 +55,21 @@ export async function billingTeam(db: Db): Promise<BillingTeam> {
 export function sessionFetch(session: string): typeof fetch {
   return (url, init) =>
     fetch(url, { ...init, headers: { ...(init?.headers as Record<string, string> | undefined), cookie: `teamkit_session=${session}` } });
+}
+
+export const BRIEF = "Backfill invoices_v2 from invoices_v1";
+export const PROD_APPROVAL: { kind: BlockKind; question: string; options: string[] } =
+  { kind: "awaiting_approval", question: "Run the backfill on billing-prod?", options: ["approve", "reject"] };
+
+/** Creates a task in `room` as `asker` (brief defaults to BRIEF), claims it and blocks it with `input`. */
+export async function blockedTask(
+  db: Db,
+  asker: TeamAgent,
+  room: string,
+  input: { kind: BlockKind; question: string; options?: string[]; approvers?: string[]; brief?: string },
+): Promise<Task> {
+  const task = await createTask(db, asker.auth, { room, brief: input.brief ?? BRIEF });
+  const claim = await claimTask(db, asker.auth, task.id);
+  const { brief: _brief, ...blockInput } = input;
+  return block(db, asker.auth, task.id, claim.claimId, blockInput);
 }

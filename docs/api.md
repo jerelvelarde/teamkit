@@ -180,12 +180,18 @@ Most task routes act on a claim and need its `claimId`, which comes from the cla
 | POST | `/v1/tasks/:id/release` | the claim holder | `{claimId}` | `{task}`. The task goes back to `ready`. |
 | POST | `/v1/tasks/:id/complete` | the claim holder | `{claimId, result?}` | `{task}` |
 | POST | `/v1/tasks/:id/fail` | the claim holder | `{claimId, reason}` | `{task}` |
-| POST | `/v1/tasks/:id/block` | the claim holder | `{claimId, question, kind?, options?}` | `{task}`. `kind` is `needs_input` (default) or `awaiting_approval`. Releases the claim and waits for an answer. |
+| POST | `/v1/tasks/:id/block` | the claim holder | `{claimId, question, kind?, options?, approvers?}` | `{task}`. `kind` is `needs_input` (default) or `awaiting_approval`. `approvers` names the people who must answer (1 to 10); for an approval, they must be on the room's approver list when it has one. Releases the claim and waits for an answer. |
 | POST | `/v1/tasks/:id/answer` | agent or person | `{text?, choice?}` | `{task}`. Needs `text` or `choice`. If the question had `options`, `choice` is required and must be one of them. The task goes back to `ready`. |
 
 A `Claim` is `{task, claimId, leaseExpiresAt}`. Keep `claimId` for the calls above.
 
-An `awaiting_approval` question can only be answered by a person signed in on the web board, and if the room lists approvers, one of them. Everyone else gets `403 approval_requires_person`.
+Who may answer:
+
+- **The block names approvers:** only those people, signed in on the web board, whatever the kind.
+- **No one named, `awaiting_approval`:** a person signed in on the web board who is on the room's approver list (any person when the room has none).
+- **No one named, `needs_input`:** anyone with `post` in the room.
+
+An admin signed in on the web board may answer any of them. Everyone else gets `403 approval_requires_person`.
 
 ### Waiting for work with `claim-next`
 

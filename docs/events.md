@@ -49,7 +49,7 @@ Two rules explain most of the table:
 | `task.claimed` | An agent claims a task. | `taskId`, `state` (`claimed`), `claimId`, `leaseExpiresAt` | `CUSTOM teamkit.task.claimed` (`{ claimId, actor }`), then `RUN_STARTED`. |
 | `task.released` | The claimer gives the task back. | `taskId`, `state` (`ready`), `claimId` | `RUN_ERROR` with code `teamkit.released`. |
 | `task.lease_expired` | A claim ran out of time and TeamKit took it back. | `taskId`, `state` (`ready`), `claimId` | `RUN_ERROR` with code `teamkit.lease_expired`. |
-| `task.blocked` | The claimer needs an answer. | `taskId`, `state` (`blocked`), `interruptId`, `kind`, `question`, `options`, `messageId` | The question as an `assistant` message (`Question (<kind>): ...`), then `RUN_FINISHED` with an interrupt outcome. |
+| `task.blocked` | The claimer needs an answer. | `taskId`, `state` (`blocked`), `interruptId`, `kind`, `question`, `options`, `approvers` (the people named to answer, or `null`), `messageId` | The question as an `assistant` message (`Question (<kind>): ...`), then `RUN_FINISHED` with an interrupt outcome. |
 | `task.answered` | Someone answers the question. | `taskId`, `state` (`ready`), `interruptId`, `kind`, plus `text` and/or `choice` | `CUSTOM teamkit.interrupt.answered` (`{ interruptId, by, payload }`), then the answer as a `user` message. |
 | `task.ready` | A task that was `waiting` has all its `needs` completed. | `taskId`, `state` (`ready`), `reason` (`dependencies_met`) | `CUSTOM teamkit.task.ready` (`{ reason }`). |
 | `task.completed` | The claimer finishes. | `taskId`, `state` (`completed`), `claimId` | `RUN_FINISHED` with `outcome: { "type": "success" }` and `result` (when there is one). |
@@ -109,7 +109,7 @@ Every `CUSTOM` event TeamKit writes has a `name` starting with `teamkit.` and a 
 | `teamkit.task.completed` | `claimId`, `result` | `task.completed`, only when a run already closed itself |
 | `teamkit.task.failed` | `claimId`, `reason` | `task.failed`, only when a run already closed itself |
 | `teamkit.task.released` | `claimId` | `task.released`, only when a run already closed itself |
-| `teamkit.task.blocked` | `interruptId`, `kind`, `question`, `options` | `task.blocked`, only when a run already closed itself |
+| `teamkit.task.blocked` | `interruptId`, `kind`, `question`, `options`, `approvers` | `task.blocked`, only when a run already closed itself |
 | `teamkit.task.lease_expired` | `claimId` | `task.lease_expired`, only when no run was open |
 
 ### The variants that do not close a run

@@ -126,3 +126,11 @@ test("formatThread prints labels, needs, block, result and cursor; formatTask sh
   const done = formatThread({ thread: info, task: task({ state: "completed", result: "shipped" }), messages: [], cursor: "8" } as ThreadView);
   assert.ok(done.includes("result: shipped"));
 });
+
+const benAgentRef: ActorRef = { id: "ac_2", name: "ben-agent", kind: "agent" };
+
+test("formatTask names who a block waits on", () => {
+  const block = { interruptId: "i", kind: "awaiting_approval" as const, question: "Run the backfill on billing-prod?",
+    options: null, blockedBy: benAgentRef, approvers: ["sam"] };
+  assert.match(formatTask(task({ state: "blocked", block })), /blocked \(awaiting_approval\): Run the backfill on billing-prod\? \(waiting on sam\)$/);
+});

@@ -72,7 +72,7 @@ export interface TeamkitClient {
   block(
     taskId: string,
     claimId: string,
-    input: { question: string; kind?: BlockKind; options?: string[] },
+    input: { question: string; kind?: BlockKind; options?: string[]; approvers?: string[] },
   ): Promise<Task>;
   answer(taskId: string, input: { text?: string; choice?: string }): Promise<Task>;
   events(q?: EventQuery): Promise<{ events: BoardEvent[]; cursor: string }>;

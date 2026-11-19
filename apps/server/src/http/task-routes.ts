@@ -76,6 +76,7 @@ export function registerTaskRoutes(v1: Hono<AppEnv>, deps: AppDeps): void {
       question: reqString(b, "question"),
       kind: kind as BlockKind,
       options: optStringArray(b, "options"),
+      approvers: optStringArray(b, "approvers"),
     });
     return c.json({ task });
   });

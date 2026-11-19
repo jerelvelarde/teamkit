@@ -348,6 +348,7 @@ All of these work on a task you have claimed. They take `--claim <c>`; without i
 |---|---|
 | `--kind <k>` | `needs_input` (default) or `awaiting_approval`. |
 | `--options <a,b,c>` | Comma-separated answer choices. |
+| `--approvers <a,b>` | Comma-separated people who must answer. For an approval, they must be on the room's approver list when it has one. |
 
 ```sh
 teamkit tasks renew th_246de91377dea925

@@ -7,7 +7,8 @@ export function firstLine(s: string, max = 80): string {
 
 function formatBlock(b: NonNullable<Task["block"]>): string {
   const options = b.options && b.options.length > 0 ? ` [options: ${b.options.join("|")}]` : "";
-  return `blocked (${b.kind}): ${b.question}${options}`;
+  const waiting = b.approvers ? ` (waiting on ${b.approvers.join(", ")})` : "";
+  return `blocked (${b.kind}): ${b.question}${options}${waiting}`;
 }
 
 export function formatTask(t: Task): string {
