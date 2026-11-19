@@ -8,6 +8,21 @@ import {
 } from "@copilotkit/teamkit-protocol";
 import type { Q, Tx } from "../db/pool.js";
 
+// A lone high surrogate (not followed by a low one) or a lone low surrogate (not preceded by a high one).
+const UNPAIRED_SURROGATE = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/;
+
+/**
+ * Throws invalid_input if `value` holds a NUL or an unpaired UTF-16 surrogate.
+ * Postgres text and jsonb cannot store NUL, jsonb rejects a lone surrogate
+ * escape, and a text parameter would silently turn one into U+FFFD.
+ */
+export function assertCleanString(field: string, value: string): void {
+  if (value.includes("\u0000")) throw new BoardError("invalid_input", `${field} must not contain NUL characters`);
+  if (UNPAIRED_SURROGATE.test(value)) {
+    throw new BoardError("invalid_input", `${field} must not contain unpaired surrogates`);
+  }
+}
+
 export function assertText(field: string, value: unknown, opts?: { required?: boolean }): string | undefined {
   if (value === undefined || value === null) {
     if (opts?.required) throw new BoardError("invalid_input", `${field} is required`);
@@ -17,8 +32,7 @@ export function assertText(field: string, value: unknown, opts?: { required?: bo
   if (value.length > MAX_TEXT_LENGTH) {
     throw new BoardError("invalid_input", `${field} exceeds ${MAX_TEXT_LENGTH} characters`);
   }
-  // Postgres text and jsonb cannot store NUL.
-  if (value.includes("\u0000")) throw new BoardError("invalid_input", `${field} must not contain NUL characters`);
+  assertCleanString(field, value);
   if (opts?.required && value.length === 0) throw new BoardError("invalid_input", `${field} is required`);
   return value;
 }
@@ -39,7 +53,7 @@ export function validateLabels(value: unknown): Record<string, string> {
     if (!LABEL_KEY.test(k)) throw new BoardError("invalid_input", `invalid label key "${k}"`);
     if (typeof v !== "string") throw new BoardError("invalid_input", `label "${k}" must be a string`);
     if (v.length > 1000) throw new BoardError("invalid_input", `label "${k}" exceeds 1000 characters`);
-    if (v.includes("\u0000")) throw new BoardError("invalid_input", `label "${k}" must not contain NUL characters`);
+    assertCleanString(`label "${k}"`, v);
     out[k] = v;
   }
   return out;

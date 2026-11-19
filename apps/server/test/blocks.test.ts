@@ -118,6 +118,20 @@ test("a choice outside the options, or with no options, is invalid_input", async
   });
 });
 
+test("an option with NUL or a lone surrogate is invalid_input", async () => {
+  await withTestDb(async (db) => {
+    const bot = await agentAuth(db, "bot");
+    const t = await createTask(db, bot, { room: "build", brief: "x" });
+    const c = await claimTask(db, bot, t.id);
+    for (const o of ["a\u0000", "\uD800"]) {
+      await assert.rejects(
+        block(db, bot, t.id, c.claimId, { question: "q", kind: "needs_input", options: [o] }),
+        code("invalid_input"),
+      );
+    }
+  });
+});
+
 test("answering a ready or missing task is refused", async () => {
   await withTestDb(async (db) => {
     const bot = await agentAuth(db, "bot");

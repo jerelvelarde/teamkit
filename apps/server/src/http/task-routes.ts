@@ -2,7 +2,7 @@ import { BLOCK_KINDS, BoardError, TASK_STATES, type BlockKind, type PlanItem, ty
 import type { Hono } from "hono";
 import type { AppDeps } from "./app.js";
 import type { AppEnv } from "./auth.js";
-import { labelsFromQuery, optLabels, optString, optStringArray, readBody, reqString } from "./body.js";
+import { labelsFromQuery, optLabels, optString, optStringArray, pathParam, readBody, reqString } from "./body.js";
 import { answer, block } from "../store/blocks.js";
 import { claimTask, complete, fail, release, renew } from "../store/claims.js";
 import { listTasks } from "../store/task-list.js";
@@ -42,27 +42,27 @@ export function registerTaskRoutes(v1: Hono<AppEnv>, deps: AppDeps): void {
     return c.json({ task }, 201);
   });
 
-  v1.post("/tasks/:id/claim", async (c) => c.json(await claimTask(db, c.get("auth"), c.req.param("id"))));
+  v1.post("/tasks/:id/claim", async (c) => c.json(await claimTask(db, c.get("auth"), pathParam(c, "id"))));
 
   v1.post("/tasks/:id/renew", async (c) => {
     const b = await readBody(c);
-    return c.json(await renew(db, c.get("auth"), c.req.param("id"), reqString(b, "claimId")));
+    return c.json(await renew(db, c.get("auth"), pathParam(c, "id"), reqString(b, "claimId")));
   });
 
   v1.post("/tasks/:id/release", async (c) => {
     const b = await readBody(c);
-    return c.json({ task: await release(db, c.get("auth"), c.req.param("id"), reqString(b, "claimId")) });
+    return c.json({ task: await release(db, c.get("auth"), pathParam(c, "id"), reqString(b, "claimId")) });
   });
 
   v1.post("/tasks/:id/complete", async (c) => {
     const b = await readBody(c);
-    const task = await complete(db, c.get("auth"), c.req.param("id"), reqString(b, "claimId"), optString(b, "result") ?? null);
+    const task = await complete(db, c.get("auth"), pathParam(c, "id"), reqString(b, "claimId"), optString(b, "result") ?? null);
     return c.json({ task });
   });
 
   v1.post("/tasks/:id/fail", async (c) => {
     const b = await readBody(c);
-    const task = await fail(db, c.get("auth"), c.req.param("id"), reqString(b, "claimId"), reqString(b, "reason"));
+    const task = await fail(db, c.get("auth"), pathParam(c, "id"), reqString(b, "claimId"), reqString(b, "reason"));
     return c.json({ task });
   });
 
@@ -72,7 +72,7 @@ export function registerTaskRoutes(v1: Hono<AppEnv>, deps: AppDeps): void {
     if (!(BLOCK_KINDS as readonly string[]).includes(kind)) {
       throw new BoardError("invalid_input", `kind must be one of ${BLOCK_KINDS.join(", ")}`);
     }
-    const task = await block(db, c.get("auth"), c.req.param("id"), reqString(b, "claimId"), {
+    const task = await block(db, c.get("auth"), pathParam(c, "id"), reqString(b, "claimId"), {
       question: reqString(b, "question"),
       kind: kind as BlockKind,
       options: optStringArray(b, "options"),
@@ -82,7 +82,7 @@ export function registerTaskRoutes(v1: Hono<AppEnv>, deps: AppDeps): void {
 
   v1.post("/tasks/:id/answer", async (c) => {
     const b = await readBody(c);
-    const task = await answer(db, c.get("auth"), c.req.param("id"), {
+    const task = await answer(db, c.get("auth"), pathParam(c, "id"), {
       text: optString(b, "text"),
       choice: optString(b, "choice"),
     });

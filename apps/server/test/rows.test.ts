@@ -4,6 +4,7 @@ import { MessageSchema } from "@ag-ui/core/schemas";
 import { withTestDb } from "./helpers/db.js";
 import {
   appendMessage,
+  assertCleanString,
   assertText,
   ensureRoom,
   insertThread,
@@ -117,4 +118,14 @@ test("validateLabels", () => {
   assert.throws(() => validateLabels(null), bad);
   assert.throws(() => validateLabels({ a: "x\u0000y" }), bad);
   assert.throws(() => validateLabels({ "a\u0000": "v" }), bad);
+  assert.throws(() => validateLabels({ a: "x\uD800" }), bad);
+  assert.throws(() => validateLabels({ "a\uDC00": "v" }), bad);
+});
+
+test("assertCleanString rejects NUL and unpaired surrogates, keeps paired ones", () => {
+  for (const v of ["a\u0000b", "\uD800", "x\uD800y", "\uDC00", "x\uDC00\uD800y", "\uD83D\uD83D\uDE00"]) {
+    assert.throws(() => assertCleanString("f", v), bad, JSON.stringify(v));
+  }
+  for (const v of ["", "plain", "emoji \uD83D\uDE00 ok", "caf\u00e9"]) assertCleanString("f", v);
+  assert.throws(() => assertText("brief", "a\uDFFFb"), bad);
 });

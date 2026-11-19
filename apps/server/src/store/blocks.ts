@@ -17,7 +17,7 @@ import { requirePerm, type AuthContext } from "./actors.js";
 import { appendEvent } from "./events.js";
 import { lockClaim } from "./claims.js";
 import { getRoomInfo } from "./rooms.js";
-import { appendMessage, assertText, messageFor } from "./rows.js";
+import { appendMessage, assertCleanString, assertText, messageFor } from "./rows.js";
 import { loadTask } from "./task-load.js";
 
 const MAX_OPTIONS = 20;
@@ -38,6 +38,7 @@ function validateOptions(options: unknown): string[] | null {
     if (typeof o !== "string" || o.length === 0 || o.length > MAX_OPTION_LENGTH) {
       throw new BoardError("invalid_input", `each option must be a non-empty string of at most ${MAX_OPTION_LENGTH} characters`);
     }
+    assertCleanString("option", o);
   }
   if (new Set(options).size !== options.length) throw new BoardError("invalid_input", "options must be unique");
   return options as string[];

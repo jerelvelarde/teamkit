@@ -14,6 +14,13 @@ export interface AppDeps {
   notifier: Notifier;
 }
 
+/** SQLSTATE class 22, data exception: Postgres refused a value it was sent (NUL, bad encoding, out of range). */
+function isDataException(e: unknown): e is Error & { code: string } {
+  if (!(e instanceof Error) || e.name !== "PostgresError") return false;
+  const code = (e as { code?: unknown }).code;
+  return typeof code === "string" && code.startsWith("22");
+}
+
 export function createApp(deps: AppDeps): Hono {
   const app = new Hono();
 
@@ -39,6 +46,11 @@ export function createApp(deps: AppDeps): Hono {
   app.onError((e, c) => {
     if (isBoardError(e)) {
       return c.json({ error: { code: e.code, message: e.message } }, ERROR_STATUS[e.code]);
+    }
+    if (isDataException(e)) {
+      // Backstop for input no validator caught. The client gets no SQL details.
+      console.warn(`database rejected request input: SQLSTATE ${e.code}`);
+      return c.json({ error: { code: "invalid_input", message: "invalid input" } }, ERROR_STATUS.invalid_input);
     }
     console.error("unhandled error", e);
     return c.json({ error: { code: "internal", message: "internal error" } }, 500);

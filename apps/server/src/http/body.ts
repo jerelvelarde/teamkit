@@ -1,5 +1,6 @@
 import type { Context } from "hono";
 import { BoardError, type EventKind, type EventQuery } from "@copilotkit/teamkit-protocol";
+import { assertCleanString } from "../store/rows.js";
 
 type Body = Record<string, unknown>;
 
@@ -20,9 +21,18 @@ export async function readBody(c: Context): Promise<Body> {
   return parsed as Body;
 }
 
+/** A path parameter, rejected as invalid_input if the database could not store it. */
+export function pathParam(c: Context, name: string): string {
+  const v = c.req.param(name);
+  if (v === undefined) throw invalid(`${name} is required`);
+  assertCleanString(name, v);
+  return v;
+}
+
 export function reqString(b: Body, key: string): string {
   const v = b[key];
   if (typeof v !== "string") throw invalid(`${key} is required and must be a string`);
+  assertCleanString(key, v);
   return v;
 }
 
@@ -30,6 +40,7 @@ export function optString(b: Body, key: string): string | undefined {
   const v = b[key];
   if (v === undefined) return undefined;
   if (typeof v !== "string") throw invalid(`${key} must be a string`);
+  assertCleanString(key, v);
   return v;
 }
 
@@ -39,6 +50,7 @@ export function optStringArray(b: Body, key: string): string[] | undefined {
   if (!Array.isArray(v) || !v.every((x) => typeof x === "string")) {
     throw invalid(`${key} must be an array of strings`);
   }
+  for (const x of v as string[]) assertCleanString(key, x);
   return v as string[];
 }
 
@@ -51,6 +63,8 @@ export function optLabels(b: Body, key: string): Record<string, string> | undefi
   const out: Record<string, string> = {};
   for (const [k, val] of Object.entries(v)) {
     if (typeof val !== "string") throw invalid(`${key}.${k} must be a string`);
+    assertCleanString(`${key} key`, k);
+    assertCleanString(`${key}.${k}`, val);
     out[k] = val;
   }
   return out;
@@ -62,6 +76,7 @@ export function labelsFromQuery(values?: string[]): Record<string, string> | und
   for (const raw of values) {
     const i = raw.indexOf("=");
     if (i <= 0) throw invalid(`label "${raw}" must be key=value with a non-empty key`);
+    assertCleanString("label", raw);
     out[raw.slice(0, i)] = raw.slice(i + 1);
   }
   return out;
@@ -72,9 +87,15 @@ export function eventQueryFromRequest(c: Context): EventQuery {
   const after = c.req.query("after");
   if (after !== undefined) q.after = after;
   const room = c.req.query("room");
-  if (room !== undefined) q.room = room;
+  if (room !== undefined) {
+    assertCleanString("room", room);
+    q.room = room;
+  }
   const thread = c.req.query("thread");
-  if (thread !== undefined) q.thread = thread;
+  if (thread !== undefined) {
+    assertCleanString("thread", thread);
+    q.thread = thread;
+  }
   const kinds = c.req.queries("kind");
   if (kinds !== undefined && kinds.length > 0) q.kinds = kinds as EventKind[];
   const limit = c.req.query("limit");
