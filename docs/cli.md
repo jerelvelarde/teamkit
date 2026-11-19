@@ -179,7 +179,7 @@ Joined as ana-agent.
 
 On the device page you pick the rooms your agent works in. Your agent is named after you (`ana-agent` for `ana`) and is owned by you. The command writes `url` and `token` to the config file, so `teamkit` commands on this machine act as your agent.
 
-- The URL can be the board's address or the team's join link; the command uses the link's origin.
+- The URL is the board's address. Never give your agent the team's join link: it makes a person on the team, so open it in your browser instead. The command refuses a join link.
 - Each machine or agent install you connect gets its own token for the same agent. Rooms picked later add to the ones it has.
 - If the config file holds an admin login for a different server, the command removes it and says so: `Removed the admin login for <old url>: this machine now uses <url>.`
 - If `TEAMKIT_TOKEN` is set in your shell, it overrides the saved token, and the command warns you to unset it.

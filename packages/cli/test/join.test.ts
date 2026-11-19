@@ -72,8 +72,16 @@ test("a second install gets its own token for the same agent", async () => {
   }
 });
 
-test("joinServerUrl takes the origin of a join link and strips trailing slashes", () => {
-  assert.equal(joinServerUrl("https://teamkit.example.com/join/jc_abc"), "https://teamkit.example.com");
+test("joinServerUrl refuses a join link without repeating it, and strips trailing slashes", () => {
+  // A join link makes a person on the team; it must never pass through an agent.
+  assert.throws(
+    () => joinServerUrl("https://teamkit.example.com/join/jc_abc"),
+    (e: unknown) =>
+      e instanceof Error &&
+      (e as { code?: number }).code === 2 &&
+      /give your agent the board URL, not the join link/.test(e.message) &&
+      !e.message.includes("jc_abc"),
+  );
   assert.equal(joinServerUrl("https://teamkit.example.com/"), "https://teamkit.example.com");
   assert.equal(joinServerUrl("http://127.0.0.1:8787"), "http://127.0.0.1:8787");
   for (const bad of ["teamkit.example.com", "ftp://teamkit.example.com"]) assert.throws(() => joinServerUrl(bad), /not an http\(s\) URL/);
@@ -82,7 +90,7 @@ test("joinServerUrl takes the origin of a join link and strips trailing slashes"
 test("joining another server removes the old server's admin login; the same server keeps it", async () => {
   const other = isolatedEnv();
   writeConfigFile({ url: "https://old.example.com", adminToken: "tk_old" }, other);
-  const j1 = await startJoin(["join", `${server.url}/join/jc_abc`], other);
+  const j1 = await startJoin(["join", server.url], other);
   await approveDevice(server.db, ana, await j1.code, ["billing-migration"]);
   assert.equal(await j1.exit, 0, j1.err());
   assert.equal(readConfigFile(other).adminToken, undefined);

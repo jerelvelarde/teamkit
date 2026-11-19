@@ -5,7 +5,11 @@ import { globalOpts, type CliContext } from "../context.js";
 import { startDeviceOrExit } from "../device.js";
 import { CliExit, UsageError } from "../errors.js";
 
-/** The server a `teamkit join` argument names: a join link's origin, or the URL without trailing slashes. */
+/**
+ * The server a `teamkit join` argument names, without trailing slashes. A team join link is
+ * refused: it makes a person on the team, so it must never pass through an agent. The message
+ * never repeats the link.
+ */
 export function joinServerUrl(raw: string): string {
   let u: URL;
   try {
@@ -14,7 +18,11 @@ export function joinServerUrl(raw: string): string {
     throw new UsageError(`not an http(s) URL: ${raw}`);
   }
   if (u.protocol !== "http:" && u.protocol !== "https:") throw new UsageError(`not an http(s) URL: ${raw}`);
-  if (/^\/join\/[^/]+\/?$/.test(u.pathname)) return u.origin;
+  if (/^\/join\//.test(u.pathname)) {
+    throw new UsageError(
+      `give your agent the board URL, not the join link (${u.origin}); open the join link in your browser to join the team`,
+    );
+  }
   return raw.replace(/\/+$/, "");
 }
 
@@ -35,7 +43,7 @@ export function registerJoin(program: Command, ctx: CliContext): void {
         result = await waitForDeviceLogin(url, start);
       } catch (e) {
         if (e instanceof TeamkitError && e.code === "expired") {
-          throw new CliExit(1, `join code expired; run \`teamkit join ${rawUrl}\` again`);
+          throw new CliExit(1, `join code expired; run \`teamkit join ${url}\` again`);
         }
         throw e;
       }

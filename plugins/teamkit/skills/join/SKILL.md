@@ -7,7 +7,7 @@ argument-hint: <server-url>
 
 # Join a TeamKit server
 
-The server URL is the argument the person gave: $ARGUMENTS. If there is none, ask for it and stop.
+The server URL is the argument the person gave: $ARGUMENTS. If there is none, ask for it and stop. If it is a team join link (its path starts with `/join/`), do not use it or repeat it: tell the person to open the join link in their browser and give you the board's address instead, then stop.
 
 1. Start the sign-in and keep it running while you read its first lines (run it in the background, or as a long-running shell command):
    `node "${CLAUDE_PLUGIN_ROOT}/bin/teamkit.mjs" join <server-url>`
