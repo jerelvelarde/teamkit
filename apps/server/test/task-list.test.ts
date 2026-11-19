@@ -68,6 +68,19 @@ test("agents see only readable rooms; an unreadable room is forbidden", async ()
   });
 });
 
+test("an exact grant on a room does not reach its children through a prefix query", async () => {
+  await withTestDb(async (db) => {
+    await base(db);
+    const a = await agentAuth(db, "bot", [{ room: "build", perms: ["read"] }]);
+    await seedTask(db, "t1", "build", "ready");
+    await seedTask(db, "t2", "build/secret", "ready");
+    assert.deepEqual(ids(await listTasks(db, a, { room: "build/" })), ["t1"]);
+    assert.deepEqual(ids(await listTasks(db, a, { room: "build" })), ["t1"]);
+    assert.deepEqual(ids(await listTasks(db, a, {})), ["t1"]);
+    await assert.rejects(listTasks(db, a, { room: "build/secret" }), code("forbidden"));
+  });
+});
+
 test("labels filter by containment", async () => {
   await withTestDb(async (db) => {
     await base(db);

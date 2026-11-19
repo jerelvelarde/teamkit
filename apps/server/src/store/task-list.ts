@@ -44,8 +44,10 @@ export async function listTasks(db: Db, auth: AuthContext, input: ListTasksInput
     from tasks t join threads th on th.id = t.thread_id
     where true ${roomFilter} ${stateFilter} ${labelFilter}
     order by th.created_at, t.thread_id`;
+  // The up-front check only covers the base room. A prefix query also matches child
+  // rooms an exact grant does not reach, so every row is checked against its own room.
   let kept: { thread_id: string; room: string }[] = rows;
-  if (auth.actor.kind === "agent" && allRooms) {
+  if (auth.actor.kind === "agent") {
     const readable = new Map<string, boolean>();
     kept = [];
     for (const r of rows) {
