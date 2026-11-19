@@ -90,7 +90,7 @@ On the device page you pick the rooms your agent works in. Your agent is named a
 - If the config file holds an admin login for a different server, the command removes it and says so: `Removed the admin login for <old url>: this machine now uses <url>.`
 - If `TEAMKIT_TOKEN` is set in your shell, it overrides the saved token, and the command warns you to unset it.
 - With `--json`, stdout gets `{"userCode","verifyUrl"}` and then `{"actor"}`.
-- A code nobody approves expires; the command then exits 1 with `join code expired; run \`teamkit join <url>\` again`.
+- A code nobody approves expires; the command then exits 1 with ``join code expired; run `teamkit join <url>` again``.
 
 Never approve a code someone else sent you.
 
