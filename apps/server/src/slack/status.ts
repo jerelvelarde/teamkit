@@ -73,9 +73,15 @@ export interface StatusOptions {
   log?: (line: string) => void;
 }
 
-/** Rooms whose channel refused a status post, and until when they are left alone. */
+/** Rooms whose channel refused a status post or pin, and until when they are left alone. */
 export interface StatusMemory {
   failed: Map<string, { channel: string; until: number }>;
+  /** Rooms whose status message Slack refused to pin, and when to try the pin again. */
+  unpinned: Map<string, number>;
+}
+
+export function newStatusMemory(): StatusMemory {
+  return { failed: new Map(), unpinned: new Map() };
 }
 
 export interface StatusPass {
@@ -87,10 +93,11 @@ export interface StatusPass {
 /**
  * One pass over the rooms linked to Slack: each room's pinned status message is edited in place
  * when what it shows changed, at most once per `minEditGapMs`. A message that was deleted (or
- * cannot be edited) is posted again and pinned. A channel that refuses the post is logged and left
+ * cannot be edited) is posted again and pinned. A message whose pin failed is pinned on a later pass,
+ * even when nothing it shows changed. A channel that refuses the post or the pin is logged and left
  * alone for STATUS_FAILED_RETRY_MS. A retry from Slack ends the pass.
  */
-export async function processStatusOnce(o: StatusOptions, memory: StatusMemory = { failed: new Map() }): Promise<StatusPass> {
+export async function processStatusOnce(o: StatusOptions, memory: StatusMemory = newStatusMemory()): Promise<StatusPass> {
   const now = o.now?.() ?? Date.now();
   const gap = o.minEditGapMs ?? STATUS_MIN_EDIT_GAP_MS;
   let posted = 0;
@@ -99,19 +106,37 @@ export async function processStatusOnce(o: StatusOptions, memory: StatusMemory =
     o.log?.(`slack-status: cannot post the status for ${room} in ${channel}: ${reason}`);
     memory.failed.set(room, { channel, until: now + STATUS_FAILED_RETRY_MS });
   };
+  const pin = async (room: string, channel: string, ts: string) => {
+    const r = await callSlack(o.slack, "pins.add", { channel, timestamp: ts });
+    const pinned = r.kind === "ok" || (r.kind === "permanent" && r.error === "already_pinned");
+    if (r.kind === "permanent" && !pinned) {
+      o.log?.(`slack-status: posted the status for ${room} but could not pin it: ${r.reason}`);
+      memory.unpinned.set(room, now + STATUS_FAILED_RETRY_MS);
+    }
+    return { pinned, retry: r.kind === "retry" ? { reason: r.reason, afterMs: r.afterMs } : null };
+  };
 
   for (const { room, channel } of await linkedRooms(o.db)) {
     const failed = memory.failed.get(room);
     if (failed && failed.channel === channel && now < failed.until) continue;
     const status = await roomStatus(o.db, room, o.publicUrl, now);
     const hash = statusHash(status);
-    const row = await getStatusMessage(o.db, room);
-    const here = row !== null && row.channel === channel;
-    if (here && row.bodyHash === hash) continue;
-    if (here && now - row.editedAt < gap) continue; // the next tick or event picks it up again
+    const saved = await getStatusMessage(o.db, room);
+    // The room's status message in this channel; one in a channel the room left is not edited.
+    let row = saved !== null && saved.channel === channel ? saved : null;
+    if (row && !row.pinned && now >= (memory.unpinned.get(room) ?? 0)) {
+      const p = await pin(room, channel, row.ts);
+      if (p.pinned) {
+        row = { ...row, pinned: true };
+        await saveStatusMessage(o.db, row);
+      }
+      if (p.retry) return { posted, edited, retry: p.retry };
+    }
+    if (row && row.bodyHash === hash) continue;
+    if (row && now - row.editedAt < gap) continue; // the next tick or event picks it up again
     const message = toSlackMessage(StatusCard({ status, changedAt: now }));
 
-    if (here) {
+    if (row) {
       const r = await callSlack(o.slack, "chat.update", { channel, ts: row.ts, ...message });
       if (r.kind === "retry") return { posted, edited, retry: { reason: r.reason, afterMs: r.afterMs } };
       if (r.kind === "ok") {
@@ -137,19 +162,17 @@ export async function processStatusOnce(o: StatusOptions, memory: StatusMemory =
       continue;
     }
     posted++;
-    const pin = await callSlack(o.slack, "pins.add", { channel, timestamp: p.ts });
-    const pinned = pin.kind === "ok" || (pin.kind === "permanent" && pin.error === "already_pinned");
-    // Saved before any retry, so a retried pass edits this message instead of posting another.
-    await saveStatusMessage(o.db, { room, channel, ts: p.ts, pinned, bodyHash: hash, editedAt: now });
-    if (pin.kind === "retry") return { posted, edited, retry: { reason: pin.reason, afterMs: pin.afterMs } };
-    if (!pinned) o.log?.(`slack-status: posted the status for ${room} but could not pin it: ${pin.reason}`);
+    const pinned = await pin(room, channel, p.ts);
+    // Saved before any retry, so a retried pass edits this message (and pins it) instead of posting another.
+    await saveStatusMessage(o.db, { room, channel, ts: p.ts, pinned: pinned.pinned, bodyHash: hash, editedAt: now });
+    if (pinned.retry) return { posted, edited, retry: pinned.retry };
   }
   return { posted, edited, retry: null };
 }
 
 /** Keeps every linked room's status message current: on each board event and every tick. */
 export async function startSlackStatus(o: StatusOptions): Promise<{ stop(): Promise<void> }> {
-  const memory: StatusMemory = { failed: new Map() };
+  const memory = newStatusMemory();
   return startPassLoop({
     label: "slack-status",
     notifier: o.notifier,

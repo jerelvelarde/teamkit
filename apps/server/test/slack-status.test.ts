@@ -6,6 +6,7 @@ import type { Db } from "../src/db/pool.js";
 import { createNotifier } from "../src/notifier.js";
 import { getStatusMessage } from "../src/slack/mirror.js";
 import {
+  newStatusMemory,
   processStatusOnce,
   roomStatus,
   startSlackStatus,
@@ -172,6 +173,55 @@ test("a deleted status message is posted again and pinned", async () => {
   }
 });
 
+test("a pin that Slack rate-limited is added on the next pass, even with nothing new to show", async () => {
+  const slack = await fakeSlack([
+    { body: { ok: true, ts: "9.000" } },
+    { status: 429, headers: { "retry-after": "1" }, body: { ok: false, error: "ratelimited" } },
+  ]);
+  try {
+    await withTestDb(async (db) => {
+      await migrationOnly(db);
+      const first = await processStatusOnce(opts(db, slack.apiBase, T0));
+      assert.equal(first.retry?.afterMs, 1000);
+      assert.equal((await getStatusMessage(db, "billing-migration"))?.pinned, false);
+      const n = slack.requests.length;
+      const second = await processStatusOnce(opts(db, slack.apiBase, T0 + 1_000));
+      assert.deepEqual(slack.requests.slice(n).map((r) => [r.method, r.body.timestamp]), [["pins.add", "9.000"]]);
+      assert.deepEqual(second, { posted: 0, edited: 0, retry: null });
+      assert.equal((await getStatusMessage(db, "billing-migration"))?.pinned, true);
+      await processStatusOnce(opts(db, slack.apiBase, T0 + 2_000));
+      assert.equal(slack.requests.length, n + 1, "a pinned status is not pinned again");
+    });
+  } finally {
+    await slack.close();
+  }
+});
+
+test("a pin Slack refuses for good is logged once and tried again only after ten minutes", async () => {
+  const slack = await fakeSlack([
+    { body: { ok: true, ts: "9.000" } },
+    { body: { ok: false, error: "too_many_pins" } },
+    { body: { ok: false, error: "too_many_pins" } },
+  ]);
+  try {
+    await withTestDb(async (db) => {
+      await migrationOnly(db);
+      const memory: StatusMemory = newStatusMemory();
+      const lines: string[] = [];
+      const log = (l: string) => lines.push(l);
+      await processStatusOnce(opts(db, slack.apiBase, T0, { log }), memory);
+      const n = slack.requests.length;
+      await processStatusOnce(opts(db, slack.apiBase, T0 + 60_000, { log }), memory);
+      assert.equal(slack.requests.length, n);
+      assert.equal(lines.length, 1);
+      await processStatusOnce(opts(db, slack.apiBase, T0 + STATUS_FAILED_RETRY_MS + 1, { log }), memory);
+      assert.deepEqual(slack.requests.slice(n).map((r) => r.method), ["pins.add"]);
+    });
+  } finally {
+    await slack.close();
+  }
+});
+
 test("a room moved to another channel gets a new status there; announce none posts none", async () => {
   const slack = await fakeSlack();
   try {
@@ -216,7 +266,7 @@ test("a channel it cannot post in is logged once and tried again only after ten 
   try {
     await withTestDb(async (db) => {
       const b = await migrationOnly(db);
-      const memory: StatusMemory = { failed: new Map() };
+      const memory: StatusMemory = newStatusMemory();
       const lines: string[] = [];
       const log = (l: string) => lines.push(l);
       await processStatusOnce(opts(db, slack.apiBase, T0, { log }), memory);
