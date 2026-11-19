@@ -9,7 +9,10 @@
     "typecheck": "pnpm -r typecheck",
     "db:up": "scripts/dev-db.sh start",
     "db:down": "scripts/dev-db.sh stop",
-    "dev": "pnpm db:up && pnpm --filter @teamkit/server dev"
+    "dev": "pnpm db:up && pnpm --parallel --filter @teamkit/server --filter @teamkit/web dev",
+    "dev:server": "pnpm db:up && pnpm --filter @teamkit/server dev",
+    "dev:web": "pnpm --filter @teamkit/web dev",
+    "smoke": "pnpm --filter @teamkit/web smoke"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
