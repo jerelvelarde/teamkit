@@ -8,6 +8,8 @@ import { createApp } from "./http/app.js";
 import { createNotifier } from "./notifier.js";
 import { ensureBootstrapLink, signInUrl } from "./store/people.js";
 import { startDispatcher, type Dispatcher } from "./dispatch/dispatcher.js";
+import { SLACK_OUTBOUND_LOCK, startSingleton, TRIGGERS_LOCK, type Singleton } from "./singleton.js";
+import { startTriggers } from "./triggers/runner.js";
 import { startSlackBridge, type SlackBridge } from "./slack/bridge.js";
 import { reapExpired } from "./store/reaper.js";
 
@@ -51,7 +53,8 @@ const { port } = server.address() as AddressInfo;
 console.log(`teamkit-server listening on http://127.0.0.1:${port}`);
 
 let dispatcher: Dispatcher | null = null;
-let outbound: { stop(): Promise<void> } | null = null;
+let triggers: Singleton | null = null;
+let outbound: Singleton | null = null;
 let bridge: SlackBridge | null = null;
 
 let shuttingDown = false;
@@ -61,7 +64,8 @@ async function shutdown(): Promise<void> {
   clearInterval(reaper);
   server.closeAllConnections();
   await new Promise<void>((resolve) => server.close(() => resolve()));
-  // Abort runs and release their claims before Slack, the notifier and the db go away.
+  // Stop triggers and abort runs (each releases its claim) before Slack, the notifier and the db go away.
+  await triggers?.stop();
   await dispatcher?.stop();
   await bridge?.stop();
   await outbound?.stop();
@@ -85,16 +89,42 @@ if (config.dispatch) {
   console.log(`dispatcher started (concurrency ${config.dispatchConcurrency})`);
 }
 
+// Triggers and Slack outbound run in one process per database: each holds an advisory lock.
+// The dispatcher needs none, because claims are atomic.
+if (config.triggers) {
+  triggers = startSingleton({
+    url: config.databaseUrl,
+    name: TRIGGERS_LOCK,
+    log: (line) => console.warn(line),
+    start: () => {
+      const runner = startTriggers({ db, notifier, log: (line) => console.log(line) });
+      console.log("triggers started");
+      return runner;
+    },
+  });
+  await triggers.ready;
+}
+
 const { botToken } = config.slack;
 if (botToken) {
-  outbound = await (await import("./slack/outbound.js")).startOutbound({
-    db,
-    notifier,
-    slack: { token: botToken, apiBase: config.slack.apiBase },
-    publicUrl: config.publicUrl,
+  const { startOutbound } = await import("./slack/outbound.js");
+  outbound = startSingleton({
+    url: config.databaseUrl,
+    name: SLACK_OUTBOUND_LOCK,
     log: (line) => console.warn(line),
+    start: async () => {
+      const started = await startOutbound({
+        db,
+        notifier,
+        slack: { token: botToken, apiBase: config.slack.apiBase },
+        publicUrl: config.publicUrl,
+        log: (line) => console.warn(line),
+      });
+      console.log("slack outbound started");
+      return started;
+    },
   });
-  console.log("slack outbound started");
+  await outbound.ready;
 }
 
 try {

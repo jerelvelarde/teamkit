@@ -10,6 +10,8 @@ export interface Config {
   publicUrl: string;
   /** Run agents' tasks inside this process (TEAMKIT_DISPATCH !== "off"). */
   dispatch: boolean;
+  /** Run webhook and lead triggers (TEAMKIT_TRIGGERS !== "off"). */
+  triggers: boolean;
   /** Claims the dispatcher runs at once. */
   dispatchConcurrency: number;
   slack: {
@@ -55,6 +57,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     reapIntervalMs: intVar(env, "TEAMKIT_REAP_INTERVAL_MS", 15000, 1),
     publicUrl,
     dispatch: env.TEAMKIT_DISPATCH !== "off",
+    triggers: env.TEAMKIT_TRIGGERS !== "off",
     dispatchConcurrency: intVar(env, "TEAMKIT_DISPATCH_CONCURRENCY", 4, 1),
     slack: {
       bridge: slackBridgeConfigFromEnv(env, publicUrl),

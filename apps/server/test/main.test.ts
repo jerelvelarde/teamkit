@@ -17,6 +17,7 @@ test("loadConfig defaults and validation", () => {
     reapIntervalMs: 15000,
     publicUrl: "http://127.0.0.1:3000",
     dispatch: true,
+    triggers: true,
     dispatchConcurrency: 4,
     slack: {
       bridge: {
@@ -38,6 +39,7 @@ test("loadConfig defaults and validation", () => {
   assert.equal(loadConfig({ TEAMKIT_DISPATCH_CONCURRENCY: "2" }).dispatchConcurrency, 2);
   assert.throws(() => loadConfig({ TEAMKIT_DISPATCH_CONCURRENCY: "0" }), /TEAMKIT_DISPATCH_CONCURRENCY/);
   assert.throws(() => loadConfig({ TEAMKIT_DISPATCH_CONCURRENCY: "x" }), /TEAMKIT_DISPATCH_CONCURRENCY/);
+  assert.equal(loadConfig({ TEAMKIT_TRIGGERS: "off" }).triggers, false);
   assert.throws(() => loadConfig({ PORT: "abc" }), /PORT/);
   assert.throws(() => loadConfig({ TEAMKIT_PUBLIC_URL: "ftp://x" }), /TEAMKIT_PUBLIC_URL/);
   assert.throws(() => loadConfig({ TEAMKIT_PUBLIC_URL: "nope" }), /TEAMKIT_PUBLIC_URL/);
@@ -216,6 +218,46 @@ test("main.ts honours TEAMKIT_DISPATCH=off and TEAMKIT_DISPATCH_CONCURRENCY", as
     assert.match(two.out, /dispatcher started \(concurrency 2\)/);
   } finally {
     await two.stop();
+    await t.drop();
+  }
+});
+
+test("main.ts runs triggers by default, and TEAMKIT_TRIGGERS=off turns them off", async () => {
+  const t = await createTestDatabase({ migrate: false });
+  const on = await startMain(t.url);
+  try {
+    assert.match(on.out, /dispatcher started[^]*triggers started/);
+    assert.equal(await on.exitCode(), 0);
+  } finally {
+    await on.stop();
+  }
+  const off = await startMain(t.url, { TEAMKIT_TRIGGERS: "off" });
+  try {
+    assert.doesNotMatch(off.out, /triggers started/);
+    assert.equal(await off.exitCode(), 0);
+  } finally {
+    await off.stop();
+    await t.drop();
+  }
+});
+
+test("main.ts boots with every loop on, stops them before the db, and leaves no process behind", async () => {
+  const t = await createTestDatabase({ migrate: false });
+  const s = await startMain(t.url, { SLACK_BOT_TOKEN: "xoxb-test", SLACK_API_BASE: "http://127.0.0.1:9" });
+  try {
+    assert.match(s.out, /dispatcher started/);
+    assert.match(s.out, /triggers started/);
+    assert.match(s.out, /slack outbound started/);
+    assert.equal(await s.exitCode(), 0);
+    // Both locks and their connections went with the process.
+    let rows = await t.db`select 1 from pg_locks where locktype = 'advisory'`;
+    for (let i = 0; i < 50 && rows.length > 0; i++) {
+      await new Promise((r) => setTimeout(r, 20));
+      rows = await t.db`select 1 from pg_locks where locktype = 'advisory'`;
+    }
+    assert.equal(rows.length, 0);
+  } finally {
+    await s.stop();
     await t.drop();
   }
 });
