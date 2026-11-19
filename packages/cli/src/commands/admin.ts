@@ -1,6 +1,7 @@
 import type { Command } from "commander";
 import { createAdminClient, type AdminClient } from "@copilotkit/teamkit-client";
-import { PERMISSIONS, type GrantSpec, type Permission, type RoomSettingsInput } from "@copilotkit/teamkit-protocol";
+import { EVENT_KINDS, PERMISSIONS, type EventKind, type GrantSpec, type Permission, type RoomSettingsInput } from "@copilotkit/teamkit-protocol";
+import { parseLabels } from "../args.js";
 import { resolveAdminConfig } from "../config.js";
 import { collect, globalOpts, type CliContext } from "../context.js";
 import { UsageError } from "../errors.js";
@@ -145,6 +146,86 @@ export function registerAdmin(program: Command, ctx: CliContext): void {
       .description(`${verb} an agent`)
       .action(async (name: string, _o: unknown, cmd: Command) => {
         const info = await adminFor(cmd, ctx).setAgentEnabled(name, enabled);
+        ctx.out(globalOpts(cmd).json ? JSON.stringify(info) : `${verb}d ${info.name}`);
+      });
+  }
+
+  const triggers = program.command("triggers").description("webhook and agent triggers on board events (admin)");
+
+  triggers
+    .command("add <name>")
+    .description("add a trigger; a webhook's signing secret is shown once")
+    .requiredOption("--room <filter>", "room pattern the trigger watches")
+    .requiredOption("--kinds <a,b>", `comma-separated event kinds: ${EVENT_KINDS.join(", ")}`)
+    .option("--label <k=v>", "only events on tasks with this label (repeatable)", collect)
+    .option("--webhook <url>", "POST matching events to this URL")
+    .option("--agent <name>", "run this registered agent on matching events")
+    .action(
+      async (
+        name: string,
+        o: { room: string; kinds: string; label?: string[]; webhook?: string; agent?: string },
+        cmd: Command,
+      ) => {
+        if ((o.webhook === undefined) === (o.agent === undefined)) {
+          throw new UsageError("give exactly one of --webhook or --agent");
+        }
+        const kinds = o.kinds
+          .split(",")
+          .map((k) => k.trim())
+          .filter(Boolean);
+        if (kinds.length === 0) throw new UsageError("--kinds needs at least one kind");
+        for (const k of kinds) {
+          if (!(EVENT_KINDS as readonly string[]).includes(k)) {
+            throw new UsageError(`unknown event kind ${k}; use ${EVENT_KINDS.join(", ")}`);
+          }
+        }
+        const labels = parseLabels(o.label);
+        const created = await adminFor(cmd, ctx).addTrigger({
+          name,
+          room: o.room,
+          kinds: kinds as EventKind[],
+          ...(labels ? { labels } : {}),
+          ...(o.webhook !== undefined ? { webhook: o.webhook } : { agent: o.agent }),
+        });
+        if (globalOpts(cmd).json) {
+          ctx.out(JSON.stringify(created));
+          return;
+        }
+        ctx.out(`added ${created.trigger.name}`);
+        if (created.secret !== null) ctx.out(`secret\t${created.secret}`);
+      },
+    );
+
+  triggers
+    .command("list")
+    .description("list triggers")
+    .action(async (_o: unknown, cmd: Command) => {
+      const list = await adminFor(cmd, ctx).triggers();
+      if (globalOpts(cmd).json) {
+        ctx.out(JSON.stringify(list));
+        return;
+      }
+      for (const t of list) {
+        const action = t.action.type === "webhook" ? `webhook ${t.action.url}` : `agent ${t.action.agent}`;
+        ctx.out(`${t.name}\t${t.room}\t${t.kinds.join(",")}\t${action}\t${t.enabled ? "enabled" : "disabled"}`);
+      }
+    });
+
+  triggers
+    .command("remove <name>")
+    .description("remove a trigger")
+    .action(async (name: string, _o: unknown, cmd: Command) => {
+      await adminFor(cmd, ctx).removeTrigger(name);
+      ctx.out(globalOpts(cmd).json ? JSON.stringify({ removed: name }) : `removed ${name}`);
+    });
+
+  for (const enabled of [true, false]) {
+    const verb = enabled ? "enable" : "disable";
+    triggers
+      .command(`${verb} <name>`)
+      .description(`${verb} a trigger`)
+      .action(async (name: string, _o: unknown, cmd: Command) => {
+        const info = await adminFor(cmd, ctx).setTriggerEnabled(name, enabled);
         ctx.out(globalOpts(cmd).json ? JSON.stringify(info) : `${verb}d ${info.name}`);
       });
   }

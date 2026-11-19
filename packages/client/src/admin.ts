@@ -2,12 +2,15 @@ import type {
   AgentInfo,
   AgentRegistration,
   CreatedToken,
+  CreatedTrigger,
   GrantSpec,
   Invite,
   PersonInfo,
   RoomInfo,
   RoomSettingsInput,
   TokenInfo,
+  TriggerInfo,
+  TriggerInput,
   Whoami,
 } from "@copilotkit/teamkit-protocol";
 import { DEFAULT_TIMEOUT_MS, TeamkitError, toError, type ClientOptions } from "./client.js";
@@ -27,6 +30,10 @@ export interface AdminClient {
   agents(): Promise<AgentInfo[]>;
   registerAgent(input: AgentRegistration): Promise<AgentInfo>;
   setAgentEnabled(name: string, enabled: boolean): Promise<AgentInfo>;
+  triggers(): Promise<TriggerInfo[]>;
+  addTrigger(input: TriggerInput): Promise<CreatedTrigger>;
+  removeTrigger(name: string): Promise<void>;
+  setTriggerEnabled(name: string, enabled: boolean): Promise<TriggerInfo>;
   logout(): Promise<void>;
 }
 
@@ -79,6 +86,12 @@ export function createAdminClient(opts: ClientOptions): AdminClient {
     agents: () => json("GET", "/admin/agents"),
     registerAgent: (input) => json("POST", "/admin/agents", input),
     setAgentEnabled: (name, enabled) => json("POST", `/admin/agents/${enc(name)}/enabled`, { enabled }),
+    triggers: () => json("GET", "/admin/triggers"),
+    addTrigger: (input) => json("POST", "/admin/triggers", input),
+    removeTrigger: async (name) => {
+      await json("POST", `/admin/triggers/${enc(name)}/remove`, {});
+    },
+    setTriggerEnabled: (name, enabled) => json("POST", `/admin/triggers/${enc(name)}/enabled`, { enabled }),
     logout: async () => {
       await json("POST", "/logout", {});
     },
