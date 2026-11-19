@@ -1,8 +1,9 @@
-import { BoardError, type CreatedToken, type GrantSpec, type Invite, type Role } from "@copilotkit/teamkit-protocol";
+import { BoardError, type AgentInfo, type CreatedToken, type GrantSpec, type Invite, type Role } from "@copilotkit/teamkit-protocol";
 import type { Hono } from "hono";
 import type { AppDeps } from "./app.js";
 import { requireAdmin, type AppEnv } from "./auth.js";
-import { optString, pathParam, readBody, reqString } from "./body.js";
+import { optLabels, optString, optStringArray, pathParam, readBody, reqString } from "./body.js";
+import { getAgent, listAgents, registerAgent, setAgentEnabled, toAgentInfo } from "../dispatch/registry.js";
 import { createAgent, createAgentTokens, listTokens, revokeToken, type AuthContext, type Grant } from "../store/actors.js";
 import { createSignInLink, DEFAULT_PUBLIC_URL, invitePerson, listPeople, signInUrl } from "../store/people.js";
 import { listRoomInfos, setRoom, type RoomSettings } from "../store/rooms.js";
@@ -32,6 +33,27 @@ function parseGrants(b: Record<string, unknown>): Grant[] {
     }
     return r as GrantSpec;
   });
+}
+
+/**
+ * Agents are registered by admins only, so private and loopback hosts are allowed. We still
+ * refuse non-http(s) schemes and credentials embedded in the URL (they would be stored and
+ * returned in clear text by the listing).
+ */
+function parseAgentUrl(url: string): string {
+  let u: URL;
+  try {
+    u = new URL(url);
+  } catch {
+    throw new BoardError("invalid_input", "agent url is not a valid URL");
+  }
+  if (u.protocol !== "http:" && u.protocol !== "https:") {
+    throw new BoardError("invalid_input", "agent url must be http or https");
+  }
+  if (u.username !== "" || u.password !== "") {
+    throw new BoardError("invalid_input", "agent url must not contain credentials; use headers");
+  }
+  return url;
 }
 
 export function registerAdminRoutes(v1: Hono<AppEnv>, deps: AppDeps): void {
@@ -102,5 +124,41 @@ export function registerAdminRoutes(v1: Hono<AppEnv>, deps: AppDeps): void {
     const settings: Record<string, unknown> = {};
     for (const k of ROOM_SETTING_KEYS) if (k in b) settings[k] = b[k];
     return c.json(await setRoom(db, name, settings as RoomSettings));
+  });
+
+  v1.get("/admin/agents", async (c) => {
+    requireAdmin(c.get("auth"));
+    return c.json((await listAgents(db)).map(toAgentInfo));
+  });
+
+  v1.post("/admin/agents", async (c) => {
+    const auth = c.get("auth");
+    requireAdmin(auth);
+    const b = await readBody(c);
+    const name = reqString(b, "name");
+    const url = parseAgentUrl(reqString(b, "url"));
+    const rooms = optStringArray(b, "rooms");
+    if (rooms === undefined) throw new BoardError("invalid_input", "rooms is required and must be an array of strings");
+    const headers = optLabels(b, "headers");
+    const agent = await registerAgent(db, {
+      name,
+      url,
+      rooms,
+      ...(headers !== undefined ? { headers } : {}),
+      ownerId: auth.actor.id,
+    });
+    const info: AgentInfo = toAgentInfo(agent);
+    return c.json(info, 201);
+  });
+
+  v1.post("/admin/agents/:name/enabled", async (c) => {
+    requireAdmin(c.get("auth"));
+    const name = pathParam(c, "name");
+    const b = await readBody(c);
+    if (typeof b.enabled !== "boolean") throw new BoardError("invalid_input", "enabled must be a boolean");
+    await setAgentEnabled(db, name, b.enabled);
+    const agent = await getAgent(db, name);
+    if (!agent) throw new BoardError("not_found", `agent not found: ${name}`);
+    return c.json(toAgentInfo(agent));
   });
 }
