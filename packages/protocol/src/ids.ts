@@ -1,5 +1,3 @@
-import { createHash, randomBytes } from "node:crypto";
-
 export const ID_PREFIXES = {
   thread: "th",
   claim: "cl",
@@ -12,13 +10,14 @@ export const ID_PREFIXES = {
 } as const;
 
 export function newId(prefix: string): string {
-  return `${prefix}_${randomBytes(8).toString("hex")}`;
+  const bytes = globalThis.crypto.getRandomValues(new Uint8Array(8));
+  let hex = "";
+  for (const b of bytes) hex += b.toString(16).padStart(2, "0");
+  return `${prefix}_${hex}`;
 }
 
 export function newTokenSecret(): string {
-  return "tk_" + randomBytes(32).toString("base64url");
-}
-
-export function hashToken(secret: string): string {
-  return createHash("sha256").update(secret).digest("hex");
+  const bytes = globalThis.crypto.getRandomValues(new Uint8Array(32));
+  const b64 = btoa(String.fromCharCode(...bytes));
+  return "tk_" + b64.replace(/\+/g, "-").replace(/\//g, "_").replace(/=/g, "");
 }

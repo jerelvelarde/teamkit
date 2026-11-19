@@ -4,7 +4,7 @@
   "license": "MIT",
   "type": "module",
   "engines": { "node": ">=22" },
-  "exports": { ".": "./src/index.ts" },
+  "exports": { ".": "./src/index.ts", "./server": "./src/server.ts" },
   "types": "./src/index.ts",
   "scripts": {
     "test": "node --import tsx --test 'test/**/*.test.ts'",

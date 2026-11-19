@@ -1,7 +1,6 @@
 import {
   BoardError,
   PERMISSIONS,
-  hashToken,
   isValidRoomPattern,
   newId,
   newTokenSecret,
@@ -9,6 +8,7 @@ import {
   type ActorRef,
   type Permission,
 } from "@copilotkit/teamkit-protocol";
+import { hashToken } from "@copilotkit/teamkit-protocol/server";
 import type { Db, Q } from "../db/pool.js";
 
 export interface AuthContext {

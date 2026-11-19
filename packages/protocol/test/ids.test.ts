@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { hashToken, newId, newTokenSecret } from "../src/ids.js";
+import { hashToken } from "../src/hash.js";
+import { newId, newTokenSecret } from "../src/ids.js";
 
 test("newId matches prefix + 16 hex", () => {
   assert.match(newId("th"), /^th_[0-9a-f]{16}$/);
@@ -8,6 +9,10 @@ test("newId matches prefix + 16 hex", () => {
 
 test("newTokenSecret format", () => {
   assert.match(newTokenSecret(), /^tk_[A-Za-z0-9_-]{43}$/);
+});
+
+test("newTokenSecret carries 32 random bytes", () => {
+  assert.equal(Buffer.from(newTokenSecret().slice(3), "base64url").length, 32);
 });
 
 test("1000 ids are unique", () => {

@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { hashToken } from "@copilotkit/teamkit-protocol";
+import { hashToken } from "@copilotkit/teamkit-protocol/server";
 import { withTestDb } from "./helpers/db.js";
 import { agentAuth, personAuth } from "./helpers/actors.js";
 import {
