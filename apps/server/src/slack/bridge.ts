@@ -15,7 +15,8 @@
  * 4. Button click (managed path): make an agent block the task with options. Slack outbound posts
  *    the question with buttons. Clicking one as a linked approver moves the task to ready, and the
  *    thread shows "<name> answered: <choice>". As an unlinked user the click gets an ephemeral link
- *    to /link/slack?code=..., and the task stays blocked.
+ *    to /link/slack?code=...; the page names the Slack handle and id and asks before it links. The
+ *    task stays blocked.
  * 5. Fallback: if clicks never arrive, reply in the thread with an option's exact text (any case)
  *    as a linked person. That answers the block too.
  */
@@ -128,7 +129,12 @@ export async function startSlackBridge(o: SlackBridgeOptions): Promise<SlackBrid
   channel.onMessage(({ thread, message }) => guarded("message", () => handlers.onMessage(turn(thread, message))));
   channel.onInteraction("teamkit.answer", (ctx) =>
     guarded("answer", () =>
-      answers.onAnswer({ thread: ctx.thread, slackUserId: ctx.actor.id, value: ctx.action.value }),
+      answers.onAnswer({
+        thread: ctx.thread,
+        slackUserId: ctx.actor.id,
+        slackUserName: ctx.actor.handle ?? ctx.actor.name ?? null,
+        value: ctx.action.value,
+      }),
     ),
   );
 

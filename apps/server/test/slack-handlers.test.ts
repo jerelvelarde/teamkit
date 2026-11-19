@@ -44,7 +44,7 @@ async function setup(db: Db, defaultRoom: string | null = null) {
 
 async function link(db: Db, slackUserId: string, name: string, role: "admin" | "member" = "member") {
   const person = await personAuth(db, name, role);
-  await redeemSlackLinkCode(db, person, await createSlackLinkCode(db, slackUserId));
+  await redeemSlackLinkCode(db, person, await createSlackLinkCode(db, slackUserId), slackUserId);
   return person;
 }
 
