@@ -67,6 +67,27 @@ test("a bad permission exits 1 with invalid_input", async () => {
   });
 });
 
+test("a room spec with no permissions exits 2 and creates no agent", async () => {
+  await withTestDb(async (db, url) => {
+    for (const spec of ["build:", "build: , "]) {
+      const r = run(url, ["agents", "create", "w", "--rooms", "*:read", spec]);
+      assert.equal(r.code, 2, spec);
+      assert.match(r.err, /no permissions/);
+      assert.equal(r.out, "");
+    }
+    assert.equal((await db`select 1 from actors where name = 'w'`).length, 0);
+    const ok = run(url, ["agents", "create", "w", "--rooms", "build:read,post", "ops/:read"]);
+    assert.equal(ok.code, 0, ok.err);
+    const grants = await db`
+      select g.room_pattern, g.perms from grants g join actors a on a.id = g.actor_id
+      where a.name = 'w' order by g.room_pattern`;
+    assert.deepEqual(
+      grants.map((g) => [g.room_pattern, g.perms]),
+      [["build", ["read", "post"]], ["ops/", ["read"]]],
+    );
+  });
+});
+
 test("an unknown subcommand exits 2", async () => {
   await withTestDb(async (_db, url) => {
     assert.equal(run(url, ["frobnicate"]).code, 2);

@@ -8,18 +8,18 @@ import { getRoomInfo, setRoom, type RoomSettings } from "./store/rooms.js";
 
 const DEFAULT_DATABASE_URL = "postgres://teamkit@127.0.0.1:54329/teamkit";
 
-/** "pattern:perm,perm" split at the LAST ":". */
-function parseGrant(spec: string): Grant {
+/** "pattern:perm,perm" split at the LAST ":"; collects repeated specs into a list. */
+function parseGrant(spec: string, previous: Grant[] | undefined): Grant[] {
   const i = spec.lastIndexOf(":");
   if (i < 0) throw new BoardError("invalid_input", `room spec must be pattern:perm,perm: ${spec}`);
-  return {
-    room: spec.slice(0, i),
-    perms: spec
-      .slice(i + 1)
-      .split(",")
-      .map((p) => p.trim())
-      .filter((p) => p !== "") as Grant["perms"],
-  };
+  const perms = spec
+    .slice(i + 1)
+    .split(",")
+    .map((p) => p.trim())
+    .filter((p) => p !== "") as Grant["perms"];
+  // A grant with no permissions would create an agent that can do nothing.
+  if (perms.length === 0) throw new InvalidArgumentError(`no permissions after ":" in ${spec}`);
+  return [...(previous ?? []), { room: spec.slice(0, i), perms }];
 }
 
 function parseCount(v: string): number {
@@ -45,15 +45,14 @@ function buildProgram(): Command {
   agents
     .command("create <name>")
     .description("create an agent and print `name<TAB>token` lines (the only time a token is shown)")
-    .requiredOption("--rooms <spec...>", "grants as pattern:perm,perm")
+    .requiredOption("--rooms <spec...>", "grants as pattern:perm,perm", parseGrant)
     .option("--count <n>", "create <name>-1 .. <name>-n", parseCount)
     .exitOverride()
-    .action(async (name: string, opts: { rooms: string[]; count?: number }) => {
-      const grants = opts.rooms.map(parseGrant);
+    .action(async (name: string, opts: { rooms: Grant[]; count?: number }) => {
       const created = await withDb((db) =>
         opts.count === undefined
-          ? createAgent(db, { name, grants }).then((a) => [a])
-          : createAgentTokens(db, { baseName: name, count: opts.count, grants }),
+          ? createAgent(db, { name, grants: opts.rooms }).then((a) => [a])
+          : createAgentTokens(db, { baseName: name, count: opts.count, grants: opts.rooms }),
       );
       for (const a of created) process.stdout.write(`${a.actor.name}\t${a.token}\n`);
     });
