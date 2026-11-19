@@ -11,14 +11,16 @@
  * 2. Mention: `@TeamKit add a dark mode toggle` in the channel. A task card appears in the Slack
  *    thread, and the task shows in room build with label source=slack, created by the linked person
  *    (or by slack-guest, with "(from Slack user ...)" in the brief).
- * 3. Reply: a reply in that Slack thread appears in the task's thread on the board.
+ * 3. Reply: a reply in that Slack thread appears in the task's thread on the board, as a user
+ *    turn. A second mention in that thread is a reply too; it creates no second task.
  * 4. Button click (managed path): make an agent block the task with options. Slack outbound posts
  *    the question with buttons. Clicking one as a linked approver moves the task to ready, and the
  *    thread shows "<name> answered: <choice>". As an unlinked user the click gets an ephemeral link
  *    to /link/slack?code=...; the page names the Slack handle and id and asks before it links. The
  *    task stays blocked.
- * 5. Fallback: if clicks never arrive, reply in the thread with an option's exact text (any case)
- *    as a linked person. That answers the block too.
+ * 5. Fallback: if clicks never arrive, reply in the thread as a linked person with an option's
+ *    text (any case for a question, the exact text for an approval). That answers the block too.
+ *    A reply in the thread Slack outbound started reaches the task as well.
  */
 import type { Db } from "../db/pool.js";
 import { slackBridgeEnabled, type SlackBridgeConfig } from "./bridge-config.js";

@@ -2,7 +2,13 @@ import { isBoardError, newId, type ActorRef, type Task } from "@copilotkit/teamk
 import type { Db } from "../db/pool.js";
 import { TaskCard } from "./cards.js";
 import { findLinkedPerson } from "./links.js";
-import { findTaskByConversation, roomForSlackChannel, saveSlackThread } from "./mirror.js";
+import {
+  findTaskByConversation,
+  findTaskByCoordinates,
+  isUniqueViolation,
+  roomForSlackChannel,
+  saveSlackThread,
+} from "./mirror.js";
 import type { AuthContext } from "../store/actors.js";
 import { answer } from "../store/blocks.js";
 import { loadTask } from "../store/task-load.js";
@@ -103,30 +109,64 @@ function who(t: SlackTurn): string {
   return t.slackUserName ?? t.slackUserId;
 }
 
+/**
+ * The task a Slack thread mirrors: by its conversation key, else by its channel and ts (a thread
+ * Slack outbound started, or one whose key the managed Channel reports differently).
+ */
+async function taskForThread(d: SlackHandlerDeps, t: SlackTurn): Promise<string | null> {
+  const byKey = await findTaskByConversation(d.db, t.thread.conversationKey);
+  if (byKey) return byKey;
+  return t.coordinates ? findTaskByCoordinates(d.db, t.coordinates, t.thread.conversationKey) : null;
+}
+
 export function createSlackHandlers(d: SlackHandlerDeps): {
   onMention(t: SlackTurn): Promise<void>;
   onMessage(t: SlackTurn): Promise<void>;
 } {
   async function mention(t: SlackTurn): Promise<void> {
+    const text = stripMention(t.text);
+    // A mention inside a thread that already mirrors a task is a message to that task.
+    const existing = await taskForThread(d, t);
+    if (existing) {
+      await toTask(t, existing, text);
+      return;
+    }
     const room = (t.coordinates && (await roomForSlackChannel(d.db, t.coordinates.channel))) || d.defaultRoom;
     if (!room) {
       await t.thread.post(NOT_MAPPED);
       return;
     }
-    const text = stripMention(t.text);
     if (text === "") {
       await t.thread.post("Mention me with what you need done.");
       return;
     }
     const { auth, guest } = await actingAs(d, t.slackUserId);
     const brief = guest ? `${text}\n\n(from Slack user ${who(t)})` : text;
-    const task = await createTask(d.db, auth, { room, brief, labels: { source: "slack" } });
-    await saveSlackThread(d.db, {
-      taskId: task.id,
-      channel: t.coordinates?.channel ?? null,
-      ts: t.coordinates?.ts ?? null,
-      conversationKey: t.thread.conversationKey,
-    });
+    let task: Task;
+    try {
+      // The task and its mirror row commit together, so a lost race leaves no task behind.
+      task = await createTask(
+        d.db,
+        auth,
+        { room, brief, labels: { source: "slack" } },
+        {
+          alsoWrite: async (tx, taskId) => {
+            await saveSlackThread(tx, {
+              taskId,
+              channel: t.coordinates?.channel ?? null,
+              ts: t.coordinates?.ts ?? null,
+              conversationKey: t.thread.conversationKey,
+            });
+          },
+        },
+      );
+    } catch (e) {
+      // Another mention in this thread created its task first: this one is a message to it.
+      const winner = isUniqueViolation(e) ? await taskForThread(d, t) : null;
+      if (!winner) throw e;
+      await toTask(t, winner, text);
+      return;
+    }
     await t.thread.post(
       TaskCard({
         task: { id: task.id, room: task.room, state: task.state, brief: task.brief, url: taskUrl(d.publicUrl, task.id) },
@@ -134,12 +174,21 @@ export function createSlackHandlers(d: SlackHandlerDeps): {
     );
   }
 
-  /** Tries to answer a blocked task from a linked person's reply. True when it was handled. */
+  /**
+   * Tries to answer a blocked task from a linked person's reply. True when it was handled.
+   * needs_input takes an option in any case, or free text when it has no options. An approval
+   * takes only an option's exact text: a casual "ok" or "yes" is a plain reply, and an approval
+   * with no options is answered only with a button or on the board.
+   */
   async function tryAnswer(t: SlackTurn, auth: AuthContext, task: Task, text: string): Promise<boolean> {
     const block = task.state === "blocked" ? task.block : null;
     if (!block) return false;
     let input: { choice: string } | { text: string };
-    if (block.options) {
+    if (block.kind === "awaiting_approval") {
+      const choice = block.options?.find((o) => o === text);
+      if (choice === undefined) return false;
+      input = { choice };
+    } else if (block.options) {
       const choice = block.options.find((o) => o.toLowerCase() === text.toLowerCase());
       if (choice === undefined) return false;
       input = { choice };
@@ -147,7 +196,7 @@ export function createSlackHandlers(d: SlackHandlerDeps): {
       input = { text };
     }
     try {
-      await answer(d.db, auth, task.id, input);
+      await answer(d.db, auth, task.id, input, { expectedInterruptId: block.interruptId });
       return true;
     } catch (e) {
       if (isBoardError(e) && e.code === "approval_requires_person") {
@@ -162,17 +211,21 @@ export function createSlackHandlers(d: SlackHandlerDeps): {
     }
   }
 
-  async function message(t: SlackTurn): Promise<void> {
-    const taskId = await findTaskByConversation(d.db, t.thread.conversationKey);
-    if (!taskId) return;
-    const text = t.text.trim();
+  /** A Slack user's words go to the task as a "user" turn, never as the guest agent's own. */
+  async function toTask(t: SlackTurn, taskId: string, text: string): Promise<void> {
     if (text === "") return;
     const { auth, guest } = await actingAs(d, t.slackUserId);
     if (!guest) {
       const task = await loadTask(d.db, taskId);
       if (task && (await tryAnswer(t, auth, task, text))) return;
     }
-    await reply(d.db, auth, taskId, guest ? `${who(t)}: ${text}` : text);
+    await reply(d.db, auth, taskId, guest ? `${who(t)}: ${text}` : text, { asUser: true });
+  }
+
+  async function message(t: SlackTurn): Promise<void> {
+    const taskId = await taskForThread(d, t);
+    if (!taskId) return;
+    await toTask(t, taskId, t.text.trim());
   }
 
   async function guarded(kind: string, fn: () => Promise<void>): Promise<void> {

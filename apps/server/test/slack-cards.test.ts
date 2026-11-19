@@ -56,6 +56,15 @@ test("BlockedCard without options asks for a thread reply", () => {
   assert.ok(allText(blocks).includes("an agent"));
 });
 
+test("an approval without options points to the board, not a thread reply", () => {
+  const { blocks } = toSlackMessage(
+    BlockedCard({ task, interruptId: "int_1", kind: "awaiting_approval", question: "Ship?", options: [] }),
+  );
+  assert.equal(answerButtons(blocks).length, 0);
+  assert.ok(allText(blocks).includes("Answer this approval on the board."));
+  assert.ok(!allText(blocks).includes("Reply in this thread"));
+});
+
 test("TaskCard has no answer buttons and links to the board", () => {
   const { blocks } = toSlackMessage(TaskCard({ task }));
   assert.equal(answerButtons(blocks).length, 0);

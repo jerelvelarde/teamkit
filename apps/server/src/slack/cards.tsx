@@ -81,7 +81,11 @@ export function BlockedCard({ task, interruptId, kind, question, options, askedB
       <Section>{escapeMrkdwn(clip(question, 2000))}</Section>
       <Context>{`Asked by ${escapeMrkdwn(askedBy ?? "an agent")} · ${escapeMrkdwn(task.room)}`}</Context>
       {options.length === 0 ? (
-        <Context>Reply in this thread to answer.</Context>
+        <Context>
+          {kind === "awaiting_approval"
+            ? "Answer this approval on the board."
+            : "Reply in this thread to answer."}
+        </Context>
       ) : (
         options.map((option, i) => (
           <Actions>
