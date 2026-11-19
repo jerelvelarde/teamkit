@@ -2,7 +2,7 @@
 
 AG-UI agents that AG-UI TeamKit's dispatcher calls over HTTP. Each agent is a
 `POST` endpoint that takes a `RunAgentInput` and streams AG-UI events as SSE.
-None of them needs a model key.
+None of them needs a model key except `researcher`.
 
 Run the server (default port 8790):
 
@@ -19,14 +19,22 @@ task and stops with an interrupt (`awaiting_approval`, choices `approve` or
 `reject`). When the run resumes, it says "Shipped." on approve or "Stopped."
 otherwise, and finishes.
 
-Register it and attach it to a room:
+Register it and attach it to a room. These commands use `teamkit-admin`, which works on the
+server's database directly (run them from the repository root, with the same `DATABASE_URL` as the server).
+Its flag for the agent's address is `--url`:
 
 ```sh
-teamkit agents register approver --url http://127.0.0.1:8790/approver --rooms ship
-teamkit rooms set ship --agent approver --approvers <you>
+pnpm --silent --filter @teamkit/server admin agents register approver --url http://127.0.0.1:8790/approver --rooms ship
+pnpm --silent --filter @teamkit/server admin rooms set ship --agent approver --approvers <you>
 ```
 
-(`teamkit-admin` can register the agent too.)
+If you have signed in with `teamkit login`, the `teamkit` command does the same, but its flag is
+`--agent-url` (there `--url` is the TeamKit server):
+
+```sh
+teamkit agents register approver --agent-url http://127.0.0.1:8790/approver --rooms ship
+teamkit rooms set ship --agent approver --approvers <you>
+```
 
 ## researcher
 
@@ -46,16 +54,17 @@ returns 404 and `/healthz` does not list it.
 | `OPENAI_BASE_URL` | `https://api.openai.com/v1` | Any Chat Completions compatible API. |
 | `OPENAI_TIMEOUT_MS` | `60000` | How long one model call may take before the run ends with an error. |
 
-Load the key with `op run` so it never lands on disk:
+Export the key in the shell that starts the agents (this example does not read `.env`):
 
 ```sh
-op run --env-file=.env.op -- pnpm --filter @teamkit/example-service-agent start
+export OPENAI_API_KEY=...
+pnpm --filter @teamkit/example-service-agent start
 ```
 
 Never write the key to a file in the repo.
 
 ```sh
-teamkit agents register researcher --url http://127.0.0.1:8790/researcher --rooms research
+pnpm --silent --filter @teamkit/server admin agents register researcher --url http://127.0.0.1:8790/researcher --rooms research
 ```
 
 ## lead
@@ -69,6 +78,10 @@ tools as client-side AG-UI tools and finishes the run; the dispatcher runs them 
 again with the results.
 
 ```sh
-teamkit agents register lead --url http://127.0.0.1:8790/lead --rooms build
-teamkit triggers add lead-wake --room build/ --kinds task.blocked,task.completed,task.failed --agent lead
+pnpm --silent --filter @teamkit/server admin agents register lead --url http://127.0.0.1:8790/lead --rooms build
+pnpm --silent --filter @teamkit/server admin triggers add lead-wake --room build/ --kinds task.blocked,task.completed,task.failed --agent lead
 ```
+
+The agent name `lead` is taken by this agent. If you also run the swarm example, its token is
+called `lead-cli` for that reason. Do not run both against the same room at once: the server's
+dispatcher would hand the room's tasks to `lead` while the swarm workers are claiming them.

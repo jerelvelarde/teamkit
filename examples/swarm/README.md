@@ -39,8 +39,9 @@ repository root. Each prints `name<TAB>token` lines, and this is the only time a
 `--silent` keeps pnpm's own banner out of the output.
 
 ```sh
-# The lead creates tasks and answers questions.
-pnpm --silent --filter @teamkit/server admin agents create lead --rooms build:read,post,create
+# The lead creates tasks and answers questions. It is called lead-cli so the name stays free for
+# an AG-UI lead agent (see examples/service-agent).
+pnpm --silent --filter @teamkit/server admin agents create lead-cli --rooms build:read,post,create
 
 # Three workers, named worker-1 to worker-3. They claim tasks.
 pnpm --silent --filter @teamkit/server admin agents create worker --count 3 --rooms build:read,post,claim
@@ -76,7 +77,7 @@ export TEAMKIT_URL=http://127.0.0.1:8787
 export TEAMKIT_TOKEN=<that agent's token>
 ```
 
-Terminal 1, the lead. It creates the plan and then waits:
+Terminal 1, the lead (use the `lead-cli` token). It creates the plan and then waits:
 
 ```sh
 examples/swarm/lead.sh
@@ -169,7 +170,7 @@ with `teamkit tasks answer`. The question and the answer both stay in the thread
 again reads them in order.
 A task blocked with `--kind awaiting_approval` is different: only a person signed in to the board can answer it.
 No token can, the lead's included (`teamkit tasks answer` fails with `approval_requires_person`). `lead.sh` reports
-the failure and keeps waiting; the person approves it on the web board (coming in this release) or in Slack.
+the failure and keeps waiting; the person approves it on the web board or in Slack.
 
 If a task fails, the tasks that need it can never run. `lead.sh` reports them as stuck, and when nothing else is
 left to finish it exits 1.
