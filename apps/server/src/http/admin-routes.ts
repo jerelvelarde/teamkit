@@ -1,4 +1,4 @@
-import { BoardError, type AgentInfo, type CreatedToken, type GrantSpec, type Invite, type Role } from "@copilotkit/teamkit-protocol";
+import { BoardError, type AgentInfo, type CreatedToken, type EventKind, type GrantSpec, type Invite, type Role, type TriggerInfo, type TriggerInput } from "@copilotkit/teamkit-protocol";
 import type { Hono } from "hono";
 import type { AppDeps } from "./app.js";
 import { requireAdmin, type AppEnv } from "./auth.js";
@@ -6,6 +6,7 @@ import { optLabels, optString, optStringArray, pathParam, readBody, reqString } 
 import { getAgent, listAgents, registerAgent, setAgentEnabled, toAgentInfo } from "../dispatch/registry.js";
 import { createAgent, createAgentTokens, listTokens, revokeToken, type AuthContext, type Grant } from "../store/actors.js";
 import { createSignInLink, DEFAULT_PUBLIC_URL, invitePerson, listPeople, signInUrl } from "../store/people.js";
+import { addTrigger, listTriggers, removeTrigger, setTriggerEnabled } from "../triggers/store.js";
 import { listRoomInfos, setRoom, type RoomSettings } from "../store/rooms.js";
 
 const ROOM_SETTING_KEYS = ["agent", "approvers", "slackChannel", "slackAnnounce"] as const;
@@ -52,6 +53,23 @@ function parseAgentUrl(url: string): string {
   }
   if (u.username !== "" || u.password !== "") {
     throw new BoardError("invalid_input", "agent url must not contain credentials; use headers");
+  }
+  return url;
+}
+
+/** Webhook URLs are stored and listed, so they must be http(s) with no embedded credentials. */
+function parseWebhookUrl(url: string): string {
+  let u: URL;
+  try {
+    u = new URL(url);
+  } catch {
+    throw new BoardError("invalid_input", "webhook url is not a valid URL");
+  }
+  if (u.protocol !== "http:" && u.protocol !== "https:") {
+    throw new BoardError("invalid_input", "webhook url must be http or https");
+  }
+  if (u.username !== "" || u.password !== "") {
+    throw new BoardError("invalid_input", "webhook url must not contain credentials");
   }
   return url;
 }
@@ -160,5 +178,48 @@ export function registerAdminRoutes(v1: Hono<AppEnv>, deps: AppDeps): void {
     const agent = await getAgent(db, name);
     if (!agent) throw new BoardError("not_found", `agent not found: ${name}`);
     return c.json(toAgentInfo(agent));
+  });
+
+  v1.get("/admin/triggers", async (c) => {
+    requireAdmin(c.get("auth"));
+    return c.json(await listTriggers(db));
+  });
+
+  v1.post("/admin/triggers", async (c) => {
+    const auth = c.get("auth");
+    requireAdmin(auth);
+    const b = await readBody(c);
+    const kinds = optStringArray(b, "kinds");
+    if (kinds === undefined) throw new BoardError("invalid_input", "kinds is required and must be an array of strings");
+    const webhook = optString(b, "webhook");
+    const labels = optLabels(b, "labels");
+    const agent = optString(b, "agent");
+    const input: TriggerInput & { createdBy: string } = {
+      name: reqString(b, "name"),
+      room: reqString(b, "room"),
+      kinds: kinds as EventKind[],
+      ...(labels !== undefined ? { labels } : {}),
+      ...(webhook !== undefined ? { webhook: parseWebhookUrl(webhook) } : {}),
+      ...(agent !== undefined ? { agent } : {}),
+      createdBy: auth.actor.id,
+    };
+    return c.json(await addTrigger(db, input), 201);
+  });
+
+  v1.post("/admin/triggers/:name/remove", async (c) => {
+    requireAdmin(c.get("auth"));
+    await removeTrigger(db, pathParam(c, "name"));
+    return c.json({ ok: true });
+  });
+
+  v1.post("/admin/triggers/:name/enabled", async (c) => {
+    requireAdmin(c.get("auth"));
+    const name = pathParam(c, "name");
+    const b = await readBody(c);
+    if (typeof b.enabled !== "boolean") throw new BoardError("invalid_input", "enabled must be a boolean");
+    await setTriggerEnabled(db, name, b.enabled);
+    const info: TriggerInfo | undefined = (await listTriggers(db)).find((t) => t.name === name);
+    if (!info) throw new BoardError("not_found", `trigger not found: ${name}`);
+    return c.json(info);
   });
 }
