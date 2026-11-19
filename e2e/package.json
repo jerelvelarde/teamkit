@@ -4,7 +4,7 @@
   "type": "module",
   "engines": { "node": ">=22" },
   "scripts": {
-    "test": "node --import tsx --test '*.test.ts'",
+    "test": "node --import tsx --test --test-force-exit --test-timeout=120000 '*.test.ts'",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "devDependencies": {

@@ -75,7 +75,13 @@ test("a holder whose connection was replaced gives the work up", async () => {
       start: () => ({ stop: async () => void stops++ }),
     });
     await s.ready;
-    await t.db`select pg_terminate_backend(pid) from pg_locks where locktype = 'advisory' and granted`;
+    // Only this test database's advisory-lock holders: other test files run in parallel on the
+    // same cluster and take transaction-level advisory locks (migrate, appendEvent).
+    await t.db`
+      select pg_terminate_backend(l.pid)
+      from pg_locks l join pg_database d on d.oid = l.database
+      where l.locktype = 'advisory' and l.granted
+        and d.datname = current_database() and l.pid <> pg_backend_pid()`;
     await waitFor("the work to stop", () => stops === 1);
     // It then takes the lock again on its fresh connection.
     await waitFor("a restart", () => s.held());
