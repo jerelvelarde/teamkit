@@ -53,6 +53,12 @@ export async function listRooms(db: Db, auth: AuthContext): Promise<RoomSummary[
   }));
 }
 
+/** Every room with its settings, sorted by name. No auth check; admin routes gate it. */
+export async function listRoomInfos(q: Q): Promise<RoomInfo[]> {
+  const rows = await q`select * from rooms order by name`;
+  return rows.map(toInfo);
+}
+
 /** No auth check; for internal callers. */
 export async function getRoomInfo(q: Q, name: string): Promise<RoomInfo | null> {
   const [r] = await q`select * from rooms where name = ${name}`;
