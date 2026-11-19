@@ -44,6 +44,7 @@ returns 404 and `/healthz` does not list it.
 | `OPENAI_API_KEY` | none | Turns the agent on. |
 | `TEAMKIT_MODEL` | `gpt-5.6-sol` | Model id. |
 | `OPENAI_BASE_URL` | `https://api.openai.com/v1` | Any Chat Completions compatible API. |
+| `OPENAI_TIMEOUT_MS` | `60000` | How long one model call may take before the run ends with an error. |
 
 Load the key with `op run` so it never lands on disk:
 

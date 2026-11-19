@@ -8,6 +8,9 @@ const SYSTEM_PROMPT =
 /** After this many tool results the model must wrap up instead of calling more tools. */
 const MAX_TOOL_MESSAGES = 8;
 
+/** How long one Chat Completions call may take, unless OPENAI_TIMEOUT_MS says otherwise. */
+const TIMEOUT_MS = 60_000;
+
 interface ChatCompletion {
   choices?: {
     message?: {
@@ -21,8 +24,18 @@ function contentText(content: unknown): string {
   return typeof content === "string" ? content : "";
 }
 
+/** The thread to pass to the board tools, and the task context TeamKit sent with the run. */
+function contextText(input: RunAgentInput): string {
+  const lines = [`TeamKit thread: ${input.threadId}. Use it as threadId for teamkit_reply and teamkit_label.`];
+  for (const c of input.context ?? []) lines.push(`${c.description}: ${c.value}`);
+  return lines.join("\n");
+}
+
 function toChatMessages(input: RunAgentInput): unknown[] {
-  const out: unknown[] = [{ role: "system", content: SYSTEM_PROMPT }];
+  const out: unknown[] = [
+    { role: "system", content: SYSTEM_PROMPT },
+    { role: "system", content: contextText(input) },
+  ];
   for (const m of input.messages) {
     if (m.role === "user") {
       out.push({ role: "user", content: contentText(m.content) });
@@ -105,6 +118,7 @@ export function researcherHandler(env: NodeJS.ProcessEnv): (c: Context) => Promi
       throw res;
     }
     const url = `${env.OPENAI_BASE_URL || "https://api.openai.com/v1"}/chat/completions`;
+    const timeoutMs = Number(env.OPENAI_TIMEOUT_MS) > 0 ? Number(env.OPENAI_TIMEOUT_MS) : TIMEOUT_MS;
     try {
       const res = await fetch(url, {
         method: "POST",
@@ -113,6 +127,7 @@ export function researcherHandler(env: NodeJS.ProcessEnv): (c: Context) => Promi
           authorization: `Bearer ${env.OPENAI_API_KEY}`,
         },
         body: JSON.stringify(researcherRequest(input, env)),
+        signal: AbortSignal.timeout(timeoutMs),
       });
       if (!res.ok) return sseResponse(failure(input, `OpenAI returned HTTP ${res.status}`));
       return sseResponse(researcherEvents(input, (await res.json()) as ChatCompletion));

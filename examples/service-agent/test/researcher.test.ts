@@ -23,7 +23,7 @@ const input: RunAgentInput = {
     { name: "teamkit_reply", description: "Reply", parameters: { type: "object" } },
     { name: "teamkit_label", description: "Label", parameters: { type: "object" } },
   ],
-  context: [],
+  context: [{ description: "TeamKit task", value: '{"taskId":"th_1","room":"research"}' }],
   state: {},
   forwardedProps: {},
 };
@@ -86,10 +86,49 @@ test("request carries model, reasoning_effort none and the board tools", async (
         ["teamkit_reply", "teamkit_label"],
       );
       assert.equal(b.messages[0].role, "system");
-      assert.equal(b.messages[2].tool_calls[0].function.name, "teamkit_reply");
-      assert.deepEqual(b.messages[3], { role: "tool", tool_call_id: "c1", content: "ok" });
+      assert.equal(b.messages[3].tool_calls[0].function.name, "teamkit_reply");
+      assert.deepEqual(b.messages[4], { role: "tool", tool_call_id: "c1", content: "ok" });
     },
   );
+});
+
+test("a second system message carries the thread id and the task context", async () => {
+  await withFakeOpenAI(
+    () => ({ status: 200, body: { choices: [{ message: { content: "hi" } }] } }),
+    async (env, bodies) => {
+      await run(env);
+      const [, context, user] = bodies[0].messages;
+      assert.equal(context.role, "system");
+      assert.equal(
+        context.content,
+        'TeamKit thread: th_1. Use it as threadId for teamkit_reply and teamkit_label.\nTeamKit task: {"taskId":"th_1","room":"research"}',
+      );
+      assert.deepEqual(user, { role: "user", content: "Find three sources" });
+    },
+  );
+});
+
+test("a model call slower than OPENAI_TIMEOUT_MS ends the run with openai_error", async () => {
+  const server = createServer(() => {
+    // Never answers.
+  });
+  await new Promise<void>((ok) => server.listen(0, "127.0.0.1", ok));
+  const port = (server.address() as AddressInfo).port;
+  try {
+    const t0 = Date.now();
+    const events = await run({
+      OPENAI_API_KEY: "test",
+      OPENAI_BASE_URL: `http://127.0.0.1:${port}/v1`,
+      OPENAI_TIMEOUT_MS: "200",
+    });
+    assert.ok(Date.now() - t0 < 3000, `took ${Date.now() - t0} ms`);
+    assert.deepEqual(events.map((e) => e.type), ["RUN_STARTED", "RUN_ERROR"]);
+    assert.equal(events[1].code, "openai_error");
+    assert.match(events[1].message, /^OpenAI request failed: .*timeout/i);
+  } finally {
+    server.closeAllConnections();
+    server.close();
+  }
 });
 
 test("TEAMKIT_MODEL overrides the model and 8 tool messages turn tools off", async () => {
