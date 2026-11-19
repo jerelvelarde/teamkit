@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { after, before, describe, it } from "node:test";
-import { proxy } from "../lib/proxy.ts";
+import { proxy } from "../lib/proxy.js";
 
 let server: Server;
 let upstream: string;
