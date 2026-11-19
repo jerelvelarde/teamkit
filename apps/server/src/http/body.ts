@@ -105,3 +105,12 @@ export function eventQueryFromRequest(c: Context): EventQuery {
   }
   return q;
 }
+
+/**
+ * Public routes that set a cookie only take application/json: a cross-site form can't send it
+ * without passing CORS, so a form post can't sign a victim in as someone else (login CSRF).
+ */
+export function requireJsonMediaType(c: Context, message: string): void {
+  const type = (c.req.header("content-type") ?? "").split(";")[0]!.trim().toLowerCase();
+  if (type !== "application/json") throw invalid(message);
+}

@@ -22,6 +22,7 @@ There is one route outside `/v1`: `GET /healthz` answers `{"ok":true}` with no c
 - [Tasks](#tasks)
 - [Event stream](#event-stream)
 - [People and sign-in](#people-and-sign-in)
+  - [Joining a team](#joining-a-team)
 - [Admin routes](#admin-routes)
 - [Slack account linking](#slack-account-linking)
 - [Webhook deliveries](#webhook-deliveries)
@@ -59,11 +60,12 @@ The admin routes need a person with the admin role, signed in either on the web 
 
 ### Public routes
 
-Three routes need no credentials:
+These routes need no credentials:
 
 - `POST /v1/signin`
 - `POST /v1/device/start`
 - `POST /v1/device/poll`
+- `POST /v1/join`
 
 Every other route under `/v1` checks credentials before it looks for the route. That means an unknown path under `/v1` answers `401` without credentials and `404` with them.
 
@@ -87,8 +89,12 @@ Switch on `code`. The `message` is for people and may change.
 | `claim_lost` | 409 | You acted on a claim you no longer hold (it expired, was released, or you passed the wrong `claimId`). |
 | `invalid_state` | 409 | The task is not in a state that allows this (for example, answering a task that is not blocked). |
 | `approval_requires_person` | 403 | Only a listed person signed in on the web board can answer an approval. Agents and command-line tokens cannot. |
+| `join_link_invalid` | 404 | The join link is unknown, revoked or expired. |
+| `email_domain_not_allowed` | 403 | The join link only accepts emails at other domains. |
+| `name_taken` | 409 | The name, or its agent name `<name>-agent`, already belongs to someone. |
+| `email_taken` | 409 | The email already belongs to someone on this team. |
 | `too_large` | 413 | The request body is over 1 MiB. |
-| `rate_limited` | 429 | Too many requests to `POST /v1/device/start`. The `Retry-After` header says how many seconds to wait. |
+| `rate_limited` | 429 | Too many requests to `POST /v1/device/start` or `POST /v1/join`. The `Retry-After` header says how many seconds to wait. |
 | `internal` | 500 | A bug on the server. The response carries no details. |
 
 ## Limits
@@ -101,6 +107,7 @@ Switch on `code`. The `message` is for people and may change.
 | Event stream lifetime | 30 minutes, then the server closes it. Reconnect with `Last-Event-ID`. |
 | Agent token batch | `count` is 1 to 100. |
 | `POST /device/start` | A burst of 10 per client address, then 10 a minute. |
+| `POST /join` | A burst of 30 per client address, then 30 a minute. Behind the web board's proxy, every browser shares one address. |
 
 Strings may not contain NUL characters or invalid Unicode. The server answers `400 invalid_input` for them.
 
@@ -280,9 +287,28 @@ The flow:
 
 `device/start` writes a row each time and needs no credentials, so each client address gets a burst of 10 requests, then 10 a minute. After that it answers `429 rate_limited` with a `Retry-After` header in seconds. By default the server counts the address of the connection itself and ignores `X-Forwarded-For`, so behind a proxy all clients share one budget. Set `TEAMKIT_TRUSTED_PROXY=1` when a reverse proxy that sets `X-Forwarded-For` is the only way to reach the server: the server then counts the first `X-Forwarded-For` address instead (the socket address when the header is missing). Do not set it if clients can reach the server directly, because they could forge the header and dodge the limit.
 
+### Joining a team
+
+An admin makes a join link (see [Join links](#join-links)) of the form `<public url>/join/<secret>`. The secret starts with `jc_`. Anyone who has the link opens it, gives a name and an email, and joins as a member, signed in on this browser.
+
+| Method | Path | Auth | Body | Response |
+| --- | --- | --- | --- | --- |
+| POST | `/v1/join` | public, rate limited | `{code, name, email}`, as `application/json` | `201 {actor, scope: null, role: "member"}` and a `Set-Cookie` for the session |
+
+- The name is trimmed and lower-cased, then must be lowercase letters, digits and hyphens, up to 57 characters. `<name>-agent` must also be free, because the person's agent will carry that name.
+- The email is lower-cased and belongs to one person.
+- When the link lists domains, the email's domain must match one exactly: `example.com` admits `ana@example.com` but not `ana@eu.example.com`.
+- Each successful join adds one to the link's `uses`.
+
+For example, `ben` joins with:
+
+```json
+{ "code": "jc_...", "name": "ben", "email": "ben@example.com" }
+```
+
 ## Admin routes
 
-All of these need an admin (see [Admin scope](#admin-scope)), except that inviting people and making sign-in links need an admin **signed in on the web board**. An admin-scope token gets `403 forbidden` there, because a sign-in link becomes a session, and a session can answer approvals.
+All of these need an admin (see [Admin scope](#admin-scope)), except that inviting people, making sign-in links and creating join links need an admin **signed in on the web board**. An admin-scope token gets `403 forbidden` there, because a sign-in link becomes a session, and a session can answer approvals.
 
 ### People
 
@@ -291,6 +317,16 @@ All of these need an admin (see [Admin scope](#admin-scope)), except that inviti
 | GET | `/v1/admin/people` | admin | none | `[{actor, role, createdAt, lastSignInAt}]` |
 | POST | `/v1/admin/people` | admin on the web board | `{name, role?}`. `role` is `admin` or `member` (default `member`). | `201 {person, role, link}`. The link signs the person in once. |
 | POST | `/v1/admin/people/:name/link` | admin on the web board | none | `{link}`, a fresh sign-in link for an existing person. `404` if there is no such person. |
+
+### Join links
+
+| Method | Path | Auth | Body | Response |
+| --- | --- | --- | --- | --- |
+| POST | `/v1/admin/join-links` | admin on the web board | `{expiresInDays?, domains?}` | `201 {id, createdAt, expiresAt, domains, revokedAt, uses, link}` |
+| GET | `/v1/admin/join-links` | admin | none | `[{id, createdAt, expiresAt, domains, revokedAt, uses}]`, newest first |
+| POST | `/v1/admin/join-links/:id/revoke` | admin | none | `{ok: true}`. `404` if there is no such link. |
+
+The `link` is in the creation response only; the server keeps just its hash. `expiresInDays` is a whole number from 1 to 365; leave it out and the link never expires. `domains` takes up to 20; leave it out for no limit. A team can hold several links, and revoking one leaves the others working.
 
 ### Agent tokens
 

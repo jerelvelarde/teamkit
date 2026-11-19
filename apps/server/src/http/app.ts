@@ -11,6 +11,7 @@ import type { RateLimit } from "./rate-limit.js";
 import { registerRoutes } from "./routes.js";
 import { registerSlackRoutes } from "./slack-routes.js";
 import { registerStream } from "./stream.js";
+import { registerJoinRoutes } from "./join-routes.js";
 import { registerTaskRoutes } from "./task-routes.js";
 
 export interface AppDeps {
@@ -29,6 +30,8 @@ export interface AppOptions {
   deviceStartLimit?: RateLimit;
   /** Key the login-code limiter on the first X-Forwarded-For address (TEAMKIT_TRUSTED_PROXY=1); default is the socket address. */
   trustedProxy?: boolean;
+  /** Team joins one client address may make: a burst, then a steady rate (default 30, then 30 a minute). */
+  joinLimit?: RateLimit;
 }
 
 /** SQLSTATE class 22, data exception: Postgres refused a value it was sent (NUL, bad encoding, out of range). */
@@ -60,6 +63,7 @@ export function createApp(deps: AppDeps, opts: AppOptions = {}): Hono {
   registerStream(v1, deps, { pingMs: opts.streamPingMs, maxMs: opts.streamMaxMs });
   registerPeopleRoutes(v1, deps, { deviceStartLimit: opts.deviceStartLimit, trustedProxy: opts.trustedProxy });
   registerAdminRoutes(v1, deps);
+  registerJoinRoutes(v1, deps, { joinLimit: opts.joinLimit, trustedProxy: opts.trustedProxy });
   registerSlackRoutes(v1, deps);
   app.route("/v1", v1);
 

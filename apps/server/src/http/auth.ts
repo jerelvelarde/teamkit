@@ -1,9 +1,9 @@
 import { BoardError } from "@copilotkit/teamkit-protocol";
 import type { Context, MiddlewareHandler } from "hono";
-import { getCookie } from "hono/cookie";
+import { getCookie, setCookie } from "hono/cookie";
 import type { Db } from "../db/pool.js";
 import { authenticate, type AuthContext } from "../store/actors.js";
-import { authenticateSession } from "../store/people.js";
+import { SESSION_TTL_MS, authenticateSession } from "../store/people.js";
 
 export type AppEnv = { Variables: { auth: AuthContext } };
 
@@ -23,7 +23,7 @@ export function sessionCookieName(publicUrl: string | undefined): string {
 }
 
 /** Routes reachable with no credentials at all. */
-export const PUBLIC_PATHS: ReadonlySet<string> = new Set(["/v1/signin", "/v1/device/start", "/v1/device/poll"]);
+export const PUBLIC_PATHS: ReadonlySet<string> = new Set(["/v1/signin", "/v1/device/start", "/v1/device/poll", "/v1/join"]);
 
 /** Methods a browser may send cross-site without changing state; every other method is state-changing. */
 const SAFE_METHODS: ReadonlySet<string> = new Set(["GET", "HEAD", "OPTIONS"]);
@@ -110,4 +110,25 @@ export function requireAdmin(auth: AuthContext): void {
     auth.role === "admin" &&
     (auth.via === "session" || auth.scope === "admin");
   if (!ok) throw new BoardError("forbidden", "admins only");
+}
+
+/** Starts the board session in the browser: HttpOnly, SameSite=Lax, 30 days, and Secure with the `__Host-` name over https. */
+export function setSessionCookie(c: Context, publicUrl: string | undefined, secret: string): void {
+  setCookie(c, sessionCookieName(publicUrl), secret, {
+    httpOnly: true,
+    sameSite: "Lax",
+    path: "/",
+    maxAge: Math.floor(SESSION_TTL_MS / 1000),
+    secure: publicUrl?.startsWith("https://") === true,
+  });
+}
+
+/**
+ * An admin signed in on the web board. Anything that makes a person session (an invite, a join
+ * link) can answer approvals, so an admin-scope token, which a coding agent in the same shell
+ * could read, must never mint one.
+ */
+export function requireAdminSession(auth: AuthContext, message: string): void {
+  requireAdmin(auth);
+  if (auth.via !== "session") throw new BoardError("forbidden", message);
 }

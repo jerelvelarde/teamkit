@@ -1,7 +1,7 @@
 import { BoardError, type AgentInfo, type CreatedToken, type EventKind, type GrantSpec, type Invite, type Role, type TriggerInfo, type TriggerInput } from "@copilotkit/teamkit-protocol";
 import type { Hono } from "hono";
 import type { AppDeps } from "./app.js";
-import { requireAdmin, type AppEnv } from "./auth.js";
+import { requireAdmin, requireAdminSession as requireBoardAdmin, type AppEnv } from "./auth.js";
 import { optLabels, optString, optStringArray, pathParam, readBody, reqString } from "./body.js";
 import { getAgent, listAgents, registerAgent, setAgentEnabled, toAgentInfo } from "../dispatch/registry.js";
 import { createAgent, createAgentTokens, listTokens, revokeToken, type AuthContext, type Grant } from "../store/actors.js";
@@ -11,15 +11,9 @@ import { listRoomInfos, setRoom, type RoomSettings } from "../store/rooms.js";
 
 const ROOM_SETTING_KEYS = ["agent", "approvers", "slackChannel", "slackAnnounce"] as const;
 
-/**
- * A sign-in link becomes a person session, and a session can answer approvals. An
- * admin-scope token (which a coding agent in the same shell could read) must never mint one.
- */
+/** A sign-in link becomes a person session, so only an admin on the web board may make one. */
 function requireAdminSession(auth: AuthContext): void {
-  requireAdmin(auth);
-  if (auth.via !== "session") {
-    throw new BoardError("forbidden", "inviting people needs an admin signed in on the web board");
-  }
+  requireBoardAdmin(auth, "inviting people needs an admin signed in on the web board");
 }
 
 function parseGrants(b: Record<string, unknown>): Grant[] {
