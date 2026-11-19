@@ -5,11 +5,11 @@ create table if not exists schema_migrations (
 
 create table actors (
   id text primary key,
-  kind text check (kind in ('agent','person')),
+  kind text not null check (kind in ('agent','person')),
   name text unique not null,
   owner_id text references actors,
   role text check (role in ('admin','member')),
-  created_at timestamptz not null default now()
+  created_at timestamptz not null default clock_timestamp()
 );
 
 create table tokens (
@@ -17,7 +17,7 @@ create table tokens (
   actor_id text not null references actors,
   hash text unique not null,
   scope text not null check (scope in ('agent','admin')),
-  created_at timestamptz not null default now(),
+  created_at timestamptz not null default clock_timestamp(),
   revoked_at timestamptz
 );
 
@@ -30,7 +30,7 @@ create table grants (
 
 create table rooms (
   name text primary key,
-  created_at timestamptz not null default now(),
+  created_at timestamptz not null default clock_timestamp(),
   agent text,
   approvers text[],
   slack_channel text,
@@ -44,7 +44,7 @@ create table threads (
   is_task boolean not null,
   labels jsonb not null default '{}',
   created_by text not null references actors,
-  created_at timestamptz not null default now()
+  created_at timestamptz not null default clock_timestamp()
 );
 
 create table tasks (
@@ -72,7 +72,7 @@ create table messages (
   thread_id text references threads,
   seq int,
   message jsonb not null,
-  created_at timestamptz not null default now(),
+  created_at timestamptz not null default clock_timestamp(),
   primary key (thread_id, seq)
 );
 
@@ -84,7 +84,7 @@ create table events (
   actor_id text,
   agui jsonb not null,
   data jsonb not null default '{}',
-  created_at timestamptz not null default now()
+  created_at timestamptz not null default clock_timestamp()
 );
 
 create index tasks_state_lease_idx on tasks (state, lease_expires_at);

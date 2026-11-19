@@ -9,7 +9,7 @@ export type ErrorCode =
   | "approval_requires_person"
   | "too_large";
 
-export const ERROR_STATUS: Record<ErrorCode, number> = {
+export const ERROR_STATUS = {
   unauthorized: 401,
   forbidden: 403,
   not_found: 404,
@@ -19,11 +19,11 @@ export const ERROR_STATUS: Record<ErrorCode, number> = {
   invalid_state: 409,
   approval_requires_person: 403,
   too_large: 413,
-};
+} as const satisfies Record<ErrorCode, number>;
 
 export class BoardError extends Error {
   readonly code: ErrorCode;
-  readonly status: number;
+  readonly status: (typeof ERROR_STATUS)[ErrorCode];
 
   constructor(code: ErrorCode, message: string) {
     super(message);

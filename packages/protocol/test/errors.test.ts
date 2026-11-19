@@ -40,3 +40,17 @@ test("isBoardError", () => {
   assert.equal(isBoardError({ name: "BoardError", code: "bogus" }), false);
   assert.equal(isBoardError({ name: "BoardError", code: "too_large" }), true);
 });
+
+test("status is a literal union type", () => {
+  const s: 400 | 401 | 403 | 404 | 409 | 413 = new BoardError("not_found", "x").status;
+  assert.equal(s, 404);
+  const lit: 404 = ERROR_STATUS.not_found;
+  assert.equal(lit, 404);
+});
+
+test("duck-typed error needs a known code; callers can map via ERROR_STATUS", () => {
+  const e: unknown = { name: "BoardError", code: "claim_lost" };
+  assert.equal(isBoardError(e), true);
+  if (isBoardError(e)) assert.equal(ERROR_STATUS[e.code], 409);
+  assert.equal(isBoardError({ name: "BoardError", code: "toString" }), false);
+});
