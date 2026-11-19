@@ -35,7 +35,6 @@ const RETRYABLE_SLACK_ERRORS: ReadonlySet<string> = new Set([
   "token_revoked",
   "token_expired",
   "missing_scope",
-  "no_permission",
   "ekm_access_denied",
 ]);
 

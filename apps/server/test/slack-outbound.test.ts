@@ -315,6 +315,29 @@ test("a permanent error (channel_not_found) is logged once, without the token, a
   }
 });
 
+test("no_permission, channel_not_found, not_in_channel and is_archived drop that event and advance", async () => {
+  const errors = ["no_permission", "channel_not_found", "not_in_channel", "is_archived"];
+  const slack = await fakeSlack([...errors.map((error) => ({ body: { ok: false, error } }))]);
+  const lines: string[] = [];
+  try {
+    await withTestDb(async (db) => {
+      await setRoom(db, "build", { slackChannel: "C1" });
+      const o = { ...opts(db, slack.apiBase), log: (l: string) => lines.push(l) };
+      await processOutboundOnce(o);
+      for (let i = 0; i < errors.length + 1; i++) await blockTask(db);
+      const before = await cursorNow(db);
+      // One bad channel never stalls the pass: four events dropped, the fifth posts.
+      assert.deepEqual(await processOutboundOnce(o), { posted: 1, retry: null });
+      assert.equal(slack.requests.length, errors.length + 1);
+      assert.notEqual(await cursorNow(db), before);
+      assert.equal(lines.length, errors.length);
+      errors.forEach((error, i) => assert.match(lines[i]!, new RegExp(error)));
+    });
+  } finally {
+    await slack.close();
+  }
+});
+
 test("a question answered before its post is skipped, so a backlog never posts stale buttons", async () => {
   const slack = await fakeSlack();
   try {
