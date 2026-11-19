@@ -65,6 +65,17 @@ test("getRoom lists thread summaries with task state, and after narrows them", a
   });
 });
 
+test("a malformed after is invalid_input", async () => {
+  await withTestDb(async (db) => {
+    const ada = await personAuth(db, "ada");
+    await setRoom(db, "build", {});
+    for (const after of ["abc", "", "-1", "1.5", "1e3", "9223372036854775808"]) {
+      await assert.rejects(getRoom(db, ada, "build", { after }), code("invalid_input"), `after=${after}`);
+    }
+    assert.deepEqual((await getRoom(db, ada, "build", { after: "9223372036854775807" })).threads, []);
+  });
+});
+
 test("an unknown room is not_found", async () => {
   await withTestDb(async (db) => {
     const ada = await personAuth(db, "ada");

@@ -11,6 +11,7 @@ import type { Db, Q } from "../db/pool.js";
 import { ensureRoom } from "./rows.js";
 import { requirePerm, type AuthContext } from "./actors.js";
 import { currentCursor } from "./events.js";
+import { validateEventQuery } from "./feed.js";
 
 const SLACK_ANNOUNCE = ["blocked", "all", "none"] as const;
 
@@ -61,12 +62,13 @@ export async function getRoom(
   name: string,
   opts?: { after?: string },
 ): Promise<RoomView> {
+  const after = opts?.after;
+  validateEventQuery({ after });
   await requirePerm(db, auth, name, "read");
   // Read the cursor first so no event committed after this point is skipped by a follower.
   const cursor = await currentCursor(db);
   const room = await getRoomInfo(db, name);
   if (!room) throw new BoardError("not_found", `room not found: ${name}`);
-  const after = opts?.after;
   const rows = await db`
     select t.id, t.room, t.is_task, t.labels, t.created_at,
            a.id as actor_id, a.name as actor_name, a.kind as actor_kind,
