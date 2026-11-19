@@ -3,13 +3,15 @@ import { mkdirSync } from "node:fs";
 import { createServer } from "node:net";
 import { setTimeout as sleep } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
-import { chromium } from "playwright";
+import { chromium, type Page } from "playwright";
 import { createClient } from "@copilotkit/teamkit-client";
+import type { Permission } from "@copilotkit/teamkit-protocol";
+import { createAgent } from "../../server/src/store/actors.js";
 import { invitePerson } from "../../server/src/store/people.js";
 import { createJoinLink } from "../../server/src/store/join.js";
 import { pollDevice, startDevice } from "../../server/src/store/device.js";
 import { setRoom } from "../../server/src/store/rooms.js";
-import { agentToken, startTestServer } from "../../server/test/helpers/server.js";
+import { startTestServer } from "../../server/test/helpers/server.js";
 
 const WEB_DIR = fileURLToPath(new URL("..", import.meta.url));
 const SHOTS_DIR = fileURLToPath(new URL("../../../.tmp/smoke", import.meta.url));
@@ -72,24 +74,25 @@ function killTree(child: ChildProcess | undefined): void {
   }
 }
 
+const GRANTS: { room: string; perms: Permission[] }[] = [
+  { room: "billing-migration", perms: ["read", "post", "claim", "create"] },
+  { room: "billing-prod", perms: ["read", "post", "claim", "create"] },
+];
+
 async function main(): Promise<void> {
   const srv = await startTestServer();
   let next: ChildProcess | undefined;
   let browser: Awaited<ReturnType<typeof chromium.launch>> | undefined;
   try {
-    const { secret } = await invitePerson(srv.db, { name: "ada", role: "admin" });
-
-    const worker = createClient({
+    // The invented billing migration: sam (admin) approves billing-prod; ana and ben are members.
+    const sam = await invitePerson(srv.db, { name: "sam", role: "admin" });
+    const ana = await invitePerson(srv.db, { name: "ana", role: "member" });
+    const anaAgent = createClient({
       url: srv.url,
-      token: await agentToken(srv.db, "worker", [{ room: "build", perms: ["read", "post", "claim", "create"] }]),
+      token: (await createAgent(srv.db, { name: "ana-agent", ownerId: ana.person.id, grants: GRANTS })).token,
     });
-    const task = await worker.createTask({ room: "build", brief: "Pick a database" });
-    const claim = await worker.claim(task.id);
-    await worker.block(task.id, claim.claimId, {
-      kind: "needs_input",
-      question: "Which database?",
-      options: ["pg", "sqlite"],
-    });
+    await setRoom(srv.db, "billing-migration", {});
+    await setRoom(srv.db, "billing-prod", { approvers: ["sam"] });
 
     const env: NodeJS.ProcessEnv = { ...process.env, NODE_ENV: "production", NEXT_DIST_DIR: DIST_DIR, TEAMKIT_SERVER_URL: srv.url };
     const nextBin = fileURLToPath(new URL("../node_modules/next/dist/bin/next", import.meta.url));
@@ -115,46 +118,87 @@ async function main(): Promise<void> {
     ]);
 
     browser = await chromium.launch();
+    mkdirSync(SHOTS_DIR, { recursive: true });
+
+    /** Signs in with a one-time link. The link is spent only on a click, so a scanner cannot use it up. */
+    const signIn = async (p: Page, secret: string): Promise<void> => {
+      await p.goto(`${base}/signin/${secret}`);
+      await p.getByRole("button", { name: "Sign in", exact: true }).waitFor();
+      await p.waitForLoadState("networkidle");
+      assert(p.url() === `${base}/signin/${secret}`, `the sign-in page waits for a click (now at ${p.url()})`);
+      await p.getByRole("button", { name: "Sign in", exact: true }).click();
+      await p.waitForURL(`${base}/`);
+    };
+
+    // ben joins the team with its join link, then connects ben-agent with a device code.
+    const { secret: joinSecret } = await createJoinLink(srv.db, { createdBy: null, domains: ["example.com"] });
+    const benPage = await (await browser.newContext({ viewport: { width: 390, height: 844 } })).newPage();
+    benPage.setDefaultTimeout(15_000);
+    await benPage.goto(`${base}/join/${joinSecret}`);
+    await benPage.getByLabel("Name").fill("ben");
+    await benPage.getByLabel("Email").fill("ben@example.com");
+    await benPage.getByRole("button", { name: "Join", exact: true }).click();
+    await benPage.getByText("You're in, ben.").waitFor();
+    await benPage.screenshot({ path: `${SHOTS_DIR}/join-390.png`, fullPage: true });
+    const d = await startDevice(srv.db, "agent");
+    await benPage.goto(`${base}/device?code=${d.userCode}&mode=agent`);
+    await benPage.getByRole("checkbox", { name: "billing-migration" }).check();
+    await benPage.getByRole("checkbox", { name: "billing-prod" }).check();
+    await benPage.getByRole("checkbox", { name: /This code matches the one my agent printed/ }).check();
+    await benPage.getByRole("button", { name: "Connect ben-agent" }).click();
+    await benPage.getByText("ben-agent is connected").waitFor();
+    await benPage.screenshot({ path: `${SHOTS_DIR}/device-agent-390.png`, fullPage: true });
+    const polled = await pollDevice(srv.db, d.deviceCode);
+    assert(polled.status === "approved" && polled.actor.name === "ben-agent", `the device poll hands out ben-agent (got ${JSON.stringify(polled)})`);
+    const benWidth = await benPage.evaluate(() => ({ scrollWidth: document.documentElement.scrollWidth, innerWidth: window.innerWidth }));
+    assert(benWidth.scrollWidth <= benWidth.innerWidth, `device page at 390px has no horizontal overflow (${benWidth.scrollWidth} > ${benWidth.innerWidth})`);
+    const benAgent = createClient({ url: srv.url, token: polled.token });
+
+    const copy = await benAgent.createTask({ room: "billing-migration", brief: "Copy invoices to the new database" });
+    const copyClaim = await benAgent.claim(copy.id);
+    await benAgent.block(copy.id, copyClaim.claimId, { kind: "needs_input", question: "Which batch size?", options: ["500", "5000"] });
+
+    const writes = await anaAgent.createTask({ room: "billing-prod", brief: "Switch invoice writes to the new database" });
+    const writesClaim = await anaAgent.claim(writes.id);
+    await anaAgent.block(writes.id, writesClaim.claimId, {
+      kind: "awaiting_approval",
+      question: "Switch writes now?",
+      options: ["approve", "reject"],
+      approvers: ["sam"],
+    });
+
     const context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
     const page = await context.newPage();
     page.setDefaultTimeout(15_000);
-
-    // The sign-in link is spent only on a click, so a link scanner that runs scripts cannot use it up.
-    await page.goto(`${base}/signin/${secret}`);
-    await page.getByRole("button", { name: "Sign in", exact: true }).waitFor();
-    await page.waitForLoadState("networkidle");
-    assert(page.url() === `${base}/signin/${secret}`, `the sign-in page waits for a click (now at ${page.url()})`);
-    await page.getByRole("button", { name: "Sign in", exact: true }).click();
-    await page.waitForURL(`${base}/`);
+    await signIn(page, sam.secret);
     // The sidebar shows the person without a reload: sign-in ends with a full page load.
     const sidebar = page.getByRole("complementary", { name: "Workspace" });
     await sidebar.getByRole("button", { name: "Sign out" }).waitFor();
     const sidebarText = await sidebar.innerText();
     assert(/AG-UI\s+TeamKit/.test(sidebarText), `sidebar reads "AG-UI TeamKit" (got ${JSON.stringify(sidebarText)})`);
-    assert(sidebarText.includes("ada"), `sidebar shows the signed-in person (got ${JSON.stringify(sidebarText)})`);
+    assert(sidebarText.includes("sam"), `sidebar shows the signed-in person (got ${JSON.stringify(sidebarText)})`);
 
     const blockedCol = page.getByRole("region", { name: "Blocked" });
-    const card = blockedCol.locator("a", { hasText: "Pick a database" });
+    const card = blockedCol.locator("a", { hasText: "Copy invoices to the new database" });
     await card.waitFor();
     await card.click();
-    await page.waitForURL(`${base}/t/${task.id}`);
-    await page.getByText("Which database?").first().waitFor();
+    await page.waitForURL(`${base}/t/${copy.id}`);
+    await page.getByText("Which batch size?").first().waitFor();
 
-    await page.getByRole("button", { name: "pg", exact: true }).click();
+    await page.getByRole("button", { name: "500", exact: true }).click();
     // The open task panel shows the task's state as it changes.
     await page.locator('[data-task-state="ready"]').waitFor({ timeout: 10_000 });
-    const view = await worker.thread(task.id);
+    const view = await benAgent.thread(copy.id);
     assert(view.task?.state === "ready", `server state is ready (got ${view.task?.state})`);
 
-    mkdirSync(SHOTS_DIR, { recursive: true });
     for (const vp of VIEWPORTS) {
       await page.setViewportSize(vp);
       for (const [name, path] of [
         ["board", "/"],
-        ["thread", `/t/${task.id}`],
+        ["thread", `/t/${copy.id}`],
       ] as const) {
         await page.goto(`${base}${path}`);
-        await page.getByText("Pick a database").first().waitFor();
+        await page.getByText("Copy invoices to the new database").first().waitFor();
         await page.waitForLoadState("networkidle");
         await page.screenshot({ path: `${SHOTS_DIR}/${name}-${vp.width}.png`, fullPage: true });
         const { scrollWidth, innerWidth } = await page.evaluate(() => ({
@@ -164,29 +208,6 @@ async function main(): Promise<void> {
         assert(scrollWidth <= innerWidth, `${name} at ${vp.width}px has no horizontal overflow (${scrollWidth} > ${innerWidth})`);
       }
     }
-
-    // A teammate joins with the team's join link, then connects their own agent with a device code.
-    const { secret: joinSecret } = await createJoinLink(srv.db, { createdBy: null, domains: ["example.com"] });
-    await setRoom(srv.db, "billing-migration", {});
-    const ben = await (await browser.newContext({ viewport: { width: 390, height: 844 } })).newPage();
-    ben.setDefaultTimeout(15_000);
-    await ben.goto(`${base}/join/${joinSecret}`);
-    await ben.getByLabel("Name").fill("ben");
-    await ben.getByLabel("Email").fill("ben@example.com");
-    await ben.getByRole("button", { name: "Join", exact: true }).click();
-    await ben.getByText("You're in, ben.").waitFor();
-    await ben.screenshot({ path: `${SHOTS_DIR}/join-390.png`, fullPage: true });
-    const d = await startDevice(srv.db, "agent");
-    await ben.goto(`${base}/device?code=${d.userCode}&mode=agent`);
-    await ben.getByRole("checkbox", { name: "billing-migration" }).check();
-    await ben.getByRole("checkbox", { name: /This code matches the one my agent printed/ }).check();
-    await ben.getByRole("button", { name: "Connect ben-agent" }).click();
-    await ben.getByText("ben-agent is connected").waitFor();
-    await ben.screenshot({ path: `${SHOTS_DIR}/device-agent-390.png`, fullPage: true });
-    const polled = await pollDevice(srv.db, d.deviceCode);
-    assert(polled.status === "approved" && polled.actor.name === "ben-agent", `the device poll hands out ben-agent (got ${JSON.stringify(polled)})`);
-    const benWidth = await ben.evaluate(() => ({ scrollWidth: document.documentElement.scrollWidth, innerWidth: window.innerWidth }));
-    assert(benWidth.scrollWidth <= benWidth.innerWidth, `device page at 390px has no horizontal overflow (${benWidth.scrollWidth} > ${benWidth.innerWidth})`);
   } finally {
     await browser?.close().catch(() => {});
     killTree(next);
