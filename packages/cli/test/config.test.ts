@@ -3,7 +3,7 @@ import { mkdtempSync, statSync, writeFileSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { configPath, readConfigFile, resolveConfig, writeConfigFile } from "../src/config.js";
+import { clearConfigKeys, configPath, readConfigFile, resolveAdminConfig, resolveConfig, writeConfigFile } from "../src/config.js";
 import { CliExit, UsageError } from "../src/errors.js";
 
 function env(extra: Record<string, string> = {}): Record<string, string> {
@@ -86,4 +86,45 @@ test("a non-string config value is a UsageError only when it is needed", () => {
     (err: unknown) => err instanceof UsageError && err.message === `token in ${configPath(e)} must be a string`,
   );
   assert.deepEqual(resolveConfig({ token: "flag-tok" }, e), { url: "http://file", token: "flag-tok" });
+});
+
+test("admin token precedence: flag > env > file", () => {
+  const e = env({ TEAMKIT_URL: "http://env", TEAMKIT_ADMIN_TOKEN: "env-admin" });
+  writeConfigFile({ url: "http://file", adminToken: "file-admin" }, e);
+  assert.deepEqual(resolveAdminConfig({ url: "http://flag", token: "flag-admin" }, e), { url: "http://flag", token: "flag-admin" });
+  assert.deepEqual(resolveAdminConfig({}, e), { url: "http://env", token: "env-admin" });
+  const f = env();
+  writeConfigFile({ url: "http://file/", adminToken: "file-admin" }, f);
+  assert.deepEqual(resolveAdminConfig({}, f), { url: "http://file", token: "file-admin" });
+});
+
+test("the agent token is never used as the admin token", () => {
+  const e = env({ TEAMKIT_URL: "http://x", TEAMKIT_TOKEN: "tk_agent" });
+  assert.throws(
+    () => resolveAdminConfig({}, e),
+    (err: unknown) =>
+      err instanceof UsageError &&
+      err.code === 2 &&
+      err.message === "not signed in for admin commands: run `teamkit login` or set TEAMKIT_ADMIN_TOKEN",
+  );
+  writeConfigFile({ token: "file-agent" }, e);
+  assert.throws(() => resolveAdminConfig({}, e), UsageError);
+});
+
+test("the admin token is never used as the agent token", () => {
+  const e = env({ TEAMKIT_URL: "http://x", TEAMKIT_ADMIN_TOKEN: "env-admin" });
+  writeConfigFile({ adminToken: "file-admin" }, e);
+  assert.throws(
+    () => resolveConfig({}, e),
+    (err: unknown) => err instanceof UsageError && err.code === 2 && err.message === "set TEAMKIT_TOKEN or --token",
+  );
+});
+
+test("clearConfigKeys removes only the named keys and keeps 0600", () => {
+  const e = env();
+  writeConfigFile({ url: "http://a", token: "t", adminToken: "a" }, e);
+  clearConfigKeys(["adminToken"], e);
+  assert.deepEqual(readConfigFile(e), { url: "http://a", token: "t" });
+  assert.equal(statSync(configPath(e)).mode & 0o777, 0o600);
+  clearConfigKeys(["adminToken"], env());
 });
