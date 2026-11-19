@@ -15,7 +15,7 @@ import {
 import type { Db, Q } from "../db/pool.js";
 import { requirePerm, type AuthContext } from "./actors.js";
 import { appendEvent } from "./events.js";
-import { lockClaim } from "./claims.js";
+import { lockClaim, type SettleOptions } from "./claims.js";
 import { getRoomInfo } from "./rooms.js";
 import { appendMessage, assertCleanString, assertText, messageFor } from "./rows.js";
 import { loadTask } from "./task-load.js";
@@ -58,16 +58,23 @@ export async function block(
   auth: AuthContext,
   taskId: string,
   claimId: string,
-  input: { question: string; kind: BlockKind; options?: string[] },
+  input: { question: string; kind: BlockKind; options?: string[]; interruptId?: string },
+  opts?: SettleOptions,
 ): Promise<Task> {
   if (!(BLOCK_KINDS as readonly unknown[]).includes(input.kind)) {
     throw new BoardError("invalid_input", `kind must be one of ${BLOCK_KINDS.join(", ")}`);
   }
   const question = assertText("question", input.question, { required: true }) as string;
   const options = validateOptions(input.options);
+  if (input.interruptId !== undefined) {
+    if (typeof input.interruptId !== "string" || input.interruptId.length === 0 || input.interruptId.length > 200) {
+      throw new BoardError("invalid_input", "interruptId must be a non-empty string of at most 200 characters");
+    }
+    assertCleanString("interruptId", input.interruptId);
+  }
   return db.begin(async (tx) => {
     const task = await lockClaim(tx, auth, taskId, claimId);
-    const interruptId = newId(ID_PREFIXES.interrupt);
+    const interruptId = input.interruptId ?? newId(ID_PREFIXES.interrupt);
     const stored: TaskBlock = { interruptId, kind: input.kind, question, options, blockedBy: auth.actor };
     await tx`
       update tasks
@@ -84,12 +91,14 @@ export async function block(
       actorId: auth.actor.id,
       agui: [
         ...textMessage({ messageId, role: "assistant", text: said, actor: auth.actor }),
-        runFinishedInterrupt(taskId, claimId, {
-          id: interruptId,
-          reason: input.kind,
-          message: question,
-          responseSchema: options ? choiceSchema(options) : undefined,
-        }),
+        opts?.closesRun === false
+          ? custom("teamkit.task.blocked", { interruptId, kind: input.kind, question, options })
+          : runFinishedInterrupt(taskId, claimId, {
+              id: interruptId,
+              reason: input.kind,
+              message: question,
+              responseSchema: options ? choiceSchema(options) : undefined,
+            }),
       ],
       data: { taskId, state: "blocked", interruptId, kind: input.kind, question, options, messageId },
     });

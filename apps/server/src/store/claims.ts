@@ -164,19 +164,37 @@ export async function renew(
   });
 }
 
-export async function release(db: Db, auth: AuthContext, taskId: string, claimId: string): Promise<Task> {
+/**
+ * closesRun false is for dispatcher-run tasks, whose run the agent itself opened and closed:
+ * settling then writes a CUSTOM event instead of a second RUN_FINISHED or RUN_ERROR.
+ */
+export interface SettleOptions {
+  closesRun?: boolean;
+}
+
+export async function release(
+  db: Db,
+  auth: AuthContext,
+  taskId: string,
+  claimId: string,
+  opts?: SettleOptions & { countAttempt?: boolean },
+): Promise<Task> {
   return db.begin(async (tx) => {
     const task = await lockClaim(tx, auth, taskId, claimId);
     await tx`
       update tasks
-      set state = 'ready', claim_id = null, claimed_by = null, lease_expires_at = null, updated_at = now()
+      set state = 'ready', claim_id = null, claimed_by = null, lease_expires_at = null,
+          attempts = attempts + ${opts?.countAttempt ? 1 : 0}, updated_at = now()
       where thread_id = ${taskId}`;
     await appendEvent(tx, {
       kind: "task.released",
       room: task.room,
       threadId: taskId,
       actorId: auth.actor.id,
-      agui: [runError("released", "teamkit.released")],
+      agui:
+        opts?.closesRun === false
+          ? [custom("teamkit.task.released", { claimId })]
+          : [runError("released", "teamkit.released")],
       data: { taskId, state: "ready", claimId },
     });
     return mustLoad(tx, taskId);
@@ -189,6 +207,7 @@ export async function complete(
   taskId: string,
   claimId: string,
   result: string | null,
+  opts?: SettleOptions,
 ): Promise<Task> {
   const text = assertText("result", result) ?? null;
   // Locks the task, then its waiting dependents: a createTask holding one of those
@@ -224,7 +243,10 @@ export async function complete(
       room: task.room,
       threadId: taskId,
       actorId: auth.actor.id,
-      agui: [runFinishedSuccess(taskId, claimId, text)],
+      agui:
+        opts?.closesRun === false
+          ? [custom("teamkit.task.completed", { claimId, result: text })]
+          : [runFinishedSuccess(taskId, claimId, text)],
       data: { taskId, state: "completed", claimId },
     });
     for (const p of promoted) {
@@ -247,6 +269,7 @@ export async function fail(
   taskId: string,
   claimId: string,
   reason: string,
+  opts?: SettleOptions,
 ): Promise<Task> {
   const why = assertText("reason", reason, { required: true }) as string;
   return db.begin(async (tx) => {
@@ -261,9 +284,25 @@ export async function fail(
       room: task.room,
       threadId: taskId,
       actorId: auth.actor.id,
-      agui: [runError(why, "teamkit.failed")],
+      agui:
+        opts?.closesRun === false
+          ? [custom("teamkit.task.failed", { claimId, reason: why })]
+          : [runError(why, "teamkit.failed")],
       data: { taskId, state: "failed", claimId, reason: why },
     });
     return mustLoad(tx, taskId);
+  });
+}
+
+/** Drops the stored resume once the dispatcher has sent it to the agent. Writes no event. */
+export async function clearPendingResume(
+  db: Db,
+  auth: AuthContext,
+  taskId: string,
+  claimId: string,
+): Promise<void> {
+  await db.begin(async (tx) => {
+    await lockClaim(tx, auth, taskId, claimId);
+    await tx`update tasks set pending_resume = null where thread_id = ${taskId}`;
   });
 }
