@@ -2,6 +2,8 @@ import { readFileSync } from "node:fs";
 import { Command, CommanderError } from "commander";
 import { exitCodeFor } from "./args.js";
 import { defaultContext, type CliContext } from "./context.js";
+import { registerAdmin } from "./commands/admin.js";
+import { registerLogin } from "./commands/login.js";
 import { registerPost } from "./commands/post.js";
 import { registerRead } from "./commands/read.js";
 import { registerTasks } from "./commands/tasks.js";
@@ -27,6 +29,8 @@ export function buildProgram(ctx: CliContext): Command {
   registerWait(program, ctx);
   registerTasks(program, ctx);
   registerRun(program, ctx);
+  registerLogin(program, ctx);
+  registerAdmin(program, ctx);
   return program;
 }
 
