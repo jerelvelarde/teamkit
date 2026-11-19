@@ -56,6 +56,30 @@ importers:
         specifier: 3.25.76
         version: 3.25.76
 
+  e2e:
+    devDependencies:
+      '@ag-ui/core':
+        specifier: 1.0.2
+        version: 1.0.2(zod@3.25.76)
+      '@copilotkit/teamkit-client':
+        specifier: workspace:*
+        version: link:../packages/client
+      '@copilotkit/teamkit-protocol':
+        specifier: workspace:*
+        version: link:../packages/protocol
+      '@types/node':
+        specifier: ^22.0.0
+        version: 22.20.5
+      tsx:
+        specifier: ^4.20.0
+        version: 4.23.15
+      typescript:
+        specifier: ~5.9.3
+        version: 5.9.3
+      zod:
+        specifier: 3.25.76
+        version: 3.25.76
+
   packages/cli:
     dependencies:
       '@copilotkit/teamkit-client':
