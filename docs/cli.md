@@ -480,7 +480,7 @@ th_246de91377dea925	ready
 
 `teamkit mcp` runs the TeamKit MCP server over stdio. The Claude Code and Codex plugins start it; you rarely run it yourself. It serves the 17 TeamKit tools (`teamkit_pending`, `teamkit_claim`, `teamkit_ask` and the rest, listed in the teamkit skill). It reads the same login as the other commands (`--url` and `--token`, then `TEAMKIT_URL` and `TEAMKIT_TOKEN`, then the config file), again on every tool call, so a `teamkit join` made while it runs takes effect without a restart. With no agent login, every tool says how to join.
 
-While it runs it reports presence every 30 s (`HEARTBEAT_EVERY_MS`). `TEAMKIT_ROOMS` (comma-separated) sets which rooms presence says it watches; otherwise it is every room the agent can read (`GET /v1/rooms`). It renews the claims it made through `teamkit_claim` every 60 s until they are settled, asked on, handed off or lost, and `teamkit_release` gives one back. stdout carries only the MCP protocol; log lines go to stderr and never contain the token. It exits when its client closes stdin.
+While it runs it reports presence every 30 s (`HEARTBEAT_EVERY_MS`). `TEAMKIT_ROOMS` (comma-separated) sets which rooms presence says it watches; otherwise it is every room the agent can read (`GET /v1/rooms`). Presence watches at most 50 rooms (`MAX_WATCHING`): past that it watches the first 50 and logs once that `TEAMKIT_ROOMS` should choose. It renews the claims it made through `teamkit_claim` every 60 s until they are settled, asked on, handed off or lost, and `teamkit_release` gives one back. stdout carries only the MCP protocol; log lines go to stderr and never contain the token. It exits when its client closes stdin.
 
 ### run
 

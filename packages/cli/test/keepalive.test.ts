@@ -13,12 +13,15 @@ interface Fake {
   calls: { rooms: number; heartbeat: { watching: string[]; status?: string }[]; renew: [string, string][] };
 }
 
-function fake(over: Partial<Record<"heartbeat" | "renew", (...a: never[]) => Promise<unknown>>> = {}): Fake {
+function fake(
+  over: Partial<Record<"heartbeat" | "renew", (...a: never[]) => Promise<unknown>>> = {},
+  rooms: string[] = ["billing-migration"],
+): Fake {
   const calls: Fake["calls"] = { rooms: 0, heartbeat: [], renew: [] };
   const client = {
     rooms: async () => {
       calls.rooms++;
-      return [{ name: "billing-migration" }];
+      return rooms.map((name) => ({ name }));
     },
     heartbeat: async (input: { watching: string[]; status?: string }) => {
       calls.heartbeat.push(input);
@@ -64,6 +67,22 @@ test("beats at start and then every interval", async () => {
     await delay(70);
     assert.ok(f.calls.heartbeat.length >= 3, String(f.calls.heartbeat.length));
     for (const h of f.calls.heartbeat) assert.deepEqual(h, { watching: ["billing-migration"] });
+  } finally {
+    ka.stop();
+  }
+});
+
+test("an agent that can read more than 50 rooms watches the first 50 and says so once", async () => {
+  // The server refuses a heartbeat watching more than 50 rooms, which would leave the agent off.
+  const rooms = Array.from({ length: 60 }, (_, i) => `billing-shard-${String(i).padStart(2, "0")}`);
+  const f = fake({}, rooms);
+  const env = isolatedEnv();
+  const lines: string[] = [];
+  const ka = startKeepalive({ session: sessionOf(f.client), leases: createLeases(env), env, log: (l) => lines.push(l), heartbeatMs: 20 });
+  try {
+    await waitFor(() => f.calls.heartbeat.length >= 3);
+    for (const h of f.calls.heartbeat) assert.deepEqual(h.watching, rooms.slice(0, 50));
+    assert.deepEqual(lines, ["teamkit mcp: watching the first 50 of 60 rooms; set TEAMKIT_ROOMS to choose at most 50"]);
   } finally {
     ka.stop();
   }

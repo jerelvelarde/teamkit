@@ -244,6 +244,8 @@ export const RESERVATION_MINUTES_MAX = 1440;
 export const HEARTBEAT_EVERY_MS = 30_000;
 /** An agent counts as on when one of its sessions was seen within this long. */
 export const PRESENCE_ON_MS = 90_000;
+/** The most room patterns one heartbeat may watch. */
+export const MAX_WATCHING = 50;
 /** A roll call shows as waiting for this long. */
 export const ROLLCALL_OPEN_MS = 3_600_000;
 export const MAX_APPROVERS = 10;

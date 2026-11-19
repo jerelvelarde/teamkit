@@ -1,4 +1,4 @@
-import { HEARTBEAT_EVERY_MS, RENEW_EVERY_MS } from "@copilotkit/teamkit-protocol";
+import { HEARTBEAT_EVERY_MS, MAX_WATCHING, RENEW_EVERY_MS } from "@copilotkit/teamkit-protocol";
 import { TeamkitError, type TeamkitClient } from "@copilotkit/teamkit-client";
 import type { Leases } from "./leases.js";
 import { NotSignedInError, type Env, type Session } from "./session.js";
@@ -36,6 +36,7 @@ export function startKeepalive(opts: {
 }): Keepalive {
   const { session, leases, env, log } = opts;
   let lastBeatError: string | null = null;
+  let lastCapLine: string | null = null;
   const renewErrors = new Map<string, string>();
   let beating = false;
   let renewing = false;
@@ -46,7 +47,14 @@ export function startKeepalive(opts: {
     beating = true;
     try {
       const client = session.client();
-      await client.heartbeat({ watching: await watchedRooms(env, client) });
+      const rooms = await watchedRooms(env, client);
+      // The server refuses more than MAX_WATCHING, which would leave this agent off everywhere.
+      if (rooms.length > MAX_WATCHING) {
+        const line = `teamkit mcp: watching the first ${MAX_WATCHING} of ${rooms.length} rooms; set TEAMKIT_ROOMS to choose at most ${MAX_WATCHING}`;
+        if (line !== lastCapLine) log(line);
+        lastCapLine = line;
+      }
+      await client.heartbeat({ watching: rooms.slice(0, MAX_WATCHING) });
       lastBeatError = null;
     } catch (e) {
       const line =

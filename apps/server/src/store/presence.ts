@@ -1,9 +1,7 @@
-import { BoardError, isValidRoomPattern, roomMatches, type ActorRef, type Presence } from "@copilotkit/teamkit-protocol";
+import { BoardError, MAX_WATCHING, isValidRoomPattern, roomMatches, type ActorRef, type Presence } from "@copilotkit/teamkit-protocol";
 import type { Db, Q } from "../db/pool.js";
 import { requirePerm, type AuthContext } from "./actors.js";
 import { MAX_STATUS_LENGTH, assertRoomName, assertShort } from "./coord-rows.js";
-
-const MAX_WATCHING = 50;
 
 /**
  * One agent install says it is on: one row per token, so each install reports its own presence.
