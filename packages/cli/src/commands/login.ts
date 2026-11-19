@@ -20,7 +20,21 @@ export function registerLogin(program: Command, ctx: CliContext): void {
       if (!raw || typeof raw !== "string") throw new UsageError("set TEAMKIT_URL or --url");
       const url = raw.replace(/\/$/, "");
 
-      const start = await startDeviceLogin(url);
+      let start;
+      try {
+        start = await startDeviceLogin(url);
+      } catch (e) {
+        if (e instanceof TeamkitError && e.status === 429 && e.code === "rate_limited") {
+          const wait = e.retryAfterSeconds;
+          throw new CliExit(
+            1,
+            wait === undefined
+              ? "Too many login attempts; try again shortly."
+              : `Too many login attempts; try again in ${wait} s.`,
+          );
+        }
+        throw e;
+      }
       ctx.err(`To sign in, open ${start.verifyUrl} and confirm code ${start.userCode}`);
       if (json) ctx.out(JSON.stringify({ userCode: start.userCode, verifyUrl: start.verifyUrl }));
 

@@ -127,6 +127,24 @@ async function stubServer(status: number | null) {
   };
 }
 
+test("login prints a clean message and exits 1 when device/start is rate limited", async () => {
+  const srv = createServer((_req, res) => {
+    res.writeHead(429, { "content-type": "application/json", "retry-after": "42" });
+    res.end(JSON.stringify({ error: { code: "rate_limited", message: "too many login codes requested; try again shortly" } }));
+  });
+  await new Promise<void>((resolve) => srv.listen(0, "127.0.0.1", resolve));
+  try {
+    const url = `http://127.0.0.1:${(srv.address() as AddressInfo).port}`;
+    const r = await runCli(["login"], isolatedEnv({ TEAMKIT_URL: url }));
+    assert.equal(r.code, 1);
+    assert.equal(r.stderr.trim(), "Too many login attempts; try again in 42 s.");
+    assert.equal(r.stdout, "");
+  } finally {
+    srv.closeAllConnections();
+    await new Promise<void>((resolve) => srv.close(() => resolve()));
+  }
+});
+
 const REVOKE_FAILED = "Could not revoke the admin token; revoke it on the admin page.";
 
 for (const status of [500, 403]) {

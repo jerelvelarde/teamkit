@@ -31,12 +31,15 @@ export const DEFAULT_TIMEOUT_MS = 15_000;
 export class TeamkitError extends Error {
   readonly code: string;
   readonly status: number;
+  /** Seconds the server asked the caller to wait (its Retry-After header on a 429), when it sent one. */
+  readonly retryAfterSeconds?: number;
 
-  constructor(code: string, status: number, message: string) {
+  constructor(code: string, status: number, message: string, retryAfterSeconds?: number) {
     super(message);
     this.name = "TeamkitError";
     this.code = code;
     this.status = status;
+    if (retryAfterSeconds !== undefined) this.retryAfterSeconds = retryAfterSeconds;
   }
 }
 
@@ -96,7 +99,9 @@ export async function toError(res: Response): Promise<TeamkitError> {
   try {
     const body = JSON.parse(text) as { error?: { code?: unknown; message?: unknown } };
     if (typeof body.error?.code === "string") {
-      return new TeamkitError(body.error.code, res.status, String(body.error.message ?? ""));
+      const raw = res.headers.get("retry-after")?.trim();
+      const retryAfter = raw !== undefined && /^\d+$/.test(raw) ? Number(raw) : undefined;
+      return new TeamkitError(body.error.code, res.status, String(body.error.message ?? ""), retryAfter);
     }
   } catch {
     // fall through to http_error
