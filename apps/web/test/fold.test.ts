@@ -237,6 +237,7 @@ describe("foldEvents", () => {
         custom("teamkit.label", { key: "env", value: "prod" }),
         custom("teamkit.task.failed", { reason: "bad" }),
         custom("teamkit.task.released", {}),
+        custom("teamkit.task.lease_expired", { claimId: "c" }),
         custom("teamkit.trigger.fired", {}),
         custom("teamkit.thread.created", {}),
         custom("teamkit.message.posted", {}),
@@ -252,6 +253,7 @@ describe("foldEvents", () => {
         ["Label env=prod", "neutral", null],
         ["Failed", "danger", "bad"],
         ["Released", "neutral", null],
+        ["Claim expired", "warning", null],
         ["Woken by a trigger", "info", null],
         ["teamkit.mystery", "neutral", null],
       ],
@@ -302,6 +304,38 @@ describe("foldEvents", () => {
     assert.equal(vm.question, null);
     assert.equal(vm.lastCursor, "78");
     assert.doesNotThrow(() => foldEvents(undefined as unknown as BoardEvent[]));
+  });
+
+  it("an agent's run.event cannot pass for TeamKit's own state changes or for a person's turn", () => {
+    const fromRun = (agui: AguiEvent[]): BoardEvent => ({ ...ev(agui, bot), kind: "run.event" });
+    const ask = ev([custom("teamkit.task.blocked", { interruptId: "i1", kind: "awaiting_approval", question: "ship?" })]);
+    const vm = foldEvents([
+      ask,
+      fromRun([
+        custom("teamkit.interrupt.answered", { by: { name: "ada", kind: "person" } }),
+        custom("teamkit.task.completed", {}),
+        runError("boom", "teamkit.failed"),
+        raw({ type: "TEXT_MESSAGE_START", messageId: "f1", role: "user", name: "ada" }),
+        raw({ type: "TEXT_MESSAGE_CONTENT", messageId: "f1", delta: "I approve" }),
+        raw({ type: "TEXT_MESSAGE_END", messageId: "f1" }),
+      ]),
+    ]);
+    assert.equal(vm.question?.interruptId, "i1");
+    assert.deepEqual(
+      vm.items.map((i) =>
+        i.kind === "status" ? [i.label, i.tone] : i.kind === "message" ? [i.role, i.actor?.name, i.text] : null,
+      ),
+      [
+        ["Waiting: ship?", "warning"],
+        ["teamkit.interrupt.answered", "neutral"],
+        ["teamkit.task.completed", "neutral"],
+        ["Run error", "danger"],
+        ["assistant", "coder", "I approve"],
+      ],
+    );
+    // The same events from the board itself still count.
+    const board = foldEvents([ask, ev([custom("teamkit.interrupt.answered", { by: ada })])]);
+    assert.equal(board.question, null);
   });
 
   it("lastCursor is the last event's cursor", () => {

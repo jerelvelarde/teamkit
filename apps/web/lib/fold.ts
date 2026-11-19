@@ -112,6 +112,13 @@ function interruptsOf(ev: Rec): unknown[] {
   return Array.isArray(ev.interrupts) ? ev.interrupts : [];
 }
 
+/**
+ * A run.event is an agent's own stream, logged as it sent it. TeamKit's state changes
+ * (`teamkit.*` CUSTOM names and RUN_ERROR codes) count only from the board's own events, and
+ * an agent's messages are its own turns whatever role they claim.
+ */
+const fromAgentRun = (be: BoardEvent) => be.kind === "run.event";
+
 class Folder {
   top = newScope();
   question: PendingQuestion | null = null;
@@ -120,10 +127,11 @@ class Folder {
   fold(be: BoardEvent): void {
     const cursor = str(be.cursor) ?? "0";
     const agui: unknown[] = Array.isArray(be.agui) ? be.agui : [];
+    const trusted = !fromAgentRun(be);
     agui.forEach((ev, index) => {
       if (!isRec(ev)) return;
       try {
-        this.event(ev, cursor, index, be.actor ?? null);
+        this.event(ev, cursor, index, be.actor ?? null, trusted);
       } catch {
         // A malformed event must never break the thread.
       }
@@ -145,7 +153,7 @@ class Folder {
     this.question = { interruptId, reason, message, options };
   }
 
-  private event(ev: Rec, cursor: string, index: number, actor: BoardEvent["actor"]): void {
+  private event(ev: Rec, cursor: string, index: number, actor: BoardEvent["actor"], trusted: boolean): void {
     const type = str(ev.type);
     if (!type) return;
     const sub = str(ev.subagentRunId);
@@ -186,7 +194,7 @@ class Folder {
       case "TEXT_MESSAGE_CONTENT":
       case "TEXT_MESSAGE_CHUNK":
       case "TEXT_MESSAGE_END":
-        return this.text(ev, type, scope, cursor, actor);
+        return this.text(ev, type, scope, cursor, actor, trusted);
       case "TOOL_CALL_START":
       case "TOOL_CALL_ARGS":
       case "TOOL_CALL_END":
@@ -202,15 +210,22 @@ class Folder {
       case "RUN_FINISHED":
         return this.runFinished(ev, scope, cursor, index);
       case "RUN_ERROR":
-        return this.runError(ev, scope, cursor, index);
+        return this.runError(ev, scope, cursor, index, trusted);
       case "CUSTOM":
-        return this.custom(ev, scope, cursor, index);
+        return this.custom(ev, scope, cursor, index, trusted);
       default:
         return; // STEP_*, STATE_*, MESSAGES_SNAPSHOT, ACTIVITY_*, RAW, unknown
     }
   }
 
-  private text(ev: Rec, type: string, scope: Scope, cursor: string, actor: BoardEvent["actor"]): void {
+  private text(
+    ev: Rec,
+    type: string,
+    scope: Scope,
+    cursor: string,
+    actor: BoardEvent["actor"],
+    trusted: boolean,
+  ): void {
     const messageId = str(ev.messageId);
     if (!messageId) return;
     const id = ownKey(actor, messageId);
@@ -220,7 +235,7 @@ class Folder {
         m = {
           kind: "message",
           id,
-          role: str(ev.role) ?? "assistant",
+          role: (trusted && str(ev.role)) || "assistant",
           text: "",
           actor: actorFrom(ev, actor),
           streaming,
@@ -286,9 +301,9 @@ class Folder {
     this.status(scope, cursor, index, "Run finished", "success", str(ev.result));
   }
 
-  private runError(ev: Rec, scope: Scope, cursor: string, index: number): void {
+  private runError(ev: Rec, scope: Scope, cursor: string, index: number, trusted: boolean): void {
     const message = str(ev.message);
-    switch (str(ev.code)) {
+    switch (trusted ? str(ev.code) : null) {
       case "teamkit.released":
         return this.status(scope, cursor, index, "Released", "neutral");
       case "teamkit.lease_expired":
@@ -300,12 +315,13 @@ class Folder {
     }
   }
 
-  private custom(ev: Rec, scope: Scope, cursor: string, index: number): void {
+  private custom(ev: Rec, scope: Scope, cursor: string, index: number, trusted: boolean): void {
     const name = str(ev.name);
     if (!name) return;
     const value = isRec(ev.value) ? ev.value : {};
     const s = (label: string, tone: Tone, detail: string | null = null) =>
       this.status(scope, cursor, index, label, tone, detail);
+    if (!trusted && name.startsWith("teamkit.")) return s(name, "neutral");
     switch (name) {
       case "teamkit.task.created":
         return s("Task created", "info");
@@ -334,6 +350,8 @@ class Folder {
         return s("Failed", "danger", str(value.reason));
       case "teamkit.task.released":
         return s("Released", "neutral");
+      case "teamkit.task.lease_expired":
+        return s("Claim expired", "warning");
       case "teamkit.trigger.fired":
         return s("Woken by a trigger", "info");
       case "teamkit.thread.created":
