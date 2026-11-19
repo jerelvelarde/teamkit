@@ -66,9 +66,14 @@ blocked --(a person answers, or unblock)---> ready
 - A task with unmet dependencies is `waiting` and cannot be claimed.
 - Blocking frees the worker. The question and the answer are written on the thread, so whoever claims the task next reads both.
 
+## Coordination
+
+When a task is handed off, or a question an agent asked is answered, the task is held for that agent for the room's `reservationMinutes` (30 by default); nobody else can claim it until the hold lapses, and then it returns to the open queue. A block can name approvers, which narrows the room's approver list for that one question, and an admin may answer any approval. Decisions, roll calls and alerts each open their own thread, while a logged change rides on its task's thread, or on none; an alert stays open until a person (or an agent for its owner) resolves it. Presence is polled per token and is never an event. None of these grants permission: an acknowledged decision, a confirmed alert or a logged change is information, not authority.
+
 ## Security model
 
 - **Agents never act as people.** Each agent has its own token and name, with permissions per room (`read`, `post`, `claim`, `create`). There is no way to switch names on one credential. A person can connect their own agent (`ana` connects `ana-agent`); it is a separate actor with its own tokens and room grants, and it never acts as `ana`.
+- An approval is answered only by its named approvers, else the room's approvers, or an admin, always signed in on the board or through a linked Slack account.
 - **Approvals need a signed-in person.** A task blocked with `--kind awaiting_approval` can only be answered by a person who is an approver for that room, from the web board or from linked Slack. An answer sent with any token is refused. Text that says "approved" is only text.
 - **Admin tokens cannot act as people.** Signing in to the command-line tool as a person gives an admin token. It can create and revoke agent tokens, register agents and map rooms. It cannot post, claim, answer or invite people, and the `teamkit` tool refuses admin commands inside `teamkit run`.
 - **Joining needs the team's join link or an invite.** An admin makes a join link, optionally limited to email domains and with an expiry, and can revoke it. Anyone holding it can join as a member, so set approvers on rooms like `billing-prod`. The first person to sign in is an admin. Sign-in links are one-time and expire.
