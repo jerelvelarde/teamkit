@@ -69,6 +69,23 @@ function startRenewing(
   };
 }
 
+/**
+ * Whether the claim's latest agent run is still open in the log: its RUN_STARTED is logged
+ * and no RUN_FINISHED or RUN_ERROR follows it. Only then may settling close it with a
+ * RUN_ERROR. A round that never started (an unreachable agent, an abort before the first
+ * frame) or one the agent already ended (a failure or abort between rounds) gets none.
+ */
+async function runIsOpen(db: Db, taskId: string, claimId: string): Promise<boolean> {
+  const [row] = await db<{ type: string }[]>`
+    select agui->0->>'type' as type
+    from events
+    where thread_id = ${taskId} and kind = 'run.event' and data->>'claimId' = ${claimId}
+      and agui->0->>'type' in ('RUN_STARTED', 'RUN_FINISHED', 'RUN_ERROR')
+    order by cursor desc
+    limit 1`;
+  return row?.type === "RUN_STARTED";
+}
+
 /** Settles the task from the loop's ending. Store errors other than claim_lost propagate. */
 async function settle(
   o: RunClaimOptions,
@@ -106,8 +123,9 @@ async function settle(
     }
     case "agent_error":
     case "transport_error": {
-      // A transport error never reached the agent's own RUN_FINISHED or RUN_ERROR, so settling closes the run.
-      const closesRun = outcome.type === "transport_error";
+      // The agent's own RUN_ERROR or RUN_FINISHED ended an agent_error run. A transport error
+      // ended no run itself, so settling closes the one it left open, if any.
+      const closesRun = outcome.type === "transport_error" && (await runIsOpen(db, task.id, claimId));
       if (task.attempts + 1 >= maxAttempts) {
         return failWith(`agent run failed ${maxAttempts} times: ${outcome.message}`, closesRun);
       }
@@ -119,7 +137,7 @@ async function settle(
     case "unknown_tool":
       return failWith(`agent called a tool the board does not provide: ${outcome.names.join(", ")}`, false);
     case "aborted":
-      await release(db, auth, task.id, claimId, { closesRun: true });
+      await release(db, auth, task.id, claimId, { closesRun: await runIsOpen(db, task.id, claimId) });
       return "aborted";
   }
 }

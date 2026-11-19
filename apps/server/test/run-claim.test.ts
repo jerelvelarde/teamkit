@@ -167,7 +167,8 @@ test("a resume is cleared once delivered, even when that run fails; an undeliver
         case 0:
           return [steps.started(i), steps.interrupt(i, { id: "int1", reason: "input", message: "which one?" })];
         case 1:
-          return [steps.started(i), { drop: true }];
+          // The pause lets RUN_STARTED reach the log, so the run is open when the stream drops.
+          return [steps.started(i), { delayMs: 50 }, { drop: true }];
         case 2:
           return [steps.started(i), steps.runError("busy", "E_BUSY")];
         default:
@@ -210,7 +211,7 @@ test("a resume is cleared once delivered, even when that run fails; an undeliver
 
 test("a stream that drops every time is released twice, then fails on the third attempt", async () => {
   await withClaim(
-    (i) => [steps.started(i), { drop: true }],
+    (i) => [steps.started(i), { delayMs: 50 }, { drop: true }],
     async ({ claim, run, task, events, logs }) => {
       assert.equal(await run(await claim()), "released");
       assert.equal((await task()).attempts, 1);
@@ -257,6 +258,47 @@ test("aborting the signal stops the run and releases the task without counting a
       assert.equal(t.state, "ready");
       assert.equal(t.attempts, 0);
       assert.deepEqual(settled(await events(), "task.released").at(-1)!.agui.map((a) => a.type), ["RUN_ERROR"]);
+    },
+  );
+});
+
+test("settling never closes a run the agent already ended or never started", async () => {
+  const toolRound: FakeScript = (i) => [
+    steps.started(i),
+    ...steps.toolCall("tc1", "teamkit_reply", { threadId: i.threadId, text: "on it" }),
+    steps.success(i),
+  ];
+  await withClaim(
+    (i, call) => {
+      if (call === 0 || call === 2) return toolRound(i, call);
+      return call === 1 ? [{ drop: true }] : [{ delayMs: 5000 }, steps.started(i), steps.success(i)];
+    },
+    async ({ fake, claim, run, task, events }) => {
+      // A transport error before round 2 starts: the log's last word is round 1's RUN_FINISHED.
+      assert.equal(await run(await claim()), "released");
+      // An agent that cannot be reached never starts a run.
+      const unreachable: typeof fetch = async () => {
+        throw new TypeError("fetch failed");
+      };
+      assert.equal(await run(await claim(), { fetch: unreachable }), "released");
+      // An abort while round 2's request is out, after round 1 ended.
+      const ac = new AbortController();
+      const aborted = run(await claim(), { signal: ac.signal });
+      const end = Date.now() + 5000;
+      while (fake.calls() < 4 && Date.now() < end) await sleep(10);
+      assert.equal(fake.calls(), 4);
+      ac.abort();
+      assert.equal(await aborted, "aborted");
+
+      const t = await task();
+      assert.equal(t.state, "ready");
+      assert.equal(t.attempts, 2);
+      const all = await events();
+      assert.deepEqual(
+        settled(all, "task.released").map((e) => e.agui.map((a) => [a.type, a.name])),
+        Array.from({ length: 3 }, () => [["CUSTOM", "teamkit.task.released"]]),
+      );
+      assert.equal(all.flatMap((e) => e.agui).some((a) => a.type === "RUN_ERROR"), false);
     },
   );
 });
