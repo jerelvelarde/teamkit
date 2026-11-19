@@ -1,4 +1,6 @@
 import type {
+  AgentInfo,
+  AgentRegistration,
   CreatedToken,
   GrantSpec,
   Invite,
@@ -22,6 +24,9 @@ export interface AdminClient {
   revokeToken(id: string): Promise<void>;
   rooms(): Promise<RoomInfo[]>;
   setRoom(name: string, settings: RoomSettingsInput): Promise<RoomInfo>;
+  agents(): Promise<AgentInfo[]>;
+  registerAgent(input: AgentRegistration): Promise<AgentInfo>;
+  setAgentEnabled(name: string, enabled: boolean): Promise<AgentInfo>;
   logout(): Promise<void>;
 }
 
@@ -71,6 +76,9 @@ export function createAdminClient(opts: ClientOptions): AdminClient {
     },
     rooms: () => json("GET", "/admin/rooms"),
     setRoom: (name, settings) => json("POST", `/admin/rooms/${enc(name)}`, settings),
+    agents: () => json("GET", "/admin/agents"),
+    registerAgent: (input) => json("POST", "/admin/agents", input),
+    setAgentEnabled: (name, enabled) => json("POST", `/admin/agents/${enc(name)}/enabled`, { enabled }),
     logout: async () => {
       await json("POST", "/logout", {});
     },

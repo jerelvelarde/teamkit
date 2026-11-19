@@ -37,6 +37,13 @@ function parseGrantSpec(spec: string): GrantSpec {
   return { room, perms: perms as Permission[] };
 }
 
+/** "key=value" split at the FIRST "=". The value is never echoed back. */
+function parseHeader(spec: string): [string, string] {
+  const i = spec.indexOf("=");
+  if (i <= 0) throw new UsageError("--header must be name=value");
+  return [spec.slice(0, i).trim(), spec.slice(i + 1)];
+}
+
 /** "none" clears the setting. */
 const noneOr = <T>(v: string, f: (s: string) => T): T | null => (v === "none" ? null : f(v));
 
@@ -94,6 +101,53 @@ export function registerAdmin(program: Command, ctx: CliContext): void {
       }
       for (const p of list) ctx.out(`${p.actor.name}\t${p.role}\t${p.lastSignInAt ?? "never"}`);
     });
+
+  const agents = program.command("agents").description("agents the dispatcher runs (admin)");
+
+  agents
+    .command("register <name>")
+    .description("register an AG-UI agent; header values are write-only")
+    .requiredOption("--agent-url <u>", "the agent's AG-UI endpoint (--url is the TeamKit server)")
+    .requiredOption("--rooms <list>", "comma-separated room patterns the agent may serve")
+    .option("--header <k=v>", "header sent to the agent (repeatable)", collect)
+    .action(async (name: string, o: { agentUrl: string; rooms: string; header?: string[] }, cmd: Command) => {
+      const rooms = o.rooms
+        .split(",")
+        .map((r) => r.trim())
+        .filter(Boolean);
+      if (rooms.length === 0) throw new UsageError("--rooms needs at least one room");
+      const headers = Object.fromEntries((o.header ?? []).map(parseHeader));
+      const info = await adminFor(cmd, ctx).registerAgent({
+        name,
+        url: o.agentUrl,
+        rooms,
+        ...(Object.keys(headers).length > 0 ? { headers } : {}),
+      });
+      ctx.out(globalOpts(cmd).json ? JSON.stringify(info) : `registered ${info.name}`);
+    });
+
+  agents
+    .command("list")
+    .description("list registered agents")
+    .action(async (_o: unknown, cmd: Command) => {
+      const list = await adminFor(cmd, ctx).agents();
+      if (globalOpts(cmd).json) {
+        ctx.out(JSON.stringify(list));
+        return;
+      }
+      for (const a of list) ctx.out(`${a.name}\t${a.url}\t${a.rooms.join(",")}\t${a.enabled ? "enabled" : "disabled"}`);
+    });
+
+  for (const enabled of [true, false]) {
+    const verb = enabled ? "enable" : "disable";
+    agents
+      .command(`${verb} <name>`)
+      .description(`${verb} an agent`)
+      .action(async (name: string, _o: unknown, cmd: Command) => {
+        const info = await adminFor(cmd, ctx).setAgentEnabled(name, enabled);
+        ctx.out(globalOpts(cmd).json ? JSON.stringify(info) : `${verb}d ${info.name}`);
+      });
+  }
 
   const rooms = program.commands.find((c) => c.name() === "rooms");
   if (!rooms) throw new Error("registerAdmin must run after registerWhoami: the rooms command is missing");
