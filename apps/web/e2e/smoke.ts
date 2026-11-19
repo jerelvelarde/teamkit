@@ -6,6 +6,9 @@ import { fileURLToPath } from "node:url";
 import { chromium } from "playwright";
 import { createClient } from "@copilotkit/teamkit-client";
 import { invitePerson } from "../../server/src/store/people.js";
+import { createJoinLink } from "../../server/src/store/join.js";
+import { pollDevice, startDevice } from "../../server/src/store/device.js";
+import { setRoom } from "../../server/src/store/rooms.js";
 import { agentToken, startTestServer } from "../../server/test/helpers/server.js";
 
 const WEB_DIR = fileURLToPath(new URL("..", import.meta.url));
@@ -161,6 +164,29 @@ async function main(): Promise<void> {
         assert(scrollWidth <= innerWidth, `${name} at ${vp.width}px has no horizontal overflow (${scrollWidth} > ${innerWidth})`);
       }
     }
+
+    // A teammate joins with the team's join link, then connects their own agent with a device code.
+    const { secret: joinSecret } = await createJoinLink(srv.db, { createdBy: null, domains: ["example.com"] });
+    await setRoom(srv.db, "billing-migration", {});
+    const ben = await (await browser.newContext({ viewport: { width: 390, height: 844 } })).newPage();
+    ben.setDefaultTimeout(15_000);
+    await ben.goto(`${base}/join/${joinSecret}`);
+    await ben.getByLabel("Name").fill("ben");
+    await ben.getByLabel("Email").fill("ben@example.com");
+    await ben.getByRole("button", { name: "Join", exact: true }).click();
+    await ben.getByText("You're in, ben.").waitFor();
+    await ben.screenshot({ path: `${SHOTS_DIR}/join-390.png`, fullPage: true });
+    const d = await startDevice(srv.db, "agent");
+    await ben.goto(`${base}/device?code=${d.userCode}&mode=agent`);
+    await ben.getByRole("checkbox", { name: "billing-migration" }).check();
+    await ben.getByRole("checkbox", { name: /This code matches the one my agent printed/ }).check();
+    await ben.getByRole("button", { name: "Connect ben-agent" }).click();
+    await ben.getByText("ben-agent is connected").waitFor();
+    await ben.screenshot({ path: `${SHOTS_DIR}/device-agent-390.png`, fullPage: true });
+    const polled = await pollDevice(srv.db, d.deviceCode);
+    assert(polled.status === "approved" && polled.actor.name === "ben-agent", `the device poll hands out ben-agent (got ${JSON.stringify(polled)})`);
+    const benWidth = await ben.evaluate(() => ({ scrollWidth: document.documentElement.scrollWidth, innerWidth: window.innerWidth }));
+    assert(benWidth.scrollWidth <= benWidth.innerWidth, `device page at 390px has no horizontal overflow (${benWidth.scrollWidth} > ${benWidth.innerWidth})`);
   } finally {
     await browser?.close().catch(() => {});
     killTree(next);

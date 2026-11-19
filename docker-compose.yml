@@ -18,6 +18,8 @@ services:
     environment:
       DATABASE_URL: postgres://teamkit@postgres:5432/teamkit
       TEAMKIT_PUBLIC_URL: http://localhost:3000
+      TEAMKIT_SMTP_URL: ${TEAMKIT_SMTP_URL:-}
+      TEAMKIT_MAIL_FROM: ${TEAMKIT_MAIL_FROM:-}
     ports:
       - "127.0.0.1:8787:8787"
     depends_on:
