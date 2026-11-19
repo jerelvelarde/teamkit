@@ -57,11 +57,6 @@
   overflow-y: auto;
 }
 
-/* Rows keep a readable line length on a wide panel. */
-.list > * {
-  width: 100%;
-  max-width: 960px;
-}
 
 .row {
   display: flex;

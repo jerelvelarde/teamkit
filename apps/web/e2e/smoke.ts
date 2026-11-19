@@ -74,6 +74,31 @@ function killTree(child: ChildProcess | undefined): void {
   }
 }
 
+/**
+ * The One Voice Rule as a check: how many visible elements inside `main` are filled with the
+ * accent. A probe styled `background: var(--tk-accent)` gives the accent's computed color.
+ */
+function violetCount(page: Page): Promise<number> {
+  return page.evaluate(() => {
+    const probe = document.createElement("div");
+    probe.style.background = "var(--tk-accent)";
+    document.body.appendChild(probe);
+    const violet = getComputedStyle(probe).backgroundColor;
+    probe.remove();
+    const main = document.querySelector("main");
+    if (!main) return 0;
+    let n = 0;
+    for (const el of Array.from(main.querySelectorAll("*"))) {
+      const box = el.getBoundingClientRect();
+      if (box.width === 0 || box.height === 0) continue;
+      const cs = getComputedStyle(el);
+      if (cs.visibility === "hidden" || cs.display === "none") continue;
+      if (cs.backgroundColor === violet) n++;
+    }
+    return n;
+  });
+}
+
 const GRANTS: { room: string; perms: Permission[] }[] = [
   { room: "billing-migration", perms: ["read", "post", "claim", "create"] },
   { room: "billing-prod", perms: ["read", "post", "claim", "create"] },
@@ -334,21 +359,42 @@ async function main(): Promise<void> {
     const [benRow] = await srv.db`select email from actors where name = 'ben'`;
     assert(benRow?.email === "ben@example.com", `ben's invite stored his email (got ${JSON.stringify(benRow?.email)})`);
 
-    for (const vp of VIEWPORTS) {
-      await page.setViewportSize(vp);
-      for (const [name, path] of [
-        ["board", "/"],
-        ["thread", `/t/${copy.id}`],
-      ] as const) {
-        await page.goto(`${base}${path}`);
-        await page.getByText("Copy invoices to the new database").first().waitFor();
-        await page.waitForLoadState("networkidle");
-        await page.screenshot({ path: `${SHOTS_DIR}/${name}-${vp.width}.png`, fullPage: true });
-        const { scrollWidth, innerWidth } = await page.evaluate(() => ({
-          scrollWidth: document.documentElement.scrollWidth,
-          innerWidth: window.innerWidth,
-        }));
-        assert(scrollWidth <= innerWidth, `${name} at ${vp.width}px has no horizontal overflow (${scrollWidth} > ${innerWidth})`);
+    // Every page this work touched, light and dark, at phone, tablet and desktop widths.
+    const PAGES: { name: string; path: string; text: string; oneViolet: boolean }[] = [
+      { name: "board", path: "/?room=billing-prod", text: "Switch invoice writes to the new database", oneViolet: true },
+      { name: "decisions", path: "/?room=billing-migration&view=decisions", text: DECISION, oneViolet: true },
+      { name: "changes", path: "/?room=billing-migration&view=changes", text: "Copied invoices 1 to 500", oneViolet: true },
+      {
+        name: "decision-thread",
+        path: `/t/${encodeURIComponent(decision.threadId)}?room=billing-migration&view=decisions`,
+        text: "Acknowledged by ana-agent",
+        oneViolet: false,
+      },
+      { name: "approval-thread", path: `/t/${writes.id}?room=billing-prod`, text: "Approvers: sam", oneViolet: false },
+      { name: "admin", path: "/admin", text: "Join links", oneViolet: false },
+    ];
+    for (const scheme of ["light", "dark"] as const) {
+      await page.emulateMedia({ colorScheme: scheme });
+      for (const vp of VIEWPORTS) {
+        await page.setViewportSize(vp);
+        await anaAgent.heartbeat({ watching: ["billing-migration", "billing-prod"], status: "copying invoices" });
+        for (const pg of PAGES) {
+          // A hovered primary button turns deep violet and would throw off the count.
+          await page.mouse.move(0, 0);
+          await page.goto(`${base}${pg.path}`);
+          await page.getByText(pg.text).first().waitFor();
+          await page.waitForLoadState("networkidle");
+          await page.screenshot({ path: `${SHOTS_DIR}/${pg.name}-${vp.width}-${scheme}.png`, fullPage: true });
+          const { scrollWidth, innerWidth } = await page.evaluate(() => ({
+            scrollWidth: document.documentElement.scrollWidth,
+            innerWidth: window.innerWidth,
+          }));
+          assert(scrollWidth <= innerWidth, `${pg.name} at ${vp.width}px (${scheme}) has no horizontal overflow (${scrollWidth} > ${innerWidth})`);
+          if (pg.oneViolet) {
+            const n = await violetCount(page);
+            assert(n === 1, `${pg.name} at ${vp.width}px (${scheme}) has one violet element, its primary action (got ${n})`);
+          }
+        }
       }
     }
   } finally {
