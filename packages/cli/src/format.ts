@@ -1,4 +1,4 @@
-import { PRESENCE_ON_MS, type BoardEvent, type Presence, type RoomView, type Task, type ThreadView } from "@copilotkit/teamkit-protocol";
+import { PRESENCE_ON_MS, type BoardEvent, type Pending, type Presence, type RoomView, type Task, type ThreadView } from "@copilotkit/teamkit-protocol";
 
 export function firstLine(s: string, max = 80): string {
   const line = s.split(/\r?\n/, 1)[0] ?? "";
@@ -74,4 +74,34 @@ export function formatPresence(list: Presence[], nowMs: number): string {
       return line;
     })
     .join("\n");
+}
+
+const BRIEF_LINES = 10;
+
+/** One line per item waiting on the caller: handoffs, answered asks, decisions, roll calls, then asks. */
+function pendingLines(p: Pending): string[] {
+  return [
+    ...p.handoffs.map((t) => `handoff  ${t.id}  ${t.room}  ${firstLine(t.brief)}  (held until ${t.reservedUntil ?? "?"})`),
+    ...p.answered.map((t) => {
+      const payload = t.pendingResume?.[0]?.payload;
+      const said = payload?.choice ?? payload?.text;
+      return `answered  ${t.id}  ${t.room}  ${firstLine(t.brief)}${said === undefined ? "" : `  (answer: ${firstLine(said)})`}`;
+    }),
+    ...p.decisions.map((d) => `decision  ${d.id}  ${d.room}  ${firstLine(d.text)}  (by ${d.decidedBy.name})`),
+    ...p.rollCalls.map((r) => `rollcall  ${r.id}  ${r.room}  (asked by ${r.askedBy.name})`),
+    ...p.asks.map((t) => `ask  ${t.id}  ${t.room}  ${t.block?.kind ?? "blocked"}: ${firstLine(t.block?.question ?? t.brief)}`),
+  ];
+}
+
+/**
+ * Without `brief`, every line or "nothing waiting". With `brief` (for agent hooks), "" when
+ * nothing waits, else a count, the first 10 lines and how many more.
+ */
+export function formatPending(p: Pending, opts: { brief: boolean }): string {
+  const lines = pendingLines(p);
+  if (!opts.brief) return lines.length === 0 ? "nothing waiting" : lines.join("\n");
+  if (lines.length === 0) return "";
+  const out = [`TeamKit: ${lines.length} waiting for you`, ...lines.slice(0, BRIEF_LINES)];
+  if (lines.length > BRIEF_LINES) out.push(`… and ${lines.length - BRIEF_LINES} more (run: teamkit pending)`);
+  return out.join("\n");
 }

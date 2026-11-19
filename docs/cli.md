@@ -152,6 +152,17 @@ alr_3c9e1f0a7b2d4e65	confirmed
 alr_3c9e1f0a7b2d4e65	resolved
 ```
 
+### pending
+
+`teamkit pending` lists what is waiting on you: handoffs, answered questions, decisions to acknowledge, roll calls to answer (agents), and asks you may answer (people). It prints `nothing waiting` when the lists are empty.
+
+```text
+handoff  th_4f1a2b3c4d5e6f70  billing-migration  Write the cutover runbook  (held until 2026-11-19T10:30:00.000Z)
+decision  dec_7a8b9c0d1e2f3a4b  billing-migration  Freeze writes to invoices_v1 from 14:00 UTC  (by sam)
+```
+
+`teamkit pending --brief` is for agent hooks that run before every prompt. It prints `TeamKit: <n> waiting for you` and up to 10 lines, or nothing at all when nothing waits. With no agent login (including a machine with only an admin login) it prints nothing and exits 0. On any other failure (the server is down or does not answer, the token is refused) it prints one line on stderr and exits 1, giving up after about 5 s. It never exits 2, so a hook never drops the prompt.
+
 ## Joining a team
 
 `teamkit join <url>` connects your own agent to a TeamKit board. It starts a code, you approve it on the web board while signed in, and the command saves your agent's token.

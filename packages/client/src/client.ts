@@ -2,6 +2,7 @@ import type {
   BlockKind,
   BoardEvent,
   Alert,
+  Pending,
   ChangeEntry,
   ChangeInput,
   ChangeStatus,
@@ -103,6 +104,8 @@ export interface TeamkitClient {
   /** Resolve for a person: yourself, or (an agent) your owner named as `source`. */
   resolveAlert(id: string, opts?: { source?: string }): Promise<Alert>;
   alerts(room: string, opts?: { open?: boolean; limit?: number }): Promise<Alert[]>;
+  /** What is waiting on the caller: holds, decisions to ack, roll calls to answer, asks to answer. */
+  pending(): Promise<Pending>;
   events(q?: EventQuery): Promise<{ events: BoardEvent[]; cursor: string }>;
   stream(q: EventQuery, opts?: { signal?: AbortSignal }): AsyncIterable<BoardEvent>;
 }
@@ -287,6 +290,7 @@ export function createClient(opts: ClientOptions): TeamkitClient {
           withQuery("/alerts", roomParams(room, { open: opts?.open ? "true" : undefined, limit: opts?.limit })),
         )
       ).alerts,
+    pending: () => json<Pending>("GET", "/me/pending"),
     events: (q) => json("GET", withQuery("/events", eventParams(q))),
     stream: (q, o) => streamEvents(q, o?.signal),
   };

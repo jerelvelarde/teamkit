@@ -8,6 +8,7 @@ import { answerRollCall, listRollCalls, startRollCall } from "../store/rollcalls
 import { heartbeat, listPresence } from "../store/presence.js";
 import { listChanges, logChange, updateChange } from "../store/changes.js";
 import { confirmAlert, listAlerts, raiseAlert, resolveAlert } from "../store/alerts.js";
+import { pendingFor } from "../store/pending.js";
 
 /** Decisions, roll calls, presence, the change log, alerts and what is waiting on the caller. */
 export function registerCoordinationRoutes(v1: Hono<AppEnv>, deps: AppDeps): void {
@@ -108,4 +109,6 @@ export function registerCoordinationRoutes(v1: Hono<AppEnv>, deps: AppDeps): voi
     const alerts = await listAlerts(db, c.get("auth"), roomQuery(c), { open: open === "true", limit: limitQuery(c) });
     return c.json({ alerts });
   });
+
+  v1.get("/me/pending", async (c) => c.json(await pendingFor(db, c.get("auth"))));
 }

@@ -135,3 +135,15 @@ test("alerts round-trip through the client, including resolve and open", async (
     await srv.stop();
   }
 });
+
+test("pending over HTTP", async () => {
+  const { srv, t, as, person } = await team();
+  try {
+    const task = await as(t.anaAgent).createTask({ room: "billing-migration", brief: "Write the cutover runbook" });
+    await as(t.anaAgent).handoff(task.id, "ben-agent");
+    assert.equal((await as(t.benAgent).pending()).handoffs[0]!.id, task.id);
+    assert.deepEqual((await person(t.sam).pending()).asks, []);
+  } finally {
+    await srv.stop();
+  }
+});

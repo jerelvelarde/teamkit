@@ -4,6 +4,9 @@ import { createClient } from "@copilotkit/teamkit-client";
 import { startTestServer } from "../../../apps/server/test/helpers/server.js";
 import { BRIEF, FREEZE, billingTeam, type TeamAgent } from "../../../apps/server/test/helpers/team.js";
 import { isolatedEnv, runCli } from "./helpers/cli.js";
+import { createServer, type Server } from "node:net";
+import { randomBytes } from "node:crypto";
+import { writeConfigFile } from "../src/config.js";
 
 async function setup() {
   const srv = await startTestServer();
@@ -128,6 +131,68 @@ test("alert raises; alert confirm and alert resolve --source name the owner", as
     assert.equal(confirmed.stdout, `${id}\tconfirmed\n`, confirmed.stderr);
     const resolved = await runCli(["alert", "resolve", id, "--source", "ben"], e);
     assert.equal(resolved.stdout, `${id}\tresolved\n`, resolved.stderr);
+  } finally {
+    await srv.stop();
+  }
+});
+
+test("pending --brief prints nothing when nothing waits, and the handoff when one does", async () => {
+  const { srv, team, env, client } = await setup();
+  try {
+    const quiet = await runCli(["pending", "--brief"], env(team.benAgent));
+    assert.deepEqual([quiet.code, quiet.stdout], [0, ""], quiet.stderr);
+    const task = await client(team.anaAgent).createTask({ room: "billing-migration", brief: "Write the cutover runbook" });
+    await client(team.anaAgent).handoff(task.id, "ben-agent");
+    const r = await runCli(["pending", "--brief"], env(team.benAgent));
+    assert.equal(r.code, 0, r.stderr);
+    assert.ok(r.stdout.startsWith("TeamKit: 1 waiting for you\nhandoff  "), r.stdout);
+    const full = await runCli(["pending"], env(team.benAgent));
+    assert.ok(full.stdout.startsWith(`handoff  ${task.id}  billing-migration  Write the cutover runbook  (held until `), full.stdout);
+  } finally {
+    await srv.stop();
+  }
+});
+
+// The hook-safe cases. A UserPromptSubmit hook that exits 2 drops the person's prompt, so none of these may exit 2.
+test("pending --brief with no login prints nothing and exits 0", async () => {
+  const r = await runCli(["pending", "--brief"], isolatedEnv());
+  assert.deepEqual([r.code, r.stdout, r.stderr], [0, "", ""]);
+});
+
+test("pending --brief with only an admin login prints nothing and exits 0", async () => {
+  const env = isolatedEnv();
+  writeConfigFile({ url: "http://127.0.0.1:9", adminToken: "tk_admin_only" }, env); // what `teamkit login` leaves
+  const r = await runCli(["pending", "--brief"], env);
+  assert.deepEqual([r.code, r.stdout], [0, ""], r.stderr);
+});
+
+test("pending --brief gives up on a server that never answers: exit 1, one stderr line, within 7 s", async () => {
+  const hang: Server = createServer(() => {});
+  await new Promise<void>((resolve) => hang.listen(0, "127.0.0.1", resolve));
+  const port = (hang.address() as { port: number }).port;
+  try {
+    const start = Date.now();
+    const r = await runCli(["pending", "--brief"], isolatedEnv({ TEAMKIT_URL: `http://127.0.0.1:${port}`, TEAMKIT_TOKEN: "tk_unused" }));
+    assert.equal(r.code, 1, r.stderr);
+    assert.equal(r.stdout, "");
+    assert.equal(r.stderr.trim().split("\n").length, 1, r.stderr);
+    assert.ok(Date.now() - start < 7000);
+  } finally {
+    hang.close();
+  }
+});
+
+test("pending --brief with a server that is down, or a token it does not know, exits 1 and never prints the token", async () => {
+  const down = await runCli(["pending", "--brief"], isolatedEnv({ TEAMKIT_URL: "http://127.0.0.1:9", TEAMKIT_TOKEN: "tk_x" }));
+  assert.deepEqual([down.code, down.stdout], [1, ""], down.stderr);
+  assert.equal(down.stderr.trim().split("\n").length, 1, down.stderr);
+  const srv = await startTestServer();
+  try {
+    const token = "tk_" + randomBytes(16).toString("hex");
+    const r = await runCli(["pending", "--brief"], isolatedEnv({ TEAMKIT_URL: srv.url, TEAMKIT_TOKEN: token }));
+    assert.deepEqual([r.code, r.stdout], [1, ""], r.stderr);
+    assert.equal(r.stderr.trim().split("\n").length, 1, r.stderr);
+    assert.ok(!r.stderr.includes(token));
   } finally {
     await srv.stop();
   }
