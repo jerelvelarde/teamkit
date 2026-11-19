@@ -1,7 +1,7 @@
 import type { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
 import type { AppDeps } from "./app.js";
-import { credentialsOf, credentialsValid, type AppEnv } from "./auth.js";
+import { credentialsOf, credentialsValid, sessionCookieName, type AppEnv } from "./auth.js";
 import { eventQueryFromRequest } from "./body.js";
 import { currentCursor } from "../store/events.js";
 import { readEvents, validateEventQuery } from "../store/feed.js";
@@ -37,7 +37,7 @@ export function registerStream(
 
   v1.get("/events/stream", async (c) => {
     const auth = c.get("auth");
-    const creds = credentialsOf(c);
+    const creds = credentialsOf(c, sessionCookieName(deps.publicUrl));
     const q = eventQueryFromRequest(c);
     const lastEventId = c.req.header("last-event-id");
     if (lastEventId !== undefined && lastEventId !== "") q.after = lastEventId;

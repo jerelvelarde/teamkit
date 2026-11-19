@@ -4,9 +4,10 @@ import { bodyLimit } from "hono/body-limit";
 import type { Db } from "../db/pool.js";
 import type { Notifier } from "../notifier.js";
 import { registerAdminRoutes } from "./admin-routes.js";
-import { requestAuth, type AppEnv } from "./auth.js";
+import { requestAuth, sessionCookieName, type AppEnv } from "./auth.js";
 import { registerClaimNext } from "./claim-next.js";
 import { registerPeopleRoutes } from "./people-routes.js";
+import type { RateLimit } from "./rate-limit.js";
 import { registerRoutes } from "./routes.js";
 import { registerSlackRoutes } from "./slack-routes.js";
 import { registerStream } from "./stream.js";
@@ -24,6 +25,8 @@ export interface AppOptions {
   streamPingMs?: number;
   /** Longest an SSE stream stays open before the client must reconnect with Last-Event-ID (default 30 min). */
   streamMaxMs?: number;
+  /** Login codes one client address may start: a burst, then a steady rate (default 10, then 10 a minute). */
+  deviceStartLimit?: RateLimit;
 }
 
 /** SQLSTATE class 22, data exception: Postgres refused a value it was sent (NUL, bad encoding, out of range). */
@@ -45,7 +48,7 @@ export function createApp(deps: AppDeps, opts: AppOptions = {}): Hono {
       onError: (c) =>
         c.json({ error: { code: "too_large", message: "request body too large" } }, ERROR_STATUS.too_large),
     }),
-    requestAuth(deps.db),
+    requestAuth(deps.db, sessionCookieName(deps.publicUrl)),
   );
 
   const v1 = new Hono<AppEnv>();
@@ -53,7 +56,7 @@ export function createApp(deps: AppDeps, opts: AppOptions = {}): Hono {
   registerClaimNext(v1, deps);
   registerTaskRoutes(v1, deps);
   registerStream(v1, deps, { pingMs: opts.streamPingMs, maxMs: opts.streamMaxMs });
-  registerPeopleRoutes(v1, deps);
+  registerPeopleRoutes(v1, deps, { deviceStartLimit: opts.deviceStartLimit });
   registerAdminRoutes(v1, deps);
   registerSlackRoutes(v1, deps);
   app.route("/v1", v1);

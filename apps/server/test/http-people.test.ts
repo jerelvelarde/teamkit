@@ -3,17 +3,21 @@ import assert from "node:assert/strict";
 import type { Db } from "../src/db/pool.js";
 import { withTestDb } from "./helpers/db.js";
 import { createNotifier } from "../src/notifier.js";
-import { createApp } from "../src/http/app.js";
+import { createApp, type AppOptions } from "../src/http/app.js";
 import { invitePerson } from "../src/store/people.js";
 import { agentAuth } from "./helpers/actors.js";
 
 type App = ReturnType<typeof createApp>;
 
-async function withApp(fn: (ctx: { db: Db; app: App }) => Promise<void>, publicUrl?: string): Promise<void> {
+async function withApp(
+  fn: (ctx: { db: Db; app: App }) => Promise<void>,
+  publicUrl?: string,
+  opts?: AppOptions,
+): Promise<void> {
   await withTestDb(async (db) => {
     const notifier = await createNotifier(db);
     try {
-      await fn({ db, app: createApp({ db, notifier, publicUrl }) });
+      await fn({ db, app: createApp({ db, notifier, publicUrl }, opts) });
     } finally {
       await notifier.close();
     }
@@ -47,11 +51,28 @@ test("a sign-in link works once and sets a hardened session cookie", async () =>
   });
 });
 
-test("the cookie is Secure when the public URL is https", async () => {
+test("over https the cookie is __Host-teamkit_session: Secure, Path=/, no Domain", async () => {
   await withApp(async ({ db, app }) => {
     const invite = await invitePerson(db, { name: "ada", role: "admin" });
     const res = await post(app, "/v1/signin", { token: invite.secret });
-    assert.match(res.headers.get("set-cookie") ?? "", /Secure/i);
+    const set = res.headers.get("set-cookie") ?? "";
+    assert.match(set, /^__Host-teamkit_session=ts_/);
+    assert.match(set, /; Secure/i);
+    assert.match(set, /; Path=\/(;|$)/);
+    assert.doesNotMatch(set, /Domain=/i);
+    const secret = cookieOf(res).split("=")[1]!;
+
+    // Only the __Host- name is read: a plain-named cookie (which a sibling subdomain could set) is ignored.
+    assert.equal((await app.request("/v1/whoami", { headers: { cookie: `teamkit_session=${secret}` } })).status, 401);
+    const cookie = `__Host-teamkit_session=${secret}`;
+    assert.equal((await app.request("/v1/whoami", { headers: { cookie } })).status, 200);
+
+    const out = await post(app, "/v1/logout", {}, { ...JSON_TYPE, cookie });
+    assert.equal(out.status, 200);
+    const cleared = out.headers.get("set-cookie") ?? "";
+    assert.match(cleared, /^__Host-teamkit_session=;/);
+    assert.match(cleared, /Max-Age=0/i);
+    assert.match(cleared, /; Secure/i);
   }, "https://b.example");
 });
 
@@ -174,4 +195,24 @@ test("logout with an agent token is forbidden", async () => {
     const res = await app.request("/v1/logout", { method: "POST", headers: { authorization: `Bearer ${agent.token}` } });
     assert.equal(res.status, 403);
   });
+});
+
+test("device/start allows a burst per client address, then answers 429 with Retry-After", async () => {
+  await withApp(
+    async ({ app }) => {
+      const from = (address: string) => ({ incoming: { socket: { remoteAddress: address } } });
+      const start = (address: string) =>
+        app.request("/v1/device/start", { method: "POST", headers: JSON_TYPE, body: "{}" }, from(address));
+      for (let i = 0; i < 3; i++) assert.equal((await start("10.0.0.1")).status, 200, `request ${i + 1}`);
+      const limited = await start("10.0.0.1");
+      assert.equal(limited.status, 429);
+      assert.equal(((await limited.json()) as { error: { code: string } }).error.code, "rate_limited");
+      const retryAfter = Number(limited.headers.get("retry-after"));
+      assert.ok(retryAfter >= 1 && retryAfter <= 60, `retry-after ${retryAfter}`);
+      // Another address has its own budget.
+      assert.equal((await start("10.0.0.2")).status, 200);
+    },
+    undefined,
+    { deviceStartLimit: { burst: 3, perMinute: 1 } },
+  );
 });

@@ -7,8 +7,20 @@ import { authenticateSession } from "../store/people.js";
 
 export type AppEnv = { Variables: { auth: AuthContext } };
 
-/** The web board's session cookie, set at sign-in. */
+/** The web board's session cookie, set at sign-in, when the board is served over plain http. */
 export const SESSION_COOKIE = "teamkit_session";
+
+/**
+ * The session cookie when the board is served over https. A browser only accepts a
+ * `__Host-` cookie that is Secure, has Path=/ and no Domain, so no sibling subdomain can
+ * plant or overwrite it.
+ */
+export const SECURE_SESSION_COOKIE = "__Host-teamkit_session";
+
+/** The session cookie's name for a board served at `publicUrl`. */
+export function sessionCookieName(publicUrl: string | undefined): string {
+  return publicUrl?.startsWith("https://") ? SECURE_SESSION_COOKIE : SESSION_COOKIE;
+}
 
 /** Routes reachable with no credentials at all. */
 export const PUBLIC_PATHS: ReadonlySet<string> = new Set(["/v1/signin", "/v1/device/start", "/v1/device/poll"]);
@@ -28,11 +40,11 @@ export interface Credentials {
   session?: string;
 }
 
-/** The credentials a request carries. A bearer token wins over a session cookie. */
-export function credentialsOf(c: Context): Credentials {
+/** The credentials a request carries. A bearer token wins over the session cookie named `cookieName`. */
+export function credentialsOf(c: Context, cookieName: string): Credentials {
   const bearer = bearerToken(c.req.header("authorization"));
   if (bearer !== undefined) return { bearer };
-  const session = getCookie(c, SESSION_COOKIE);
+  const session = getCookie(c, cookieName);
   return session ? { session } : {};
 }
 
@@ -57,12 +69,12 @@ function isAdminPath(path: string): boolean {
  * on admin routes, so nothing a person can do from a shell posts, claims or answers
  * on the board in their name.
  */
-export function requestAuth(db: Db): MiddlewareHandler<AppEnv> {
+export function requestAuth(db: Db, cookieName: string): MiddlewareHandler<AppEnv> {
   return async (c, next) => {
     const path = c.req.path;
     if (PUBLIC_PATHS.has(path)) return next();
 
-    const cr = credentialsOf(c);
+    const cr = credentialsOf(c, cookieName);
     let auth: AuthContext;
     if (cr.bearer !== undefined) {
       const found = await authenticate(db, cr.bearer);
