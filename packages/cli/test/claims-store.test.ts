@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
-import { existsSync, mkdtempSync, mkdirSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdtempSync, mkdirSync, readdirSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { test } from "node:test";
@@ -20,10 +20,10 @@ test("claimsPath uses XDG_STATE_HOME", () => {
 test("save, load and forget", () => {
   const env = freshEnv();
   assert.deepEqual(loadClaims(env), {});
-  saveClaim("t1", "c1", env);
-  saveClaim("t2", "c2", env);
+  assert.equal(saveClaim("t1", "c1", env), true);
+  assert.equal(saveClaim("t2", "c2", env), true);
   assert.deepEqual(loadClaims(env), { t1: "c1", t2: "c2" });
-  forgetClaim("t1", env);
+  assert.equal(forgetClaim("t1", env), true);
   assert.deepEqual(loadClaims(env), { t2: "c2" });
 });
 
@@ -104,4 +104,46 @@ test("a lock left by a dead process is broken", () => {
   saveClaim("t1", "c1", env);
   assert.deepEqual(loadClaims(env), { t1: "c1" });
   assert.equal(existsSync(lock), false);
+});
+
+// Permission bits do not stop root.
+const asRoot = process.getuid?.() === 0;
+
+test("saving into an unwritable state dir returns false and does not throw", { skip: asRoot }, () => {
+  const env = freshEnv();
+  chmodSync(env.XDG_STATE_HOME!, 0o500);
+  try {
+    assert.equal(saveClaim("t1", "c1", env), false);
+    assert.equal(forgetClaim("t1", env), true);
+    assert.deepEqual(loadClaims(env), {});
+    assert.deepEqual(readdirSync(env.XDG_STATE_HOME!), []);
+  } finally {
+    chmodSync(env.XDG_STATE_HOME!, 0o700);
+  }
+});
+
+test("a failed write returns false and leaves no temp file or lock behind", () => {
+  const env = freshEnv();
+  // A non-empty directory where claims.json should be makes the final rename fail.
+  mkdirSync(join(claimsPath(env), "x"), { recursive: true });
+  assert.equal(saveClaim("t1", "c1", env), false);
+  assert.deepEqual(readdirSync(dirname(claimsPath(env))), ["claims.json"]);
+});
+
+test("an unreadable claims file loads as empty", { skip: asRoot }, () => {
+  const env = freshEnv();
+  saveClaim("t1", "c1", env);
+  chmodSync(claimsPath(env), 0o000);
+  try {
+    assert.deepEqual(loadClaims(env), {});
+  } finally {
+    chmodSync(claimsPath(env), 0o600);
+  }
+});
+
+test("forgetting a claim that is not stored writes nothing", () => {
+  const env = freshEnv();
+  assert.equal(forgetClaim("t1", env), true);
+  assert.equal(forgetClaim("toString", env), true);
+  assert.deepEqual(readdirSync(env.XDG_STATE_HOME!), []);
 });
