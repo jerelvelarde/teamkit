@@ -76,10 +76,26 @@ function errorMessage(e: unknown): string {
 }
 
 /** Cuts to MAX_TEXT_LENGTH without splitting a surrogate pair. */
-function clip(s: string): string {
+export function clip(s: string): string {
   if (s.length <= MAX_TEXT_LENGTH) return s;
   const last = s.charCodeAt(MAX_TEXT_LENGTH - 1);
   return s.slice(0, last >= 0xd800 && last <= 0xdbff ? MAX_TEXT_LENGTH - 1 : MAX_TEXT_LENGTH);
+}
+
+// A NUL, or an unpaired UTF-16 surrogate: Postgres text and jsonb cannot store a NUL,
+// and jsonb refuses a lone surrogate escape.
+const UNSTORABLE = /\u0000|[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g;
+
+/**
+ * A copy with every NUL and unpaired surrogate replaced by U+FFFD, in strings and
+ * object keys at any depth. Agents may stream either; the log and the thread must
+ * still take the run.
+ */
+function scrub<T>(v: T): T {
+  if (typeof v === "string") return v.replace(UNSTORABLE, "\uFFFD") as T;
+  if (Array.isArray(v)) return v.map((x: unknown) => scrub(x)) as T;
+  if (isRecord(v)) return Object.fromEntries(Object.entries(v).map(([k, x]) => [scrub(k), scrub(x)])) as T;
+  return v;
 }
 
 async function appendRunEvent(
@@ -88,18 +104,24 @@ async function appendRunEvent(
   event: AguiEvent,
   data: Record<string, unknown>,
 ): Promise<void> {
-  const parsed = EventSchemas.safeParse(event);
+  const clean = scrub(event);
+  const parsed = EventSchemas.safeParse(clean);
   if (!parsed.success) {
-    throw new Error(`refusing to log an invalid AG-UI ${String(event.type)} event: ${parsed.error.message}`);
+    throw new Error(`refusing to log an invalid AG-UI ${String(clean.type)} event: ${parsed.error.message}`);
   }
   await appendEvent(tx, {
     kind: "run.event",
     room: o.room,
     threadId: o.threadId,
     actorId: o.agent.actor.id,
-    agui: [event],
+    agui: [clean],
     data,
   });
+}
+
+/** The agent's copy keeps the raw message; the thread stores a scrubbed one. */
+async function storeMessage(tx: Tx, o: RunLoopOptions, m: Message): Promise<void> {
+  await appendMessage(tx, o.threadId, scrub(m));
 }
 
 function tagRunStarted(event: AguiEvent, o: RunLoopOptions): AguiEvent {
@@ -235,7 +257,7 @@ async function runRound(o: RunLoopOptions, http: HttpAgent, round: number): Prom
 async function persistMessages(o: RunLoopOptions, messages: Message[]): Promise<void> {
   if (messages.length === 0) return;
   await o.db.begin(async (tx) => {
-    for (const m of messages) await appendMessage(tx, o.threadId, attribute(m, o.agent));
+    for (const m of messages) await storeMessage(tx, o, attribute(m, o.agent));
   });
 }
 
@@ -252,7 +274,7 @@ async function answerCall(
   http.addMessage(message);
   const event: AguiEvent = { type: EventType.TOOL_CALL_RESULT, messageId, toolCallId: call.id, content, role: "tool" };
   await o.db.begin(async (tx) => {
-    await appendMessage(tx, o.threadId, message);
+    await storeMessage(tx, o, message);
     await appendRunEvent(tx, o, event, data);
   });
 }
@@ -261,9 +283,15 @@ async function answerCall(
  * Runs a registered AG-UI agent on a thread: board tools go in as client-side
  * tools, every streamed event is logged as `run.event`, new messages are stored on
  * the thread, and each run that ends with pending board tool calls has them
- * carried out as the agent before the next run. Never throws.
+ * carried out as the agent before the next run. Every string the agent supplied is
+ * scrubbed (NUL and unpaired surrogates become U+FFFD) before it is stored or
+ * returned in the outcome. Never throws.
  */
 export async function runAgentLoop(o: RunLoopOptions): Promise<LoopOutcome> {
+  return scrub(await loop(o));
+}
+
+async function loop(o: RunLoopOptions): Promise<LoopOutcome> {
   const maxRounds = o.maxRounds ?? MAX_ROUNDS;
   const http = new HttpAgent({
     url: o.agent.url,
