@@ -1,8 +1,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { setTimeout as sleep } from "node:timers/promises";
+import { custom, runFinishedSuccess, runStarted, type AguiEvent } from "@copilotkit/teamkit-protocol";
 import type { Db } from "../src/db/pool.js";
-import { listEvents } from "../src/store/events.js";
+import { appendEvent, listEvents } from "../src/store/events.js";
 import { reapExpired } from "../src/store/reaper.js";
 import { assertAguiValid } from "./helpers/agui.js";
 import { withTestDb } from "./helpers/db.js";
@@ -23,20 +24,30 @@ async function claimed(db: Db, id: string, holder: string, claimId: string, leas
            values (${id}, 'claimed', 'b', ${claimId}, ${holder}, ${lease})`;
 }
 
+/** Logs events for a claim the way a claim and its run would: data.claimId names the claim. */
+async function logged(db: Db, id: string, holder: string, claimId: string, kind: "task.claimed" | "run.event", agui: AguiEvent[]) {
+  await db.begin((tx) => appendEvent(tx, { kind, room: "build", threadId: id, actorId: holder, agui, data: { claimId } }));
+}
+
 test("reapExpired returns a lapsed claim to ready and logs lease_expired", async () => {
   await withTestDb(async (db) => {
     await seed(db);
     const now = new Date();
     await claimed(db, "t1", "ag_w1", "cl_1", new Date(now.getTime() + 5 * MIN));
+    // A claim taken with opensRun starts a run in its task.claimed event.
+    await logged(db, "t1", "ag_w1", "cl_1", "task.claimed", [
+      custom("teamkit.task.claimed", { claimId: "cl_1" }),
+      runStarted("t1", "cl_1", "cl_1"),
+    ]);
 
     assert.equal(await reapExpired(db, now), 0);
-    assert.equal((await listEvents(db, {})).events.length, 0);
+    assert.equal((await listEvents(db, { kinds: ["task.lease_expired"] })).events.length, 0);
 
     assert.equal(await reapExpired(db, new Date(now.getTime() + 6 * MIN)), 1);
     const [t] = await db`select state, claim_id, claimed_by, lease_expires_at from tasks where thread_id = 't1'`;
     assert.deepEqual({ ...t }, { state: "ready", claim_id: null, claimed_by: null, lease_expires_at: null });
 
-    const { events } = await listEvents(db, {});
+    const { events } = await listEvents(db, { kinds: ["task.lease_expired"] });
     assert.equal(events.length, 1);
     const e = events[0]!;
     assert.equal(e.kind, "task.lease_expired");
@@ -50,7 +61,42 @@ test("reapExpired returns a lapsed claim to ready and logs lease_expired", async
     assertAguiValid(e.agui);
 
     assert.equal(await reapExpired(db, new Date(now.getTime() + 7 * MIN)), 0);
-    assert.equal((await listEvents(db, {})).events.length, 1);
+    assert.equal((await listEvents(db, { kinds: ["task.lease_expired"] })).events.length, 1);
+  });
+});
+
+test("a lapsed claim whose run is closed or never started gets a lease_expired CUSTOM, not a RUN_ERROR", async () => {
+  await withTestDb(async (db) => {
+    await seed(db);
+    const past = new Date(Date.now() - MIN);
+    // t1: a dispatcher claim whose agent run finished (between board tool rounds).
+    await claimed(db, "t1", "ag_w1", "cl_1", past);
+    await logged(db, "t1", "ag_w1", "cl_1", "task.claimed", [custom("teamkit.task.claimed", { claimId: "cl_1" })]);
+    await logged(db, "t1", "ag_w1", "cl_1", "run.event", [runStarted("t1", "run_1", "cl_1")]);
+    await logged(db, "t1", "ag_w1", "cl_1", "run.event", [runFinishedSuccess("t1", "run_1", null)]);
+    // t3: a dispatcher claim whose agent never answered.
+    await claimed(db, "t3", "ag_w1", "cl_3", past);
+    await logged(db, "t3", "ag_w1", "cl_3", "task.claimed", [custom("teamkit.task.claimed", { claimId: "cl_3" })]);
+    // t4: an earlier claim's run is still open in the log, but it is not this claim's.
+    await claimed(db, "t4", "ag_w2", "cl_4b", past);
+    await logged(db, "t4", "ag_w2", "cl_4a", "run.event", [runStarted("t4", "run_4", "cl_4a")]);
+    // t2: this claim's run is open.
+    await claimed(db, "t2", "ag_w2", "cl_2", past);
+    await logged(db, "t2", "ag_w2", "cl_2", "run.event", [runStarted("t2", "run_2", "cl_2")]);
+
+    assert.equal(await reapExpired(db), 4);
+    const { events } = await listEvents(db, { kinds: ["task.lease_expired"] });
+    assert.deepEqual(
+      events.map((e) => [e.threadId, e.agui.map((a) => (a.type === "CUSTOM" ? `CUSTOM ${String(a.name)}` : a.type))]),
+      [
+        ["t1", ["CUSTOM teamkit.task.lease_expired"]],
+        ["t2", ["RUN_ERROR"]],
+        ["t3", ["CUSTOM teamkit.task.lease_expired"]],
+        ["t4", ["CUSTOM teamkit.task.lease_expired"]],
+      ],
+    );
+    assert.deepEqual(events[0]!.agui[0], { type: "CUSTOM", name: "teamkit.task.lease_expired", value: { claimId: "cl_1" } });
+    for (const e of events) assertAguiValid(e.agui);
   });
 });
 
