@@ -64,16 +64,27 @@ export async function post(
   });
 }
 
-export async function reply(db: Db, auth: AuthContext, threadId: string, text: string): Promise<void> {
+/**
+ * Appends a message to a thread. A person's message is a "user" turn and an agent's is an
+ * "assistant" turn, unless `opts.asUser` is set: an agent actor relaying a human's words (the
+ * Slack guest posting a Slack user's reply) stores them as a "user" turn, never as the agent's own.
+ */
+export async function reply(
+  db: Db,
+  auth: AuthContext,
+  threadId: string,
+  text: string,
+  opts?: { asUser?: boolean },
+): Promise<void> {
   await db.begin(async (tx) => {
     const thread = await requireThread(tx, threadId);
     await requirePerm(tx, auth, thread.room, "post");
     const body = assertText("text", text, { required: true })!;
     const messageId = newId("msg");
-    const role = roleOf(auth);
+    const role = opts?.asUser ? "user" : roleOf(auth);
     await appendMessage(tx, threadId, messageFor({ messageId, role, text: body, actor: auth.actor }));
     const agui = textMessage({ messageId, role, text: body, actor: auth.actor });
-    if (auth.actor.kind === "person") agui.push(custom("teamkit.message.posted", { threadId, messageId }));
+    if (role === "user") agui.push(custom("teamkit.message.posted", { threadId, messageId }));
     await appendEvent(tx, {
       kind: "message.posted",
       room: thread.room,

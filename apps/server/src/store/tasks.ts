@@ -139,10 +139,16 @@ async function mustLoad(q: Q, taskId: string): Promise<Task> {
   return task;
 }
 
+/**
+ * `opts.alsoWrite` runs inside the task's transaction, after its rows and before its event, for
+ * rows that must exist exactly when the task does (the Slack mirror row). It must act only
+ * through `tx` (the transaction may rerun), and a throw rolls the task back.
+ */
 export async function createTask(
   db: Db,
   auth: AuthContext,
   input: { room: string; brief: string; labels?: Record<string, string>; needs?: string[]; target?: string | null },
+  opts?: { alsoWrite?: (tx: Tx, taskId: string) => Promise<void> },
 ): Promise<Task> {
   const room = assertRoom(input.room);
   const brief = assertText("brief", input.brief, { required: true }) as string;
@@ -153,6 +159,7 @@ export async function createTask(
     await requirePerm(tx, auth, room, "create");
     const needStates = await lockNeeds(tx, auth, needs);
     const created = await insertTaskRows(tx, auth, { room, brief, labels, needs, target }, needStates);
+    await opts?.alsoWrite?.(tx, created.taskId);
     await appendEvent(tx, created.event);
     return mustLoad(tx, created.taskId);
   });

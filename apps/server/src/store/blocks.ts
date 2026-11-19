@@ -106,12 +106,17 @@ export async function block(
   });
 }
 
-/** blocked -> ready. An approval may only be answered by a person via a session. */
+/**
+ * blocked -> ready. An approval may only be answered by a person via a session.
+ * `opts.expectedInterruptId` names the question the caller is answering (a Slack button carries
+ * it); if the task is blocked on any other question, the answer is refused with invalid_state.
+ */
 export async function answer(
   db: Db,
   auth: AuthContext,
   taskId: string,
   input: { text?: string; choice?: string },
+  opts?: { expectedInterruptId?: string },
 ): Promise<Task> {
   const text = assertText("text", input.text) || undefined;
   const choice = assertText("choice", input.choice) || undefined;
@@ -125,6 +130,9 @@ export async function answer(
       throw new BoardError("invalid_state", `task ${taskId} is ${task.state}, not blocked`);
     }
     const blk = task.block;
+    if (opts?.expectedInterruptId !== undefined && blk.interruptId !== opts.expectedInterruptId) {
+      throw new BoardError("invalid_state", `task ${taskId} is blocked on a different question`);
+    }
     if (blk.kind === "awaiting_approval") {
       const approvers = (await getRoomInfo(tx, task.room))?.approvers ?? null;
       const isPerson = auth.via === "session" && auth.actor.kind === "person";

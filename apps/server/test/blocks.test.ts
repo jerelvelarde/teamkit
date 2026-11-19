@@ -177,6 +177,21 @@ test("answering a ready or missing task is refused", async () => {
   });
 });
 
+test("an answer for another question than the one the task is blocked on is invalid_state", async () => {
+  await withTestDb(async (db) => {
+    const { t, blocked } = await blockedTask(db, "needs_input", ["a", "b"]);
+    const helper = await agentAuth(db, "helper", [{ room: "*", perms: ["read", "post"] }]);
+    await assert.rejects(
+      answer(db, helper, t.id, { choice: "a" }, { expectedInterruptId: "int_old" }),
+      code("invalid_state"),
+    );
+    const [row] = await db`select state from tasks where thread_id = ${t.id}`;
+    assert.equal(row!.state, "blocked");
+    const r = await answer(db, helper, t.id, { choice: "a" }, { expectedInterruptId: blocked.block!.interruptId });
+    assert.equal(r.state, "ready");
+  });
+});
+
 test("blocking with a stale claim is claim_lost", async () => {
   await withTestDb(async (db) => {
     const a = await agentAuth(db, "a");
