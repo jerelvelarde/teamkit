@@ -286,6 +286,81 @@
   color: var(--tk-fg);
 }
 
+/* Agents on: overlapping avatars on the panel ground, opening a short popover. */
+.pile {
+  position: relative;
+  flex: none;
+}
+
+.pileButton {
+  gap: 4px;
+  height: 28px;
+  padding: 0 6px;
+}
+
+.pileAvatars {
+  display: inline-flex;
+}
+
+/* A 2px ring in the panel ground separates the overlapping avatars; each keeps its own shape. */
+.pileAvatars > * {
+  box-shadow: 0 0 0 2px var(--tk-bg-main);
+}
+
+.pileAvatars > * + * {
+  margin-left: -5px;
+}
+
+.pileMore {
+  color: var(--tk-fg-3);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.popover {
+  position: absolute;
+  z-index: 20;
+  top: calc(100% + 6px);
+  right: 0;
+  width: 260px;
+  padding: 6px;
+  border: 1px solid var(--tk-line);
+  border-radius: var(--tk-radius-md);
+  background: var(--tk-bg-raised);
+  box-shadow: var(--tk-shadow-pop);
+}
+
+.popoverLabel {
+  padding: 4px 6px 6px;
+  color: var(--tk-fg-3);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.popoverRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 32px;
+  padding: 0 6px;
+}
+
+.popoverName {
+  flex: none;
+  color: var(--tk-fg);
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.popoverStatus {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--tk-fg-3);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 @media (max-width: 900px) {
   .tabsRow {
     padding: 0 12px;

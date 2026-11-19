@@ -30,6 +30,14 @@ export const IconAlert = (p: IconProps) => (
   </Svg>
 );
 
+export const IconRollCall = (p: IconProps) => (
+  <Svg {...p}>
+    <circle cx="6" cy="5.5" r="2.25" />
+    <path d="M2.5 13c.4-2.2 1.8-3.5 3.5-3.5s3.1 1.3 3.5 3.5" />
+    <path d="M10.5 3.6a2.25 2.25 0 0 1 0 4.3M11.5 9.7c1.2.4 2 1.6 2.25 3.3" />
+  </Svg>
+);
+
 export const IconPlus = (p: IconProps) => (
   <Svg {...p}>
     <path d="M8 3.25v9.5M3.25 8h9.5" />

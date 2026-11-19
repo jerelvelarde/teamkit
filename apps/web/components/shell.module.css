@@ -324,3 +324,30 @@
     padding: 0 12px;
   }
 }
+
+/* Agents on in a room: up to three 6px green dots at the end of its sidebar row. */
+.onDots {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
+}
+
+.onDotRow {
+  display: inline-flex;
+  gap: 3px;
+}
+
+.onDot {
+  width: 6px;
+  height: 6px;
+  border-radius: var(--tk-radius-full);
+  background: var(--tk-done);
+}
+
+.onMore {
+  color: var(--tk-fg-3);
+  font-size: 11.5px;
+  font-variant-numeric: tabular-nums;
+}

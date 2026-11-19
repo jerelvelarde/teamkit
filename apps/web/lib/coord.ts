@@ -1,4 +1,4 @@
-import type { Alert, ChangeEntry, Task, TaskBlock, Whoami } from "@copilotkit/teamkit-protocol";
+import { PRESENCE_ON_MS, type Alert, type ChangeEntry, type Presence, type Task, type TaskBlock, type Whoami } from "@copilotkit/teamkit-protocol";
 
 /**
  * A short duration: "24m", "1h 5m", "3h" (minutes are dropped from 3 hours up), with minutes
@@ -119,4 +119,22 @@ export function bannerAlerts(alerts: Alert[]): { shown: Alert[]; more: Alert[] }
       return loud !== 0 ? loud : b.createdAt.localeCompare(a.createdAt);
     });
   return { shown: open.slice(0, BANNER_MAX), more: open.slice(BANNER_MAX) };
+}
+
+/** Sessions seen within PRESENCE_ON_MS (the server's rule, shared with the Slack status message). */
+export function liveSessions(p: Presence, now: number): number {
+  return p.sessions.filter((s) => now - Date.parse(s.lastSeenAt) <= PRESENCE_ON_MS).length;
+}
+
+/** Agents with at least one live session, by name. People never count as on. */
+export function agentsOn(list: Presence[], now: number): Presence[] {
+  return list
+    .filter((p) => p.actor.kind === "agent" && liveSessions(p, now) > 0)
+    .sort((a, b) => a.actor.name.localeCompare(b.actor.name));
+}
+
+/** "ana-agent", or "ana-agent · 2 sessions" when more than one install is on. */
+export function presenceLine(p: Presence, now: number): string {
+  const n = liveSessions(p, now);
+  return n > 1 ? `${p.actor.name} · ${n} sessions` : p.actor.name;
 }

@@ -287,6 +287,27 @@ async function main(): Promise<void> {
     await raised.waitFor();
     assert((await banner.getByText("nightly invoice export").count()) === 0, "a resolved alert stays gone after a reload");
 
+    // An agent's heartbeat shows as a dot on each room it watches and in the room's agents-on list.
+    await anaAgent.heartbeat({ watching: ["billing-migration", "billing-prod"], status: "copying invoices" });
+    await page.goto(`${base}/?room=billing-migration`);
+    const nav = page.getByRole("complementary", { name: "Workspace" });
+    await nav.getByRole("link", { name: "billing-prod, 1 agent on" }).waitFor();
+    await page.getByRole("button", { name: "1 agent on" }).click();
+    const on = page.getByRole("group", { name: "Agents on" });
+    await on.getByText("ana-agent").waitFor();
+    await on.getByText("copying invoices").waitFor();
+    await page.keyboard.press("Escape");
+
+    // A person starts a roll call beside the agents-on list; an agent's answer shows in its thread.
+    await page.getByRole("button", { name: "Start roll call" }).click();
+    await page.waitForURL(new RegExp(`/t/[^?]+\\?room=billing-migration`));
+    const [rollCall] = await anaAgent.rollCalls("billing-migration");
+    assert(rollCall?.askedBy.name === "sam", "sam started the roll call");
+    await benAgent.answerRollCall(rollCall.id, "on, copying invoices");
+    const rcEvents = page.getByLabel("Events");
+    await rcEvents.getByText("Roll call by sam").waitFor();
+    await rcEvents.getByText("Roll call: ben-agent").waitFor();
+
     for (const vp of VIEWPORTS) {
       await page.setViewportSize(vp);
       for (const [name, path] of [

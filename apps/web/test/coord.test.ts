@@ -1,14 +1,17 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import type { Alert, ChangeEntry, TaskBlock, Whoami } from "@copilotkit/teamkit-protocol";
+import type { Alert, ChangeEntry, Presence, TaskBlock, Whoami } from "@copilotkit/teamkit-protocol";
 import {
   ackText,
+  agentsOn,
   approverList,
   bannerAlerts,
   heldText,
+  liveSessions,
   mayAnswer,
   namesText,
   parseTab,
+  presenceLine,
   reservationLeft,
   roomQuery,
   shortDuration,
@@ -139,5 +142,22 @@ describe("alert banner", () => {
   it("an empty or all-resolved list shows nothing", () => {
     assert.deepEqual(bannerAlerts([]), { shown: [], more: [] });
     assert.deepEqual(bannerAlerts([a("done", "confirmed", "2026-11-20T08:45:00.000Z", true)]), { shown: [], more: [] });
+  });
+});
+
+describe("presence", () => {
+  it("only agents seen in the last 90 seconds are on", () => {
+    const now = Date.parse("2026-11-19T10:00:00.000Z");
+    const s = (tokenId: string, agoMs: number) => ({ tokenId, watching: ["billing-migration"], status: null, lastSeenAt: new Date(now - agoMs).toISOString() });
+    const ana = { id: "act_ana", name: "ana", kind: "person" as const };
+    const list: Presence[] = [
+      { actor: benAgent, owner: null, sessions: [s("tok_b", 91_000)] },
+      { actor: anaAgent, owner: ana, sessions: [s("tok_a1", 5_000), s("tok_a2", 60_000), s("tok_a3", 120_000)] },
+      { actor: ana, owner: null, sessions: [s("tok_p", 1_000)] },
+    ];
+    assert.deepEqual(agentsOn(list, now).map((p) => p.actor.name), ["ana-agent"]);
+    assert.equal(liveSessions(list[1]!, now), 2);
+    assert.equal(presenceLine(list[1]!, now), "ana-agent · 2 sessions");
+    assert.equal(presenceLine({ ...list[1]!, sessions: [s("tok_a1", 5_000)] }, now), "ana-agent");
   });
 });

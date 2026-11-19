@@ -2,11 +2,11 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
-import { usePathname, useSearchParams } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { EVENT_KINDS } from "@copilotkit/teamkit-protocol";
 import type { Alert, BoardEvent, ChangeEntry, Decision, Task, TaskState } from "@copilotkit/teamkit-protocol";
 import { api } from "../lib/api";
-import { parseTab, roomQuery } from "../lib/coord";
+import { agentsOn, parseTab, roomQuery } from "../lib/coord";
 import { useRoomList } from "../lib/records";
 import { useBoardStream } from "../lib/stream";
 import { PageHeader, useShell } from "./AppShell";
@@ -47,7 +47,8 @@ export function Board({ children }: { children?: ReactNode }) {
   const path = usePathname();
   const selected = params.get("room") || ALL_ROOMS;
   const openId = path.startsWith("/t/") ? decodeURIComponent(path.slice(3)) : null;
-  const { rooms, setRooms } = useShell();
+  const { rooms, setRooms, presence, presenceAt } = useShell();
+  const router = useRouter();
 
   const [tasks, setTasks] = useState<Task[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -181,7 +182,23 @@ export function Board({ children }: { children?: ReactNode }) {
           </button>
         )}
       </PageHeader>
-      {room ? <RoomTabs room={room} tab={tab} onRaiseAlert={() => setAlerting(true)} /> : null}
+      {room ? (
+        <RoomTabs
+          room={room}
+          tab={tab}
+          agents={agentsOn(presence.get(room) ?? [], presenceAt)}
+          now={presenceAt}
+          onStartRollCall={async () => {
+            try {
+              const rollCall = await api.startRollCall(room);
+              router.push(`/t/${encodeURIComponent(rollCall.threadId)}${query}`, { scroll: false });
+            } catch (err) {
+              setError(err instanceof Error ? err.message : "Could not start the roll call.");
+            }
+          }}
+          onRaiseAlert={() => setAlerting(true)}
+        />
+      ) : null}
       {room && alerts.items ? <AlertBanner alerts={alerts.items} query={query} now={now} onChanged={alerts.reload} /> : null}
 
       {error ? (
