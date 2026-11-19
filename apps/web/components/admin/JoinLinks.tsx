@@ -68,7 +68,10 @@ export function JoinLinks() {
   return (
     <section className={`tk-glass ${styles.section}`} aria-label="Join links">
       <SectionHead>Join links</SectionHead>
-      <p className={styles.lead}>Anyone with a join link can join as a member. Revoke it to stop new joins.</p>
+      <p className={styles.lead}>
+        Anyone with a join link can join as a member, and joining does not verify the email address. Keep links secret and
+        short-lived, and revoke one to stop new joins.
+      </p>
 
       {created ? <ShownOnce title="New join link" value={created.link} onDismiss={() => setCreated(null)} /> : null}
 

@@ -373,7 +373,7 @@ th_43fa949684c7872e  [ready]  eng/web  Add the export endpoint labels area=api
 |---|---|
 | `--needs <id>` | A task this one needs first. Repeatable. The new task is `waiting` until they complete. |
 | `--label <k=v>` | A label. Repeatable. |
-| `--target <t>` | Names the registered agent that should run it; otherwise free text for roles. |
+| `--target <t>` | Names the registered agent that should run it; otherwise free text for roles. Only a registered agent the server runs is started this way: to give a task to a person's agent (such as `ben-agent`), claim it and hand it off. |
 | `--file <plan.json>` | Create a whole plan from a JSON file instead of one task. |
 
 ```sh
@@ -813,7 +813,7 @@ When a server starts and nobody has signed in yet, it prints a first-admin sign-
 
 ### join-links
 
-`teamkit-admin join-links create [--days <n>] [--domain <d>]` makes a team join link and prints it, once. `--days` makes it expire (1 to 365; leave it out and it never expires). `--domain` limits it to emails at that domain, matched exactly; repeat it for more.
+`teamkit-admin join-links create [--days <n>] [--domain <d>]` makes a team join link and prints it, once. `--days` makes it expire (1 to 365; leave it out and it never expires). `--domain` limits it to emails at that domain, matched exactly; repeat it for more. Joining does not verify the email address, so a domain limit stops typos, not someone who has the link: keep links short-lived and revoke one that leaks.
 
 ```sh
 teamkit-admin join-links create --domain example.com --days 30
