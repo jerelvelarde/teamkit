@@ -1,4 +1,4 @@
-import { test } from "node:test";
+import { afterEach, beforeEach, test } from "node:test";
 import assert from "node:assert/strict";
 import type { Claim, Task } from "@copilotkit/teamkit-protocol";
 import { withTestDb } from "./helpers/db.js";
@@ -26,6 +26,20 @@ async function expectInvalid(res: Response, what: string): Promise<void> {
   assert.equal(j.error.code, "invalid_input", what);
   assert.doesNotMatch(j.error.message, /SQLSTATE|syntax|encoding|byte sequence/i, what);
 }
+
+// Every entry point validates up front, so the database backstop in app.onError never fires here.
+const warn = console.warn;
+let backstopHits: string[] = [];
+beforeEach(() => {
+  backstopHits = [];
+  console.warn = (...args: unknown[]) => {
+    if (String(args[0]).startsWith("database rejected")) backstopHits.push(String(args[0]));
+    else warn(...args);
+  };
+});
+afterEach(() => {
+  console.warn = warn;
+});
 
 async function withApp(fn: (app: App, token: string) => Promise<void>): Promise<void> {
   await withTestDb(async (db) => {
@@ -73,6 +87,7 @@ test("NUL and lone surrogates in body strings are 400 invalid_input", async () =
       ];
       for (const [path, body] of cases) await expectInvalid(await call(app, token, path, body), `${path} ${JSON.stringify(body)}`);
     }
+    assert.deepEqual(backstopHits, []);
     // Nothing above changed the claimed task.
     const after = (await (await call(app, token, `/tasks?state=all`)).json()) as { tasks: Task[] };
     assert.equal(after.tasks.find((t) => t.id === taskId)?.state, "claimed");
@@ -100,8 +115,33 @@ test("NUL in path params and query values is 400 invalid_input", async () => {
       ["/room?name=b%00"],
     ];
     for (const [path, body] of paths) await expectInvalid(await call(app, token, path, body), path);
+    assert.deepEqual(backstopHits, []);
     // Invalid UTF-8 in a URL is never decoded into a lone surrogate.
     const raw = await call(app, token, "/tasks/%ED%A0%80/claim", {});
     assert.ok(raw.status < 500, `status ${raw.status}`);
+  });
+});
+
+test("the backstop maps a Postgres data exception to 400 and leaves other database errors at 500", async () => {
+  await withTestDb(async (db) => {
+    const notifier = await createNotifier(db);
+    try {
+      const app = createApp({ db, notifier });
+      app.get("/boom/data", async (c) => c.json(await db`select ${"a\u0000b"}::text as v`));
+      app.get("/boom/other", async (c) => c.json(await db`select * from no_such_table`));
+      const data = await app.request("/boom/data");
+      assert.equal(data.status, 400);
+      assert.deepEqual(await data.json(), { error: { code: "invalid_input", message: "invalid input" } });
+      assert.equal(backstopHits.length, 1);
+      const errorLog = console.error;
+      console.error = () => {};
+      try {
+        assert.equal((await app.request("/boom/other")).status, 500);
+      } finally {
+        console.error = errorLog;
+      }
+    } finally {
+      await notifier.close();
+    }
   });
 });
