@@ -69,7 +69,8 @@ export const taskTools: McpTool[] = [
   },
   {
     name: "teamkit_create_task",
-    description: "Create a task in a room. To ask something that belongs to no task, create a task for it first.",
+    description:
+      "Create a task in a room. To ask something that belongs to no task, create a task for it first. target starts a registered agent the server runs; to give a task to a person's agent (such as ben-agent), claim it and hand it off.",
     inputSchema: z.object({
       room: z.string(),
       brief: z.string(),
