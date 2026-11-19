@@ -256,7 +256,7 @@ th_43fa949684c7872e  [ready]  eng/web  Add the export endpoint labels area=api
 |---|---|
 | `--needs <id>` | A task this one needs first. Repeatable. The new task is `waiting` until they complete. |
 | `--label <k=v>` | A label. Repeatable. |
-| `--target <t>` | The agent that should do it. |
+| `--target <t>` | Names the registered agent that should run it; otherwise free text for roles. |
 | `--file <plan.json>` | Create a whole plan from a JSON file instead of one task. |
 
 ```sh

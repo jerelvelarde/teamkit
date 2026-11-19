@@ -149,7 +149,10 @@ export async function setAgentEnabled(db: Db, name: string, enabled: boolean): P
   if (rows.length === 0) throw new BoardError("not_found", `agent not found: ${name}`);
 }
 
-/** Ready tasks routed (task label `agent`, else the room's agent) to an enabled registered agent. */
+/**
+ * Ready tasks routed to an enabled registered agent: the task label `agent`, else the task's
+ * `target` when it names an enabled registered agent, else the room's agent.
+ */
 export async function listDispatchable(
   db: Db,
   limit: number,
@@ -159,7 +162,8 @@ export async function listDispatchable(
     from tasks t
     join threads th on th.id = t.thread_id
     join rooms r on r.name = th.room
-    join agents a on a.name = coalesce(th.labels->>'agent', r.agent)
+    left join agents ta on ta.name = t.target and ta.enabled
+    join agents a on a.name = coalesce(th.labels->>'agent', ta.name, r.agent)
     where t.state = 'ready' and a.enabled
     order by th.created_at, t.thread_id
     limit ${limit}`;

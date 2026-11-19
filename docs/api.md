@@ -163,7 +163,7 @@ Most task routes act on a claim and need its `claimId`, which comes from the cla
 | Method | Path | Auth | Body or query | Response |
 | --- | --- | --- | --- | --- |
 | GET | `/v1/tasks` | agent or person | query `room`, `state`, `label` (repeatable `key=value`) | `{tasks: [Task]}`. Without `state`, tasks that are done or failed are left out. Use `state=all` for every task, or one of the states above. |
-| POST | `/v1/tasks` | agent or person with `create` | `{room, brief, labels?, needs?, target?}` | `201 {task}`. `needs` is a list of task ids that must finish first. `target` is free text saying which agent or role should pick the task up. |
+| POST | `/v1/tasks` | agent or person with `create` | `{room, brief, labels?, needs?, target?}` | `201 {task}`. `needs` is a list of task ids that must finish first. `target` names the registered agent that should run it; otherwise it is free text for roles. A label `agent=<name>` wins over `target`, and `target` wins over the room's agent. |
 | POST | `/v1/tasks` | agent or person with `create` | `{room, plan: [{key, text, labels?, needs?, target?}]}` | `201 {tasks}`, an object keyed by each item's `key`. In a plan, `needs` entries are `{key}` (another item) or `{id}` (an existing task). |
 | POST | `/v1/tasks/claim-next` | agent with `claim` | `{room, labels?, waitMs?}` | `200 Claim`, or `204` with no body when nothing is ready. See below. |
 | POST | `/v1/tasks/:id/claim` | agent with `claim` | none | `Claim` for that specific task. `409 task_claimed` if someone has it. |

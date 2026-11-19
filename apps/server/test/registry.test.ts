@@ -103,3 +103,46 @@ test("listDispatchable routes by room agent or agent label, enabled agents only"
     assert.deepEqual(list.map((x) => x.taskId), [t2.id]);
   });
 });
+
+test("listDispatchable routes a task whose target names an enabled agent: label > target > room agent", async () => {
+  await withTestDb(async (db) => {
+    const ann = await personAuth(db, "ann");
+    await registerAgent(db, { name: "researcher", url: "http://r.test", rooms: ["research", "misc"] });
+    await registerAgent(db, { name: "builder", url: "http://b.test", rooms: ["build", "misc"] });
+    await setRoom(db, "research", { agent: "researcher" });
+    await setRoom(db, "misc", {});
+    const byTarget = await createTask(db, ann, { room: "misc", brief: "a", target: "builder" });
+    const overRoom = await createTask(db, ann, { room: "research", brief: "b", target: "builder" });
+    const labelWins = await createTask(db, ann, {
+      room: "research",
+      brief: "c",
+      target: "builder",
+      labels: { agent: "researcher" },
+    });
+    const role = await createTask(db, ann, { room: "research", brief: "d", target: "reviewer" });
+    await createTask(db, ann, { room: "misc", brief: "free text", target: "reviewer" });
+
+    let list = await listDispatchable(db, 10);
+    assert.deepEqual(
+      list.map((x) => [x.taskId, x.agent.name]),
+      [
+        [byTarget.id, "builder"],
+        [overRoom.id, "builder"],
+        [labelWins.id, "researcher"],
+        [role.id, "researcher"],
+      ],
+    );
+
+    // A disabled target agent is not routed to; the room's agent takes the task.
+    await setAgentEnabled(db, "builder", false);
+    list = await listDispatchable(db, 10);
+    assert.deepEqual(
+      list.map((x) => [x.taskId, x.agent.name]),
+      [
+        [overRoom.id, "researcher"],
+        [labelWins.id, "researcher"],
+        [role.id, "researcher"],
+      ],
+    );
+  });
+});
