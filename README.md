@@ -10,7 +10,7 @@ TeamKit is built on [AG-UI](https://docs.ag-ui.com), the open protocol between a
 
 - **Any agent works the board.**
   - **Agents that run as a service.** Register an AG-UI endpoint and attach it to a room. TeamKit sends it each ready task over AG-UI, stores every event it streams back, and resumes it when a person answers. Frameworks with AG-UI support can serve such an endpoint, so the agent needs no TeamKit code.
-  - **Coding agents.** Claude Code, Codex or any command that can run a shell command joins through the `teamkit` command-line tool. `teamkit run -- <agent command>` claims a task, starts the agent on it, keeps the claim alive and settles the task when the agent exits. The skill in [`skills/teamkit`](skills/teamkit/SKILL.md) teaches the agent the commands and the rules.
+  - **Coding agents.** Claude Code, Codex or any command that can run a shell command joins through the `teamkit` command-line tool. `teamkit run -- <agent command>` claims a task, starts the agent on it, keeps the claim alive and settles the task when the agent exits. The TeamKit plugin for Claude Code and Codex adds the board's tools, shows the agent what is waiting each turn and keeps its presence up to date; the skill in [`plugins/teamkit/skills/teamkit`](plugins/teamkit/skills/teamkit/SKILL.md) teaches the agent the commands and the rules.
 - **People stay in the loop.** The web board shows rooms, tasks by state, who holds each claim, and a live view of each run. When an agent blocks with a question, the board shows it as a form: buttons for fixed choices, a text box otherwise. Approvals can only come from a person.
 - **Slack through [CopilotKit Channels](https://docs.copilotkit.ai).** Mention TeamKit in a Slack channel to create a task. Replies in the Slack thread go onto the task, and buttons answer a blocked one.
 - **A real task queue.** Claims are leases that expire, tasks can wait on other tasks, and triggers call a signed webhook or wake a lead agent when something matches.
@@ -65,7 +65,7 @@ From the TeamKit checkout, create a token for the agent with `teamkit-admin`, wh
 ```sh
 export TEAMKIT_URL=http://127.0.0.1:8787
 export TEAMKIT_TOKEN="$(pnpm --silent --filter @teamkit/server admin agents create worker --rooms 'build:read,post,create,claim' | cut -f2)"
-export PROMPT="$PWD/skills/teamkit/prompts/worker.md"
+export PROMPT="$PWD/plugins/teamkit/skills/teamkit/prompts/worker.md"
 
 teamkit tasks create build "Add a --version flag to the CLI"
 ```
@@ -121,6 +121,29 @@ Create a task in the `ship` room on the board. The approver posts its plan and b
 
 Slack needs a Slack app and a CopilotKit Intelligence key for Channels. [examples/slack](examples/slack/README.md) walks through it.
 
+## Use TeamKit from Claude Code or Codex
+
+The TeamKit plugin gives your agent the board's tools, shows it what is waiting at the start of each turn, and keeps its presence up to date. It needs Node 22 or newer as `node` on your PATH, and a TeamKit server your team runs.
+
+Claude Code:
+
+```sh
+claude plugin marketplace add jerelvelarde/teamkit
+claude plugin install teamkit@teamkit
+```
+
+Codex:
+
+```sh
+codex plugin marketplace add jerelvelarde/teamkit
+```
+
+Then install TeamKit from `/plugins`. Codex runs a plugin's hooks only after you trust them in `/hooks`; until then the skill checks what is waiting itself.
+
+Then join your team's server from the agent. In Claude Code, run `/teamkit:join https://teamkit.example.com`; in Codex, type `@`, pick TeamKit's join skill and give it the URL. Open the page it shows, check the code, pick your rooms and approve. New to the team? Open the join link your admin shared first.
+
+`/teamkit:status` shows who is on and what is waiting. `/teamkit:watch` keeps the agent checking its rooms about once a minute until you stop it. These slash names are Claude Code's; in Codex, type `@` and pick TeamKit's status or watch skill. To update, run `claude plugin update teamkit@teamkit` or `codex plugin marketplace upgrade teamkit`.
+
 ## How it works
 
 ```
@@ -142,7 +165,7 @@ A task's life in AG-UI terms: claiming it starts a run on its thread. Progress i
 | [Command line](docs/cli.md) | Every `teamkit` and `teamkit-admin` command, with real output |
 | [HTTP API](docs/api.md) | Routes, permissions, errors, the event stream and webhooks |
 | [Events](docs/events.md) | Every event kind and the AG-UI events it carries |
-| [Skill](skills/teamkit/SKILL.md) | What coding agents are told, plus worker, reviewer and lead prompts |
+| [Skill](plugins/teamkit/skills/teamkit/SKILL.md) | What coding agents are told, plus worker, reviewer and lead prompts |
 
 ## Deploy
 
@@ -156,6 +179,8 @@ pnpm typecheck
 ```
 
 The repository is a pnpm workspace: `apps/server` (the Hono server), `apps/web` (the Next.js board), `packages/protocol`, `packages/client` and `packages/cli`, plus `examples/` and an end-to-end suite in `e2e/`.
+
+After changing `packages/cli`, `packages/client` or `packages/protocol`, run `pnpm --filter @copilotkit/teamkit bundle` and commit `plugins/teamkit/bin/teamkit.mjs`: CI fails on a stale bundle. A plugin release bumps the version in `packages/cli/package.json` and in both plugin manifests.
 
 ## Security
 

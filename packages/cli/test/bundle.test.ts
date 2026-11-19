@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -30,6 +30,19 @@ test("the bundle is executable, has a node shebang and no build-machine paths", 
   assert.notEqual(statSync(out).mode & 0o111, 0);
   assert.ok(!text.includes(repoRoot), "no absolute repo path");
   assert.ok(!text.includes("tsx/esm"));
+});
+
+test("a relative outfile is written relative to the caller's directory", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "teamkit-bundle-rel-"));
+  const before = process.cwd();
+  process.chdir(dir);
+  try {
+    await buildBundle("teamkit.mjs");
+  } finally {
+    process.chdir(before);
+  }
+  assert.ok(statSync(join(dir, "teamkit.mjs")).isFile());
+  assert.ok(!existsSync(join(repoRoot, "teamkit.mjs")), "nothing written at the repo root");
 });
 
 test("two builds give identical bytes", async () => {

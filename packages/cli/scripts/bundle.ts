@@ -18,7 +18,9 @@ const BANNER = [
 
 /** Bundles the whole CLI into one executable ESM file. Builds are byte-identical wherever they run. */
 export async function buildBundle(outfile: string): Promise<void> {
-  mkdirSync(dirname(outfile), { recursive: true });
+  // esbuild reads a relative outfile against absWorkingDir (the repo root); resolve it against the caller's directory first.
+  const out = resolve(outfile);
+  mkdirSync(dirname(out), { recursive: true });
   await build({
     entryPoints: ["packages/cli/src/entry.ts"],
     bundle: true,
@@ -31,9 +33,9 @@ export async function buildBundle(outfile: string): Promise<void> {
     absWorkingDir: REPO_ROOT,
     logLevel: "warning",
     banner: { js: BANNER },
-    outfile,
+    outfile: out,
   });
-  chmodSync(outfile, 0o755);
+  chmodSync(out, 0o755);
 }
 
 /** Whether `committed` has exactly the bytes a fresh build gives. */

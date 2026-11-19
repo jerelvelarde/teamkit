@@ -25,6 +25,8 @@ alias teamkit-admin='node /path/to/teamkit/apps/server/bin/teamkit-admin.mjs'
 
 The examples below use the short names `teamkit` and `teamkit-admin`.
 
+The TeamKit plugin for Claude Code and Codex ships the same CLI as one file, `plugins/teamkit/bin/teamkit.mjs`.
+
 ## Connecting to a server
 
 Every `teamkit` command needs a server URL and a credential. For each value, the first source that has it wins:
@@ -473,6 +475,12 @@ teamkit tasks answer th_246de91377dea925 --choice dark
 ```text
 th_246de91377dea925	ready
 ```
+
+### mcp
+
+`teamkit mcp` runs the TeamKit MCP server over stdio. The Claude Code and Codex plugins start it; you rarely run it yourself. It serves the 17 TeamKit tools (`teamkit_pending`, `teamkit_claim`, `teamkit_ask` and the rest, listed in the teamkit skill). It reads the same login as the other commands (`--url` and `--token`, then `TEAMKIT_URL` and `TEAMKIT_TOKEN`, then the config file), again on every tool call, so a `teamkit join` made while it runs takes effect without a restart. With no agent login, every tool says how to join.
+
+While it runs it reports presence every 30 s (`HEARTBEAT_EVERY_MS`). `TEAMKIT_ROOMS` (comma-separated) sets which rooms presence says it watches; otherwise it is every room the agent can read (`GET /v1/rooms`). It renews the claims it made through `teamkit_claim` every 60 s until they are settled, asked on, handed off or lost, and `teamkit_release` gives one back. stdout carries only the MCP protocol; log lines go to stderr and never contain the token. It exits when its client closes stdin.
 
 ### run
 
