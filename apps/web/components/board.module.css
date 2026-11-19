@@ -1,0 +1,386 @@
+/* Board styles. Danger red and the blocked amber are implementation defaults (not brand tokens). */
+.layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 16px;
+  align-items: start;
+}
+
+.content {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.heading {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 600;
+  line-height: 24px;
+  overflow-wrap: anywhere;
+}
+
+.live {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+  font-family: var(--tk-font-mono);
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--tk-text-secondary);
+}
+
+.liveDot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--tk-text-disabled);
+}
+
+.live[data-connected="true"] .liveDot {
+  background: #1f8a4c;
+}
+
+/* Section label with an extending line (also used for column heads). */
+.columnHead {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 4px;
+  margin-bottom: 8px;
+  white-space: nowrap;
+}
+
+.columnTitle {
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--tk-text-secondary);
+}
+
+.count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 20px;
+  padding: 0 6px;
+  border-radius: var(--tk-radius-full);
+  background: var(--tk-glass-tag);
+  font-family: var(--tk-font-mono);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 18px;
+}
+
+.line {
+  flex: 1;
+  height: 1px;
+  background: var(--tk-border-container);
+}
+
+/* Sidebar */
+.sidebar {
+  padding: 16px;
+  min-width: 0;
+}
+
+.roomList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.roomLink {
+  display: block;
+  padding: 8px 12px;
+  border-radius: var(--tk-radius-xs);
+  color: var(--tk-text-primary);
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1.25;
+  text-decoration: none;
+  overflow-wrap: anywhere;
+}
+
+.roomLink:hover {
+  background: var(--tk-glass);
+}
+
+.roomLinkActive,
+.roomLinkActive:hover {
+  background: var(--tk-glass-selected);
+}
+
+.roomLink:focus-visible {
+  outline: 2px solid var(--tk-text-primary);
+  outline-offset: 1px;
+}
+
+/* Columns: stacked on phones */
+.columnsScroll {
+  min-width: 0;
+}
+
+.columns {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.column {
+  min-width: 0;
+}
+
+.cards {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.empty {
+  margin: 0;
+  padding: 12px 4px;
+  font-size: 12px;
+  line-height: 1.625;
+  color: var(--tk-text-disabled);
+}
+
+/* Task card */
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 16px;
+  background: var(--tk-glass);
+  border: 2px solid var(--tk-border);
+  border-radius: var(--tk-radius-sm);
+  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
+  color: var(--tk-text-primary);
+  text-decoration: none;
+  min-width: 0;
+  transition: background 120ms ease, box-shadow 120ms ease;
+}
+
+.card:hover {
+  background: var(--tk-glass-selected);
+  box-shadow: var(--tk-shadow-md);
+}
+
+.card:focus-visible {
+  outline: 2px solid var(--tk-text-primary);
+  outline-offset: 2px;
+}
+
+.cardBlocked {
+  background: rgba(255, 236, 207, 0.8);
+  border-color: #ffac4d;
+}
+
+.cardBlocked:hover {
+  background: rgba(255, 236, 207, 0.95);
+}
+
+.brief {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1.375;
+  overflow-wrap: anywhere;
+}
+
+.pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.pills :global(.tk-pill) {
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+
+.status {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--tk-text-secondary);
+  overflow-wrap: anywhere;
+}
+
+.status strong {
+  font-weight: 600;
+  color: var(--tk-text-primary);
+}
+
+.danger {
+  color: #b42318;
+  font-weight: 600;
+}
+
+.blockedInfo {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  align-items: flex-start;
+}
+
+.blockedKind {
+  display: inline-flex;
+  padding: 2px 8px;
+  border-radius: var(--tk-radius-full);
+  background: var(--tk-text-primary);
+  color: var(--tk-text-invert);
+  font-family: var(--tk-font-mono);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.4;
+}
+
+/* New task form */
+.formClosed {
+  display: flex;
+}
+
+.form {
+  padding: 16px;
+}
+
+.formGrid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 12px;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.fieldLabel {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--tk-text-secondary);
+}
+
+.formInput {
+  width: 100%;
+}
+
+.textarea {
+  width: 100%;
+  padding: 8px 12px;
+  border: 1px solid var(--tk-border-container);
+  border-radius: var(--tk-radius-xs);
+  background: var(--tk-surface-container);
+  color: var(--tk-text-primary);
+  font-family: var(--tk-font-sans);
+  font-size: 14px;
+  line-height: 1.5;
+  resize: vertical;
+}
+
+.textarea:focus-visible {
+  outline: 2px solid var(--tk-text-primary);
+  outline-offset: 1px;
+}
+
+.formActions {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.primary {
+  background: var(--tk-text-primary);
+  color: var(--tk-text-invert);
+}
+
+.primary:hover {
+  background: #2b2b2b;
+}
+
+.primary:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.error {
+  margin: 12px 0 0;
+  font-size: 14px;
+  line-height: 1.5;
+  color: #b42318;
+}
+
+@media (min-width: 768px) {
+  .roomList {
+    flex-wrap: wrap;
+  }
+
+  .formGrid {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  }
+
+  .fieldWide {
+    grid-column: 1 / -1;
+  }
+
+  /* Tablet: columns scroll sideways inside their own container. */
+  .columnsScroll {
+    overflow-x: auto;
+    padding-bottom: 8px;
+  }
+
+  .columns {
+    flex-direction: row;
+    gap: 16px;
+    width: max-content;
+    min-width: 100%;
+  }
+
+  .column {
+    width: 260px;
+    flex: 0 0 260px;
+  }
+}
+
+@media (min-width: 1200px) {
+  .layout {
+    grid-template-columns: 220px minmax(0, 1fr);
+  }
+
+  .roomList {
+    flex-direction: column;
+    flex-wrap: nowrap;
+  }
+
+  .columnsScroll {
+    overflow-x: visible;
+    padding-bottom: 0;
+  }
+
+  .columns {
+    display: grid;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    width: auto;
+  }
+
+  .column {
+    width: auto;
+    flex: none;
+  }
+}
