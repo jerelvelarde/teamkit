@@ -1,4 +1,4 @@
-import type { Task, TaskBlock, Whoami } from "@copilotkit/teamkit-protocol";
+import type { ChangeEntry, Task, TaskBlock, Whoami } from "@copilotkit/teamkit-protocol";
 
 /**
  * A short duration: "24m", "1h 5m", "3h" (minutes are dropped from 3 hours up), with minutes
@@ -92,4 +92,14 @@ export function whenText(iso: string, now: number): string {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return "";
   return d.toDateString() === new Date(now).toDateString() ? CLOCK_TIME.format(d) : MONTH_DAY.format(d);
+}
+
+export const CHANGE_STATUS_LABEL: Record<ChangeEntry["status"], string> = { active: "Active", done: "Done", restored: "Restored" };
+
+/** Active changes first (they may still need undoing), then newest first. Leaves `list` as it is. */
+export function sortChanges(list: ChangeEntry[]): ChangeEntry[] {
+  return [...list].sort((a, b) => {
+    const live = Number(b.status === "active") - Number(a.status === "active");
+    return live !== 0 ? live : b.at.localeCompare(a.at);
+  });
 }

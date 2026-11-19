@@ -256,6 +256,16 @@ async function main(): Promise<void> {
     await page.keyboard.press("Escape");
     await page.waitForURL(`${base}/?room=billing-migration&view=decisions`);
 
+    // The change log lists the change with its undo and status.
+    await page.getByRole("navigation", { name: "Room views" }).getByRole("link", { name: "Changes" }).click();
+    await page.waitForURL(`${base}/?room=billing-migration&view=changes`);
+    const changeRow = page
+      .getByRole("region", { name: "Changes" })
+      .getByRole("link")
+      .filter({ hasText: "Copied invoices 1 to 500 to the new database" });
+    await changeRow.getByText("Active", { exact: true }).waitFor();
+    await changeRow.getByText("Undo: Delete the copied rows from billing-db-new").waitFor();
+
     for (const vp of VIEWPORTS) {
       await page.setViewportSize(vp);
       for (const [name, path] of [

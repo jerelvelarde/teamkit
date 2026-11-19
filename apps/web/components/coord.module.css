@@ -132,6 +132,29 @@
   white-space: nowrap;
 }
 
+/* A change row: its status dot in a fixed column, its status word at the right. */
+.dotColumn {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 19px;
+}
+
+.rowStatus {
+  flex: none;
+  padding-top: 1px;
+  color: var(--tk-fg-2);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+/* A change that belongs to no task has no thread to open. */
+.row[data-static="true"]:hover {
+  background: none;
+}
+
 @media (max-width: 900px) {
   .tabsRow {
     padding: 0 12px;

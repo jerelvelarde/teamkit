@@ -4,13 +4,14 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { usePathname, useSearchParams } from "next/navigation";
 import { EVENT_KINDS } from "@copilotkit/teamkit-protocol";
-import type { BoardEvent, Decision, Task, TaskState } from "@copilotkit/teamkit-protocol";
+import type { BoardEvent, ChangeEntry, Decision, Task, TaskState } from "@copilotkit/teamkit-protocol";
 import { api } from "../lib/api";
 import { parseTab, roomQuery } from "../lib/coord";
 import { useRoomList } from "../lib/records";
 import { useBoardStream } from "../lib/stream";
 import { PageHeader, useShell } from "./AppShell";
 import { IconBoard, IconHash, IconPlus, StatusIcon } from "./Icons";
+import { ChangeLog } from "./ChangeLog";
 import { DecisionList } from "./DecisionList";
 import { NewTaskForm } from "./NewTaskForm";
 import { RoomTabs } from "./RoomTabs";
@@ -58,6 +59,7 @@ export function Board({ children }: { children?: ReactNode }) {
   const tab = allRooms ? "board" : parseTab(params.get("view"));
   const query = roomQuery(selected, tab);
   const decisions = useRoomList<Decision>(room, "decision.", (r) => api.decisions(r));
+  const changes = useRoomList<ChangeEntry>(room, "change.", (r) => api.changes(r));
 
   const load = useCallback(async () => {
     try {
@@ -98,11 +100,13 @@ export function Board({ children }: { children?: ReactNode }) {
     (e: BoardEvent) => {
       if (e.kind.startsWith("task.")) refetch();
       decisions.onEvent(e.kind);
+      changes.onEvent(e.kind);
     },
     {
       onOpen: () => {
         refetch();
         decisions.reload();
+        changes.reload();
       },
     },
   );
@@ -182,6 +186,8 @@ export function Board({ children }: { children?: ReactNode }) {
 
       {tab === "decisions" && room ? (
         <DecisionList decisions={decisions.items} room={room} openId={openId} query={query} />
+      ) : tab === "changes" && room ? (
+        <ChangeLog changes={changes.items} room={room} openId={openId} query={query} />
       ) : (
         <div className={styles.columnsScroll}>
           <div className={styles.columns}>

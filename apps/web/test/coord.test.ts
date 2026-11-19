@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import type { TaskBlock, Whoami } from "@copilotkit/teamkit-protocol";
+import type { ChangeEntry, TaskBlock, Whoami } from "@copilotkit/teamkit-protocol";
 import {
   ackText,
   approverList,
@@ -11,6 +11,7 @@ import {
   reservationLeft,
   roomQuery,
   shortDuration,
+  sortChanges,
   whenText,
 } from "../lib/coord.js";
 
@@ -95,5 +96,22 @@ describe("room views", () => {
     assert.equal(whenText(today.toISOString(), now), new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit" }).format(today));
     assert.equal(whenText(before.toISOString(), now), new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric" }).format(before));
     assert.equal(whenText("not a date", now), "");
+  });
+});
+
+const AT = "2026-11-19T10:00:00.000Z";
+const change: ChangeEntry = {
+  id: "chg_1", room: "billing-migration", threadId: "th_copy", what: "Copied invoices 1 to 500 to the new database",
+  where: "billing-db-new", at: AT, person: { id: "act_ben", name: "ben", kind: "person" }, agent: benAgent,
+  undo: "Delete the copied rows from billing-db-new", undoWhen: "If the row counts differ", status: "active", createdAt: AT, updatedAt: AT,
+};
+
+describe("change log", () => {
+  it("sortChanges puts active changes first, newest first within each group", () => {
+    const c = (id: string, status: ChangeEntry["status"], at: string) => ({ ...change, id, status, at });
+    const list = [c("a", "done", "2026-11-19T12:00:00Z"), c("b", "active", "2026-11-19T09:00:00Z"),
+      c("c", "restored", "2026-11-19T13:00:00Z"), c("d", "active", "2026-11-19T11:00:00Z")];
+    assert.deepEqual(sortChanges(list).map((x) => x.id), ["d", "b", "c", "a"]);
+    assert.deepEqual(list.map((x) => x.id), ["a", "b", "c", "d"]);
   });
 });
