@@ -1,0 +1,56 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: teamkit
+          POSTGRES_DB: teamkit
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports:
+          - "54329:5432"
+        options: >-
+          --health-cmd "pg_isready -U teamkit"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      TEAMKIT_TEST_DATABASE_URL: postgres://teamkit@127.0.0.1:54329/postgres
+      DATABASE_URL: postgres://teamkit@127.0.0.1:54329/teamkit
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Raise Postgres max_connections
+        run: |
+          psql -h 127.0.0.1 -p 54329 -U teamkit -d postgres -c "alter system set max_connections = 500"
+          docker restart ${{ job.services.postgres.id }}
+          for i in $(seq 1 60); do
+            if pg_isready -h 127.0.0.1 -p 54329; then exit 0; fi
+            sleep 1
+          done
+          echo "Postgres did not come back within 60 s" >&2
+          exit 1
+
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4 (reads packageManager)
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm typecheck
+      - run: pnpm test
+      - run: pnpm --filter @teamkit/web build
