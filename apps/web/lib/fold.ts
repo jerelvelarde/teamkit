@@ -1,0 +1,345 @@
+import type { BoardEvent } from "@copilotkit/teamkit-protocol";
+
+export type Tone = "neutral" | "info" | "success" | "warning" | "danger";
+export interface ActorView {
+  name: string;
+  kind: "agent" | "person";
+}
+export type ViewItem =
+  | {
+      kind: "message";
+      id: string;
+      role: string;
+      text: string;
+      actor: ActorView | null;
+      streaming: boolean;
+      cursor: string;
+    }
+  | { kind: "tool"; id: string; name: string; args: string; result: string | null; cursor: string }
+  | { kind: "reasoning"; id: string; text: string; cursor: string }
+  | { kind: "status"; id: string; label: string; tone: Tone; detail: string | null; cursor: string }
+  | {
+      kind: "subagent";
+      id: string;
+      name: string;
+      status: "running" | "finished" | "error";
+      detail: string | null;
+      items: ViewItem[];
+      cursor: string;
+    };
+export interface PendingQuestion {
+  interruptId: string;
+  reason: string;
+  message: string;
+  options: string[] | null;
+}
+export interface ThreadViewModel {
+  items: ViewItem[];
+  question: PendingQuestion | null;
+  lastCursor: string;
+}
+
+type Rec = Record<string, unknown>;
+type Item<K extends ViewItem["kind"]> = Extract<ViewItem, { kind: K }>;
+
+/** One list of items plus the lookups that route later events to them (top level, or one subagent). */
+interface Scope {
+  items: ViewItem[];
+  messages: Map<string, Item<"message">>;
+  tools: Map<string, Item<"tool">>;
+  reasoning: Map<string, Item<"reasoning">>;
+}
+
+function newScope(items: ViewItem[] = []): Scope {
+  return { items, messages: new Map(), tools: new Map(), reasoning: new Map() };
+}
+
+const isRec = (v: unknown): v is Rec => typeof v === "object" && v !== null && !Array.isArray(v);
+const str = (v: unknown): string | null => (typeof v === "string" ? v : null);
+
+function show(v: unknown): string {
+  if (typeof v === "string") return v;
+  try {
+    return JSON.stringify(v) ?? "";
+  } catch {
+    return String(v);
+  }
+}
+
+function actorFrom(ev: Rec, fallback: BoardEvent["actor"]): ActorView | null {
+  const meta = isRec(ev.metadata) && isRec(ev.metadata.teamkit) ? ev.metadata.teamkit : null;
+  const name = meta ? str(meta.actorName) : null;
+  const kind = meta ? meta.actorKind : null;
+  if (name && (kind === "agent" || kind === "person")) return { name, kind };
+  if (isRec(fallback)) {
+    const n = str(fallback.name);
+    if (n && (fallback.kind === "agent" || fallback.kind === "person")) return { name: n, kind: fallback.kind };
+  }
+  return null;
+}
+
+function nameOf(v: unknown, fallback: string): string {
+  return (isRec(v) ? str(v.name) : null) ?? fallback;
+}
+
+function choicesOf(schema: unknown): string[] | null {
+  if (!isRec(schema) || !isRec(schema.properties) || !isRec(schema.properties.choice)) return null;
+  const e = schema.properties.choice.enum;
+  return Array.isArray(e) && e.every((x) => typeof x === "string") ? (e as string[]) : null;
+}
+
+/** AG-UI 1.0 writes `outcome: {type}`; accept a bare string too. */
+function outcomeType(ev: Rec): string | null {
+  return isRec(ev.outcome) ? str(ev.outcome.type) : str(ev.outcome);
+}
+
+function interruptsOf(ev: Rec): unknown[] {
+  if (isRec(ev.outcome) && Array.isArray(ev.outcome.interrupts)) return ev.outcome.interrupts;
+  return Array.isArray(ev.interrupts) ? ev.interrupts : [];
+}
+
+class Folder {
+  top = newScope();
+  question: PendingQuestion | null = null;
+  groups = new Map<string, { item: Item<"subagent">; scope: Scope }>();
+
+  fold(be: BoardEvent): void {
+    const cursor = str(be.cursor) ?? "0";
+    const agui: unknown[] = Array.isArray(be.agui) ? be.agui : [];
+    agui.forEach((ev, index) => {
+      if (!isRec(ev)) return;
+      try {
+        this.event(ev, cursor, index, be.actor ?? null);
+      } catch {
+        // A malformed event must never break the thread.
+      }
+    });
+  }
+
+  private status(
+    scope: Scope,
+    cursor: string,
+    index: number,
+    label: string,
+    tone: Tone,
+    detail: string | null = null,
+  ): void {
+    scope.items.push({ kind: "status", id: `status-${cursor}-${index}`, label, tone, detail, cursor });
+  }
+
+  private ask(interruptId: string, reason: string, message: string, options: string[] | null): void {
+    this.question = { interruptId, reason, message, options };
+  }
+
+  private event(ev: Rec, cursor: string, index: number, actor: BoardEvent["actor"]): void {
+    const type = str(ev.type);
+    if (!type) return;
+    const sub = str(ev.subagentRunId);
+
+    // Subagent lifecycle events name their own group in subagentRunId.
+    if (type === "SUBAGENT_STARTED") {
+      if (!sub || this.groups.has(sub)) return;
+      const item: Item<"subagent"> = {
+        kind: "subagent",
+        id: sub,
+        name: str(ev.name) ?? "subagent",
+        status: "running",
+        detail: str(ev.description),
+        items: [],
+        cursor,
+      };
+      this.groups.set(sub, { item, scope: newScope(item.items) });
+      this.top.items.push(item);
+      return;
+    }
+    if (type === "SUBAGENT_FINISHED" || type === "SUBAGENT_ERROR") {
+      const group = sub ? this.groups.get(sub) : undefined;
+      if (!group) return;
+      if (type === "SUBAGENT_FINISHED") {
+        group.item.status = str(ev.outcome) === "error" ? "error" : "finished";
+        group.item.detail = str(ev.result) ?? group.item.detail;
+      } else {
+        group.item.status = "error";
+        group.item.detail = str(ev.message) ?? group.item.detail;
+      }
+      return;
+    }
+
+    const scope = (sub ? this.groups.get(sub)?.scope : undefined) ?? this.top;
+    switch (type) {
+      case "TEXT_MESSAGE_START":
+      case "TEXT_MESSAGE_CONTENT":
+      case "TEXT_MESSAGE_CHUNK":
+      case "TEXT_MESSAGE_END":
+        return this.text(ev, type, scope, cursor, actor);
+      case "TOOL_CALL_START":
+      case "TOOL_CALL_ARGS":
+      case "TOOL_CALL_END":
+      case "TOOL_CALL_RESULT":
+        return this.tool(ev, type, scope, cursor);
+      case "REASONING_MESSAGE_START":
+      case "REASONING_MESSAGE_CONTENT":
+      case "REASONING_MESSAGE_END":
+        return this.reason(ev, type, scope, cursor);
+      case "RUN_STARTED":
+        this.question = null;
+        return this.status(scope, cursor, index, "Run started", "info");
+      case "RUN_FINISHED":
+        return this.runFinished(ev, scope, cursor, index);
+      case "RUN_ERROR":
+        return this.runError(ev, scope, cursor, index);
+      case "CUSTOM":
+        return this.custom(ev, scope, cursor, index);
+      default:
+        return; // STEP_*, STATE_*, MESSAGES_SNAPSHOT, ACTIVITY_*, RAW, unknown
+    }
+  }
+
+  private text(ev: Rec, type: string, scope: Scope, cursor: string, actor: BoardEvent["actor"]): void {
+    const id = str(ev.messageId);
+    if (!id) return;
+    const ensure = (streaming: boolean): Item<"message"> => {
+      let m = scope.messages.get(id);
+      if (!m) {
+        m = {
+          kind: "message",
+          id,
+          role: str(ev.role) ?? "assistant",
+          text: "",
+          actor: actorFrom(ev, actor),
+          streaming,
+          cursor,
+        };
+        scope.messages.set(id, m);
+        scope.items.push(m);
+      }
+      return m;
+    };
+    if (type === "TEXT_MESSAGE_START") {
+      ensure(true);
+    } else if (type === "TEXT_MESSAGE_CONTENT") {
+      ensure(true).text += str(ev.delta) ?? "";
+    } else if (type === "TEXT_MESSAGE_CHUNK") {
+      ensure(false).text += str(ev.delta) ?? "";
+    } else {
+      const m = scope.messages.get(id);
+      if (m) m.streaming = false;
+    }
+  }
+
+  private tool(ev: Rec, type: string, scope: Scope, cursor: string): void {
+    const id = str(ev.toolCallId);
+    if (!id) return;
+    let t = scope.tools.get(id);
+    if (!t) {
+      if (type === "TOOL_CALL_END") return;
+      t = { kind: "tool", id, name: str(ev.toolCallName) ?? "tool", args: "", result: null, cursor };
+      scope.tools.set(id, t);
+      scope.items.push(t);
+    }
+    if (type === "TOOL_CALL_START" && str(ev.toolCallName)) t.name = str(ev.toolCallName) as string;
+    if (type === "TOOL_CALL_ARGS") t.args += str(ev.delta) ?? "";
+    if (type === "TOOL_CALL_RESULT") t.result = show(ev.content);
+  }
+
+  private reason(ev: Rec, type: string, scope: Scope, cursor: string): void {
+    const id = str(ev.messageId);
+    if (!id || type === "REASONING_MESSAGE_END") return;
+    let r = scope.reasoning.get(id);
+    if (!r) {
+      r = { kind: "reasoning", id, text: "", cursor };
+      scope.reasoning.set(id, r);
+      scope.items.push(r);
+    }
+    if (type === "REASONING_MESSAGE_CONTENT") r.text += str(ev.delta) ?? "";
+  }
+
+  private runFinished(ev: Rec, scope: Scope, cursor: string, index: number): void {
+    const outcome = outcomeType(ev);
+    if (outcome === "interrupt") {
+      const first = interruptsOf(ev).find(isRec);
+      const message = (first && str(first.message)) ?? "";
+      const id = first ? str(first.id) : null;
+      if (id) this.ask(id, str(first?.reason) ?? "", message, choicesOf(first?.responseSchema));
+      return this.status(scope, cursor, index, message ? `Waiting: ${message}` : "Waiting", "warning");
+    }
+    if (outcome === "cancelled") return this.status(scope, cursor, index, "Run cancelled", "neutral");
+    this.question = null;
+    this.status(scope, cursor, index, "Run finished", "success", str(ev.result));
+  }
+
+  private runError(ev: Rec, scope: Scope, cursor: string, index: number): void {
+    const message = str(ev.message);
+    switch (str(ev.code)) {
+      case "teamkit.released":
+        return this.status(scope, cursor, index, "Released", "neutral");
+      case "teamkit.lease_expired":
+        return this.status(scope, cursor, index, "Claim expired", "warning");
+      case "teamkit.failed":
+        return this.status(scope, cursor, index, "Failed", "danger", message);
+      default:
+        return this.status(scope, cursor, index, "Run error", "danger", message);
+    }
+  }
+
+  private custom(ev: Rec, scope: Scope, cursor: string, index: number): void {
+    const name = str(ev.name);
+    if (!name) return;
+    const value = isRec(ev.value) ? ev.value : {};
+    const s = (label: string, tone: Tone, detail: string | null = null) =>
+      this.status(scope, cursor, index, label, tone, detail);
+    switch (name) {
+      case "teamkit.task.created":
+        return s("Task created", "info");
+      case "teamkit.task.claimed":
+        return s(`Claimed by ${nameOf(value.actor, "an agent")}`, "info");
+      case "teamkit.interrupt.answered":
+        this.question = null;
+        return s(`Answered by ${nameOf(value.by, "someone")}`, "success");
+      case "teamkit.task.ready":
+        return s("Ready", "info");
+      case "teamkit.label":
+        return s(`Label ${show(value.key)}=${show(value.value)}`, "neutral");
+      case "teamkit.task.blocked": {
+        const question = str(value.question) ?? "";
+        const id = str(value.interruptId);
+        if (id) {
+          const options = Array.isArray(value.options) && value.options.every((o) => typeof o === "string");
+          this.ask(id, str(value.kind) ?? "", question, options ? (value.options as string[]) : null);
+        }
+        return s(question ? `Waiting: ${question}` : "Waiting", "warning");
+      }
+      case "teamkit.task.completed":
+        this.question = null;
+        return s("Completed", "success");
+      case "teamkit.task.failed":
+        return s("Failed", "danger", str(value.reason));
+      case "teamkit.task.released":
+        return s("Released", "neutral");
+      case "teamkit.trigger.fired":
+        return s("Woken by a trigger", "info");
+      case "teamkit.thread.created":
+      case "teamkit.message.posted":
+        return;
+      default:
+        return s(name, "neutral");
+    }
+  }
+}
+
+/** Folds the board's event log for one thread into what the thread view draws. Never throws. */
+export function foldEvents(events: BoardEvent[]): ThreadViewModel {
+  const list: unknown[] = Array.isArray(events) ? events : [];
+  const folder = new Folder();
+  let lastCursor = "0";
+  for (const be of list) {
+    if (!isRec(be)) continue;
+    try {
+      folder.fold(be as unknown as BoardEvent);
+    } catch {
+      // keep going: one bad event must not hide the rest of the thread
+    }
+    lastCursor = str(be.cursor) ?? lastCursor;
+  }
+  return { items: folder.top.items, question: folder.question, lastCursor };
+}
