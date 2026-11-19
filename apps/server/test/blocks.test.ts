@@ -57,7 +57,7 @@ test("block validates kind, question and options", async () => {
 
 test("an agent with post answers needs_input: ready with pending_resume", async () => {
   await withTestDb(async (db) => {
-    const { t, bot } = await blockedTask(db, "needs_input", ["a", "b"]);
+    const { t } = await blockedTask(db, "needs_input", ["a", "b"]);
     const helper = await agentAuth(db, "helper", [{ room: "*", perms: ["read", "post"] }]);
     const r = await answer(db, helper, t.id, { choice: "b" });
     assert.equal(r.state, "ready");
@@ -70,7 +70,6 @@ test("an agent with post answers needs_input: ready with pending_resume", async 
     const noPost = await agentAuth(db, "ro", [{ room: "*", perms: ["read"] }]);
     const t2 = await blockedTask(db, "needs_input");
     await assert.rejects(answer(db, noPost, t2.t.id, { text: "hi" }), code("forbidden"));
-    void bot;
   });
 });
 
