@@ -4,13 +4,14 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { usePathname, useSearchParams } from "next/navigation";
 import { EVENT_KINDS } from "@copilotkit/teamkit-protocol";
-import type { BoardEvent, ChangeEntry, Decision, Task, TaskState } from "@copilotkit/teamkit-protocol";
+import type { Alert, BoardEvent, ChangeEntry, Decision, Task, TaskState } from "@copilotkit/teamkit-protocol";
 import { api } from "../lib/api";
 import { parseTab, roomQuery } from "../lib/coord";
 import { useRoomList } from "../lib/records";
 import { useBoardStream } from "../lib/stream";
 import { PageHeader, useShell } from "./AppShell";
 import { IconBoard, IconHash, IconPlus, StatusIcon } from "./Icons";
+import { AlertBanner } from "./AlertBanner";
 import { ChangeLog } from "./ChangeLog";
 import { DecisionList } from "./DecisionList";
 import { NewTaskForm } from "./NewTaskForm";
@@ -53,6 +54,7 @@ export function Board({ children }: { children?: ReactNode }) {
   const [now, setNow] = useState(() => Date.now());
   const [creating, setCreating] = useState(false);
   const [deciding, setDeciding] = useState(false);
+  const [alerting, setAlerting] = useState(false);
   const lastJson = useRef("");
   const allRooms = selected === ALL_ROOMS;
   const room = allRooms ? null : selected;
@@ -60,6 +62,7 @@ export function Board({ children }: { children?: ReactNode }) {
   const query = roomQuery(selected, tab);
   const decisions = useRoomList<Decision>(room, "decision.", (r) => api.decisions(r));
   const changes = useRoomList<ChangeEntry>(room, "change.", (r) => api.changes(r));
+  const alerts = useRoomList<Alert>(room, "alert.", (r) => api.alerts(r, { open: true }));
 
   const load = useCallback(async () => {
     try {
@@ -101,12 +104,14 @@ export function Board({ children }: { children?: ReactNode }) {
       if (e.kind.startsWith("task.")) refetch();
       decisions.onEvent(e.kind);
       changes.onEvent(e.kind);
+      alerts.onEvent(e.kind);
     },
     {
       onOpen: () => {
         refetch();
         decisions.reload();
         changes.reload();
+        alerts.reload();
       },
     },
   );
@@ -176,7 +181,8 @@ export function Board({ children }: { children?: ReactNode }) {
           </button>
         )}
       </PageHeader>
-      {room ? <RoomTabs room={room} tab={tab} /> : null}
+      {room ? <RoomTabs room={room} tab={tab} onRaiseAlert={() => setAlerting(true)} /> : null}
+      {room && alerts.items ? <AlertBanner alerts={alerts.items} query={query} now={now} onChanged={alerts.reload} /> : null}
 
       {error ? (
         <p className={styles.error} role="alert">
@@ -250,6 +256,23 @@ export function Board({ children }: { children?: ReactNode }) {
             decisions.reload();
           }}
           onClose={() => setDeciding(false)}
+        />
+      ) : null}
+      {room ? (
+        <TextDialog
+          open={alerting}
+          title="Raise alert"
+          room={room}
+          label="Alert"
+          placeholder="What looks wrong?"
+          submitLabel="Raise alert"
+          busyLabel="Raising…"
+          emptyError="Describe what looks wrong."
+          onSubmit={async (text) => {
+            await api.raiseAlert({ room, text });
+            alerts.reload();
+          }}
+          onClose={() => setAlerting(false)}
         />
       ) : null}
     </>

@@ -1,9 +1,10 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import type { ChangeEntry, TaskBlock, Whoami } from "@copilotkit/teamkit-protocol";
+import type { Alert, ChangeEntry, TaskBlock, Whoami } from "@copilotkit/teamkit-protocol";
 import {
   ackText,
   approverList,
+  bannerAlerts,
   heldText,
   mayAnswer,
   namesText,
@@ -113,5 +114,30 @@ describe("change log", () => {
       c("c", "restored", "2026-11-19T13:00:00Z"), c("d", "active", "2026-11-19T11:00:00Z")];
     assert.deepEqual(sortChanges(list).map((x) => x.id), ["d", "b", "c", "a"]);
     assert.deepEqual(list.map((x) => x.id), ["a", "b", "c", "d"]);
+  });
+});
+
+const alert: Alert = { // plan 02's shape for ben-agent's suspected alert
+  id: "alr_1", room: "billing-prod", threadId: "th_alert", text: "Invoice totals differ between the old and new databases",
+  level: "suspected", raisedBy: benAgent, confirmedBy: null, source: null, resolvedBy: null, resolvedSource: null, resolvedAt: null,
+  createdAt: "2026-11-19T10:00:00.000Z",
+};
+describe("alert banner", () => {
+  const sam = { id: "act_sam", name: "sam", kind: "person" as const };
+  const a = (id: string, level: Alert["level"], createdAt: string, resolved = false): Alert =>
+    ({ ...alert, id, level, createdAt, ...(resolved ? { resolvedBy: sam, resolvedSource: sam, resolvedAt: "2026-11-20T08:50:00.000Z" } : {}) });
+  const list = [
+    a("s1", "suspected", "2026-11-20T08:00:00.000Z"), a("c1", "confirmed", "2026-11-20T07:00:00.000Z"),
+    a("s2", "suspected", "2026-11-20T08:30:00.000Z"), a("s3", "suspected", "2026-11-20T06:00:00.000Z"),
+    a("old", "confirmed", "2026-11-12T08:00:00.000Z"), a("done", "confirmed", "2026-11-20T08:45:00.000Z", true),
+  ];
+  it("shows unresolved alerts at any age, confirmed first, newest first, at most three", () => {
+    const { shown, more } = bannerAlerts(list);
+    assert.deepEqual(shown.map((x) => x.id), ["c1", "old", "s2"]);
+    assert.deepEqual(more.map((x) => x.id), ["s1", "s3"]);
+  });
+  it("an empty or all-resolved list shows nothing", () => {
+    assert.deepEqual(bannerAlerts([]), { shown: [], more: [] });
+    assert.deepEqual(bannerAlerts([a("done", "confirmed", "2026-11-20T08:45:00.000Z", true)]), { shown: [], more: [] });
   });
 });

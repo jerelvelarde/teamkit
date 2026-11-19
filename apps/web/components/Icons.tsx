@@ -23,6 +23,13 @@ function Svg({ size = 16, children, ...rest }: IconProps) {
   );
 }
 
+export const IconAlert = (p: IconProps) => (
+  <Svg {...p}>
+    <path d="M7.13 2.5a1 1 0 0 1 1.74 0l5.4 9.5a1 1 0 0 1-.87 1.5H2.6a1 1 0 0 1-.87-1.5z" />
+    <path d="M8 6.25v3M8 11.25v.01" />
+  </Svg>
+);
+
 export const IconPlus = (p: IconProps) => (
   <Svg {...p}>
     <path d="M8 3.25v9.5M3.25 8h9.5" />

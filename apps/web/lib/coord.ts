@@ -1,4 +1,4 @@
-import type { ChangeEntry, Task, TaskBlock, Whoami } from "@copilotkit/teamkit-protocol";
+import type { Alert, ChangeEntry, Task, TaskBlock, Whoami } from "@copilotkit/teamkit-protocol";
 
 /**
  * A short duration: "24m", "1h 5m", "3h" (minutes are dropped from 3 hours up), with minutes
@@ -102,4 +102,21 @@ export function sortChanges(list: ChangeEntry[]): ChangeEntry[] {
     const live = Number(b.status === "active") - Number(a.status === "active");
     return live !== 0 ? live : b.at.localeCompare(a.at);
   });
+}
+
+/** Alerts the banner shows before "n more alerts". */
+export const BANNER_MAX = 3;
+
+/**
+ * The banner's alerts: unresolved ones only (the server already sends open ones; this also drops
+ * one resolved since the last load), confirmed before suspected, newest first, at any age.
+ */
+export function bannerAlerts(alerts: Alert[]): { shown: Alert[]; more: Alert[] } {
+  const open = alerts
+    .filter((a) => a.resolvedAt === null)
+    .sort((a, b) => {
+      const loud = Number(b.level === "confirmed") - Number(a.level === "confirmed");
+      return loud !== 0 ? loud : b.createdAt.localeCompare(a.createdAt);
+    });
+  return { shown: open.slice(0, BANNER_MAX), more: open.slice(BANNER_MAX) };
 }

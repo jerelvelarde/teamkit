@@ -266,6 +266,27 @@ async function main(): Promise<void> {
     await changeRow.getByText("Active", { exact: true }).waitFor();
     await changeRow.getByText("Undo: Delete the copied rows from billing-db-new").waitFor();
 
+    // An agent's suspected alert shows on the room; sam confirms it; a person raises one and resolves it for everyone.
+    await benAgent.raiseAlert({ room: "billing-prod", text: "Invoice totals differ between the old and new databases" });
+    await page.goto(`${base}/?room=billing-prod`);
+    const banner = page.getByRole("region", { name: "Alerts" });
+    const raised = banner.getByRole("listitem").filter({ hasText: "Invoice totals differ" });
+    await raised.getByText("Suspected", { exact: true }).waitFor();
+    await raised.getByRole("button", { name: "Confirm" }).click();
+    await raised.getByText("Confirmed", { exact: true }).waitFor();
+    await page.getByRole("button", { name: "Raise alert" }).click();
+    await page.getByLabel("Alert", { exact: true }).fill("The nightly invoice export still reads the old database");
+    await page.getByRole("dialog").getByRole("button", { name: "Raise alert" }).click();
+    const mine = banner.getByRole("listitem").filter({ hasText: "nightly invoice export" });
+    await mine.getByRole("button", { name: "Resolve" }).click();
+    await mine.getByText("Resolved by sam").waitFor();
+    await mine.waitFor({ state: "detached" });
+    const open = await anaAgent.alerts("billing-prod", { open: true });
+    assert(open.length === 1 && open[0]!.text.startsWith("Invoice totals differ"), "the resolved alert is closed on the server");
+    await page.reload();
+    await raised.waitFor();
+    assert((await banner.getByText("nightly invoice export").count()) === 0, "a resolved alert stays gone after a reload");
+
     for (const vp of VIEWPORTS) {
       await page.setViewportSize(vp);
       for (const [name, path] of [

@@ -155,6 +155,137 @@
   background: none;
 }
 
+.tabsSpacer {
+  flex: 1;
+}
+
+.raise {
+  flex: none;
+  gap: 6px;
+  height: 28px;
+  padding: 0 8px;
+}
+
+/* The room's open alerts: plain rows on raised white. Status hue only on the glyph and kind word. */
+.banner {
+  flex: none;
+  border-bottom: 1px solid var(--tk-line);
+  background: var(--tk-bg-raised);
+}
+
+.alertList {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.alertRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 40px;
+  padding: 0 20px;
+  border-bottom: 1px solid var(--tk-line);
+}
+
+.alertRow:last-child {
+  border-bottom: none;
+}
+
+.alertKind {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+  color: var(--tk-blocked-text);
+  font-size: 12.5px;
+  font-weight: 600;
+}
+
+.alertKind svg {
+  color: var(--tk-blocked);
+}
+
+.alertRow[data-level="confirmed"] .alertKind {
+  color: var(--tk-failed-text);
+}
+
+.alertRow[data-level="confirmed"] .alertKind svg {
+  color: var(--tk-failed);
+}
+
+.alertRow[data-resolved] .alertKind,
+.alertRow[data-resolved] .alertKind svg {
+  color: var(--tk-fg-3);
+}
+
+.alertText {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--tk-fg);
+  font-size: 13px;
+  font-weight: 500;
+  text-decoration: none;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.alertText:hover {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.alertMeta {
+  flex: none;
+  max-width: 40%;
+  overflow: hidden;
+  color: var(--tk-fg-3);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.alertError {
+  flex: none;
+  max-width: 40%;
+  color: var(--tk-failed-text);
+  font-size: 12px;
+}
+
+.alertActions {
+  display: inline-flex;
+  flex: none;
+  gap: 6px;
+}
+
+.alertResolved {
+  flex: none;
+  color: var(--tk-fg-2);
+  font-size: 12.5px;
+  font-weight: 500;
+}
+
+.alertMore {
+  display: block;
+  width: 100%;
+  height: 32px;
+  padding: 0 20px;
+  border: none;
+  border-top: 1px solid var(--tk-line);
+  background: none;
+  color: var(--tk-fg-3);
+  font: inherit;
+  font-size: 12.5px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.alertMore:hover {
+  background: var(--tk-bg-hover);
+  color: var(--tk-fg);
+}
+
 @media (max-width: 900px) {
   .tabsRow {
     padding: 0 12px;
@@ -166,5 +297,27 @@
 
   .ackAvatars {
     display: none;
+  }
+
+  .raise {
+    width: 28px;
+    padding: 0;
+    justify-content: center;
+  }
+
+  .raiseLabel {
+    display: none;
+  }
+
+  .alertRow {
+    padding: 0 12px;
+  }
+
+  .alertMeta {
+    display: none;
+  }
+
+  .alertMore {
+    padding: 0 12px;
   }
 }
