@@ -2,7 +2,35 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import type { BoardEvent } from "@copilotkit/teamkit-protocol";
 import { agentToken, startTestServer } from "../../../apps/server/test/helpers/server.js";
+import { createTestDatabase } from "../../../apps/server/test/helpers/db.js";
+import { serveApp } from "../../../apps/server/test/helpers/notifier.js";
+import { createApp, type AppOptions } from "../../../apps/server/src/http/app.js";
+import { createNotifier } from "../../../apps/server/src/notifier.js";
+import { listTokens, revokeToken } from "../../../apps/server/src/store/actors.js";
+import type { Db } from "../../../apps/server/src/db/pool.js";
 import { createClient, TeamkitError } from "../src/client.js";
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+/** A real server built with the given app options. */
+async function withServer(opts: AppOptions, fn: (ctx: { url: string; db: Db }) => Promise<void>): Promise<void> {
+  const t = await createTestDatabase();
+  try {
+    const notifier = await createNotifier(t.db);
+    try {
+      const srv = await serveApp(createApp({ db: t.db, notifier }, opts));
+      try {
+        await fn({ url: srv.url, db: t.db });
+      } finally {
+        await srv.close();
+      }
+    } finally {
+      await notifier.close();
+    }
+  } finally {
+    await t.drop();
+  }
+}
 
 test("every client method round-trips against a real server", async () => {
   const srv = await startTestServer();
@@ -96,6 +124,54 @@ test("stream yields an event posted after it opened, and abort ends it quietly",
   } finally {
     await srv.stop();
   }
+});
+
+test("stream reopens a stream the server ended, after the live tail's first cursor", async () => {
+  await withServer({ streamMaxMs: 300 }, async ({ url, db }) => {
+    const token = await agentToken(db, "bot");
+    const urls: string[] = [];
+    const c = createClient({
+      url,
+      token,
+      fetch: (input, init) => {
+        urls.push(String(input));
+        return fetch(input, init);
+      },
+    });
+    await c.post("build", "before");
+    const head = (await c.events({ after: "0" })).cursor;
+    const opened = () => urls.filter((u) => u.includes("/events/stream"));
+    const ac = new AbortController();
+    const got: BoardEvent[] = [];
+    const reader = (async () => {
+      for await (const e of c.stream({ room: "build" }, { signal: ac.signal })) {
+        got.push(e);
+        ac.abort();
+      }
+    })();
+    for (let i = 0; opened().length < 2; i++) {
+      assert.ok(i < 150, "the stream was never reopened");
+      await sleep(20);
+    }
+    await c.post("build", "after reopen");
+    await reader;
+    assert.equal(got.length, 1);
+    assert.ok(JSON.stringify(got[0]).includes("after reopen"));
+    assert.doesNotMatch(opened()[0]!, /after=/);
+    assert.match(opened()[1]!, new RegExp(`[?&]after=${head}(&|$)`));
+  });
+});
+
+test("stream throws unauthorized once its token is revoked", async () => {
+  await withServer({ streamPingMs: 100 }, async ({ url, db }) => {
+    const token = await agentToken(db, "bot");
+    const c = createClient({ url, token });
+    const it = c.stream({ room: "build" })[Symbol.asyncIterator]();
+    const next = it.next();
+    await sleep(150);
+    await revokeToken(db, (await listTokens(db))[0]!.id);
+    await assert.rejects(next, (e: unknown) => e instanceof TeamkitError && e.code === "unauthorized");
+  });
 });
 
 test("a bad token throws TeamkitError unauthorized with status 401", async () => {

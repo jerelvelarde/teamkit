@@ -4,9 +4,15 @@ export interface SseFrame {
   data: string;
 }
 
+/**
+ * Yields each frame that carries data. `onId` gets the last event id at every frame
+ * boundary, including an id-only frame, which is never yielded: it only moves the
+ * resume point, like EventSource's lastEventId.
+ */
 export async function* parseSse(
   source: AsyncIterable<Uint8Array> | ReadableStream<Uint8Array>,
   signal?: AbortSignal,
+  onId?: (id: string) => void,
 ): AsyncGenerator<SseFrame> {
   const decoder = new TextDecoder("utf-8");
   let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
@@ -75,6 +81,7 @@ export async function* parseSse(
 
   const handleLine = (line: string) => {
     if (line === "") {
+      if (id !== undefined) onId?.(id);
       if (hasData) {
         const frame: SseFrame = { event: event || "message", data: data.join("\n") };
         if (id !== undefined) frame.id = id;

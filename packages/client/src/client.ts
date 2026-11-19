@@ -184,21 +184,30 @@ export function createClient(opts: ClientOptions): TeamkitClient {
     stream: (q, o) => streamEvents(q, o?.signal),
   };
 
+  /**
+   * The server ends a stream at its lifetime cap; this reopens it after the last id
+   * seen (a live tail's first, id-only frame gives one before any event), so the
+   * caller sees one unbroken stream. A revoked token makes the reopen throw.
+   */
   async function* streamEvents(q: EventQuery, signal?: AbortSignal): AsyncGenerator<BoardEvent> {
-    if (signal?.aborted) return;
-    let res: Response;
-    try {
-      res = await send("GET", withQuery("/events/stream", eventParams(q)), undefined, {
-        signal,
-        accept: "text/event-stream",
-      });
-    } catch (err) {
+    let after = q.after;
+    for (;;) {
       if (signal?.aborted) return;
-      throw err;
-    }
-    if (res.body === null) return;
-    for await (const frame of parseSse(res.body, signal)) {
-      if (frame.event === "board") yield JSON.parse(frame.data) as BoardEvent;
+      let res: Response;
+      try {
+        res = await send("GET", withQuery("/events/stream", eventParams({ ...q, after })), undefined, {
+          signal,
+          accept: "text/event-stream",
+        });
+      } catch (err) {
+        if (signal?.aborted) return;
+        throw err;
+      }
+      if (res.body === null) return;
+      for await (const frame of parseSse(res.body, signal, (id) => (after = id))) {
+        if (frame.event === "board") yield JSON.parse(frame.data) as BoardEvent;
+      }
+      if (signal?.aborted || after === undefined) return;
     }
   }
 }

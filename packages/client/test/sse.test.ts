@@ -63,6 +63,16 @@ test("event defaults to message; frame without data is not dispatched", async ()
   assert.deepEqual(f, [{ id: "3", event: "message", data: "z" }]);
 });
 
+test("an id-only frame is not yielded but reaches onId, as does each frame's id", async () => {
+  const ids: string[] = [];
+  const f = await collect(
+    parseSse(chunks([enc.encode("id: 5\n\n: ping\n\nid: 6\nevent: board\ndata: x\n\n")]), undefined, (id) => ids.push(id)),
+  );
+  assert.deepEqual(f, [{ id: "6", event: "board", data: "x" }]);
+  assert.equal(ids[0], "5");
+  assert.equal(ids[ids.length - 1], "6");
+});
+
 test("drops an incomplete trailing frame", async () => {
   const f = await collect(parseSse(chunks([enc.encode("data: a\n\ndata: b\n")])));
   assert.deepEqual(f, [{ event: "message", data: "a" }]);
