@@ -8,6 +8,7 @@ import { requestAuth, type AppEnv } from "./auth.js";
 import { registerClaimNext } from "./claim-next.js";
 import { registerPeopleRoutes } from "./people-routes.js";
 import { registerRoutes } from "./routes.js";
+import { registerSlackRoutes } from "./slack-routes.js";
 import { registerStream } from "./stream.js";
 import { registerTaskRoutes } from "./task-routes.js";
 
@@ -54,6 +55,7 @@ export function createApp(deps: AppDeps, opts: AppOptions = {}): Hono {
   registerStream(v1, deps, { pingMs: opts.streamPingMs, maxMs: opts.streamMaxMs });
   registerPeopleRoutes(v1, deps);
   registerAdminRoutes(v1, deps);
+  registerSlackRoutes(v1, deps);
   app.route("/v1", v1);
 
   app.onError((e, c) => {
