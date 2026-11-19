@@ -202,7 +202,7 @@ The response has `Content-Type: text/event-stream`.
 
 ### Frames
 
-Each event arrives as one frame, with the event kind as the frame name and the cursor as its id:
+Each event arrives as one frame, with the fixed frame name `board` and the cursor as its id (the event kind is inside `data`):
 
 ```
 event: board

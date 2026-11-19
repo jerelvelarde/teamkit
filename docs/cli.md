@@ -36,7 +36,7 @@ Every `teamkit` command needs a server URL and a credential. For each value, the
 The URL may have a trailing slash. If nothing supplies a value, the command stops with exit code 2 and tells you which variable to set.
 
 ```sh
-export TEAMKIT_URL=http://127.0.0.1:49342
+export TEAMKIT_URL=http://127.0.0.1:8787
 export TEAMKIT_TOKEN=tk_...
 teamkit whoami
 ```
@@ -615,7 +615,7 @@ It applies any pending database migrations before it runs. Output is plain text;
 
 | Flag | Meaning |
 |---|---|
-| `--rooms <spec...>` | Required. Grants as `pattern:perm,perm`. Repeat the flag for more grants. |
+| `--rooms <spec>` | Required. Grants as `pattern:perm,perm`. Repeat the flag for more grants. |
 | `--count <n>` | Create `<name>-1` to `<name>-n`. |
 
 ```sh
