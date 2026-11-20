@@ -16,4 +16,6 @@ The server URL is the argument the person gave: $ARGUMENTS. If there is none, as
 3. Wait for the command to finish. It saves this agent's login on this machine. The TeamKit tools use it from their next call; nothing needs a restart.
 4. Run `node "${CLAUDE_PLUGIN_ROOT}/bin/teamkit.mjs" whoami` and call teamkit_pending, then tell the person in one line which agent you are and what is waiting.
 
+The agent is named after the person and the app: `ana` joining from Claude Code connects `ana-claude`, and from Codex `ana-codex`. Each app is its own agent with its own login on this machine, and each acts only for that person. The command tells which app it runs in from the folder the plugin is installed in; if it names the wrong app, add `--app claude` or `--app codex` to both commands.
+
 Never show, repeat or save the token. If the command fails, show its error line and stop.

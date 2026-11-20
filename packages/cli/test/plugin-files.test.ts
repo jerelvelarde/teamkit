@@ -1,11 +1,13 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { existsSync, lstatSync, readdirSync, readFileSync, realpathSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, symlinkSync } from "node:fs";
 import { createServer, type Server } from "node:net";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Ajv2020 } from "ajv/dist/2020.js";
+import { writeConfigFile } from "../src/config.js";
 import { isolatedEnv } from "./helpers/cli.js";
 
 const repoRoot = fileURLToPath(new URL("../../../", import.meta.url));
@@ -49,11 +51,18 @@ test("both manifests name teamkit and carry the CLI's version", () => {
   }
 });
 
-test("both MCP configs start the bundled CLI's mcp command", () => {
+test("both MCP configs start the bundled CLI's mcp command as their own app's agent", () => {
   const claudeMcp = json("plugins/teamkit/.mcp.json") as { mcpServers: Record<string, unknown> };
   const codexMcp = json("plugins/teamkit/mcp.json") as { mcpServers: Record<string, unknown> };
-  assert.deepEqual(claudeMcp.mcpServers.teamkit, { command: "node", args: ["${CLAUDE_PLUGIN_ROOT}/bin/teamkit.mjs", "mcp"] });
-  assert.deepEqual(codexMcp.mcpServers.teamkit, { type: "stdio", command: "node", args: ["${PLUGIN_ROOT}/bin/teamkit.mjs", "mcp"] });
+  assert.deepEqual(claudeMcp.mcpServers.teamkit, {
+    command: "node",
+    args: ["${CLAUDE_PLUGIN_ROOT}/bin/teamkit.mjs", "mcp", "--app", "claude"],
+  });
+  assert.deepEqual(codexMcp.mcpServers.teamkit, {
+    type: "stdio",
+    command: "node",
+    args: ["${PLUGIN_ROOT}/bin/teamkit.mjs", "mcp", "--app", "codex"],
+  });
 });
 
 test("hooks run pending --brief on SessionStart and UserPromptSubmit", () => {
@@ -68,6 +77,21 @@ test("the hook command is silent on a machine that never joined", () => {
   const r = spawnSync("sh", ["-c", hookCommand()], { env: { ...isolatedEnv(), CLAUDE_PLUGIN_ROOT: pluginRoot }, encoding: "utf8" });
   assert.equal(r.status, 0, r.stderr);
   assert.equal(r.stdout, "");
+});
+
+test("the hook command reads the login of the app whose folder holds the plugin", () => {
+  // Installed under .claude, the hook uses the claude login: here a server that is down, so it exits 1.
+  const installed = join(mkdtempSync(join(tmpdir(), "teamkit-plugin-")), ".claude", "plugins", "teamkit");
+  mkdirSync(join(installed, "bin"), { recursive: true });
+  symlinkSync(join(pluginRoot, "bin", "teamkit.mjs"), join(installed, "bin", "teamkit.mjs"));
+  const env = isolatedEnv();
+  writeConfigFile({ url: "http://127.0.0.1:9", apps: { claude: "tk_claude_only" } }, env);
+  const fromClaude = spawnSync("sh", ["-c", hookCommand()], { env: { ...env, CLAUDE_PLUGIN_ROOT: installed }, encoding: "utf8" });
+  assert.deepEqual([fromClaude.status, fromClaude.stdout], [1, ""], fromClaude.stderr);
+  assert.ok(!fromClaude.stderr.includes("tk_claude_only"));
+  // From a folder that names no app there is no login to use, so it says nothing.
+  const elsewhere = spawnSync("sh", ["-c", hookCommand()], { env: { ...env, CLAUDE_PLUGIN_ROOT: pluginRoot }, encoding: "utf8" });
+  assert.deepEqual([elsewhere.status, elsewhere.stdout, elsewhere.stderr], [0, "", ""]);
 });
 
 test("the hook command gives up on a server that never answers without blocking the prompt", async () => {
@@ -126,6 +150,11 @@ test("everything in the plugin stays inside it; no package.json", () => {
   };
   walk(pluginRoot);
   assert.ok(!existsSync(join(pluginRoot, "package.json")));
+});
+
+test("the join skill says each app is its own agent, named after the person and the app", () => {
+  const text = readFileSync(join(pluginRoot, "skills", "join", "SKILL.md"), "utf8");
+  for (const name of ["ana-claude", "ana-codex"]) assert.ok(text.includes(name), name);
 });
 
 test("skills/teamkit points at the plugin's copy", () => {

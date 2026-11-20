@@ -6,7 +6,9 @@
       "command": "node",
       "args": [
         "${PLUGIN_ROOT}/bin/teamkit.mjs",
-        "mcp"
+        "mcp",
+        "--app",
+        "codex"
       ]
     }
   }
