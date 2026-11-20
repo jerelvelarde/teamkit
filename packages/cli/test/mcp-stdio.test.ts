@@ -3,8 +3,9 @@ import assert from "node:assert/strict";
 import { setTimeout as delay } from "node:timers/promises";
 import { Client } from "@modelcontextprotocol/client";
 import { StdioClientTransport } from "@modelcontextprotocol/client/stdio";
-import { BIN, isolatedEnv } from "./helpers/cli.js";
+import { BIN, isolatedEnv, runNode } from "./helpers/cli.js";
 import { mcpTeam } from "./helpers/mcp.js";
+import { writeConfigFile } from "../src/config.js";
 
 function alive(pid: number): boolean {
   try {
@@ -49,4 +50,36 @@ test("teamkit mcp serves the tools over stdio and reports presence", async () =>
   } finally {
     await srv.stop();
   }
+});
+
+test("teamkit mcp --app codex acts with the codex token saved on this machine", async () => {
+  const { srv, anaToken, benToken, benClient } = await mcpTeam();
+  try {
+    const env = isolatedEnv({ TEAMKIT_ROOMS: "billing-migration" });
+    writeConfigFile({ url: srv.url, token: anaToken, apps: { codex: benToken } }, env);
+    const transport = new StdioClientTransport({
+      command: process.execPath,
+      args: [BIN, "mcp", "--app", "codex"],
+      env: env as Record<string, string>,
+      stderr: "pipe",
+    });
+    const client = new Client({ name: "test", version: "0" });
+    await client.connect(transport);
+    const until = Date.now() + 5000;
+    let names: string[] = [];
+    while (!names.includes("ben-agent") && Date.now() < until) {
+      names = (await benClient.presence("billing-migration")).map((p) => p.actor.name);
+      if (!names.includes("ben-agent")) await delay(100);
+    }
+    assert.deepEqual(names, ["ben-agent"], "only the codex token's agent is on");
+    await client.close();
+  } finally {
+    await srv.stop();
+  }
+});
+
+test("teamkit mcp with an unknown --app exits 2 before serving", async () => {
+  const r = await runNode([BIN, "mcp", "--app", "cursor"], isolatedEnv(), { input: "" });
+  assert.equal(r.code, 2, r.stderr);
+  assert.match(r.stderr, /--app must be one of claude, codex/);
 });

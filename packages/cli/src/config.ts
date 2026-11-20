@@ -1,6 +1,7 @@
 import { chmodSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
+import type { AgentApp } from "@copilotkit/teamkit-protocol";
 import { CliExit, UsageError } from "./errors.js";
 
 export interface ResolvedConfig {
@@ -10,7 +11,10 @@ export interface ResolvedConfig {
 
 export interface ConfigFile {
   url?: string;
+  /** The agent token of a `teamkit join` made without an app (`ana-agent`), and of logins from before apps. */
   token?: string;
+  /** One agent token per app on the same server: `ana-claude`'s and `ana-codex`'s. */
+  apps?: Partial<Record<AgentApp, string>>;
   adminToken?: string;
 }
 
@@ -65,14 +69,29 @@ export function clearConfigKeys(keys: (keyof ConfigFile)[], env: Env = process.e
 }
 
 /** A config file value, or undefined when it is absent; a non-string value is a UsageError. */
-function fileValue(file: Partial<ConfigFile>, key: keyof ConfigFile, env: Env): string | undefined {
-  const v: unknown = file[key];
+function fileValue(file: Partial<ConfigFile>, key: Exclude<keyof ConfigFile, "apps">, env: Env): string | undefined {
+  return stringValue(file[key], key, env);
+}
+
+function stringValue(v: unknown, key: string, env: Env): string | undefined {
   if (v === undefined || v === null || v === "") return undefined;
   if (typeof v !== "string") throw new UsageError(`${key} in ${configPath(env)} must be a string`);
   return v;
 }
 
-export function resolveConfig(opts: { url?: string; token?: string }, env: Env = process.env): ResolvedConfig {
+/** The app's own saved agent token, or undefined; a malformed `apps` is a UsageError. */
+function appToken(file: Partial<ConfigFile>, app: AgentApp, env: Env): string | undefined {
+  const apps: unknown = file.apps;
+  if (apps === undefined || apps === null) return undefined;
+  if (typeof apps !== "object" || Array.isArray(apps)) throw new UsageError(`apps in ${configPath(env)} must be an object`);
+  return stringValue((apps as Record<string, unknown>)[app], `apps.${app}`, env);
+}
+
+/**
+ * The server and agent token: `--token`, then TEAMKIT_TOKEN, then the app's saved token (when
+ * `app` is given), then the saved token, which logins from before apps had their own still use.
+ */
+export function resolveConfig(opts: { url?: string; token?: string; app?: AgentApp }, env: Env = process.env): ResolvedConfig {
   let url = opts.url || env.TEAMKIT_URL;
   let token = opts.token || env.TEAMKIT_TOKEN;
   // Only read the file for what flags and env did not supply, so a broken file
@@ -80,6 +99,7 @@ export function resolveConfig(opts: { url?: string; token?: string }, env: Env =
   if (!url || !token) {
     const file = readConfigFile(env);
     url ||= fileValue(file, "url", env);
+    if (!token && opts.app) token = appToken(file, opts.app, env);
     token ||= fileValue(file, "token", env);
   }
   if (!url) throw new UsageError("set TEAMKIT_URL or --url");

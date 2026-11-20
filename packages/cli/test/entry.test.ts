@@ -29,3 +29,13 @@ test("an unknown command exits 2", () => {
 test("main resolves 0 for --help in process", async () => {
   assert.equal(await main(["node", "teamkit", "--help"], { out() {}, err() {} }), 0);
 });
+
+test("an unknown --app or TEAMKIT_APP exits 2 and lists the apps", () => {
+  const flag = run("whoami", "--app", "cursor");
+  assert.equal(flag.status, 2);
+  assert.match(flag.stderr, /--app must be one of claude, codex \(got cursor\)/);
+  const env = { ...Object.fromEntries(Object.entries(process.env).filter(([k]) => !k.startsWith("TEAMKIT_"))), TEAMKIT_APP: "agent" };
+  const fromEnv = spawnSync(process.execPath, [bin, "whoami"], { env, encoding: "utf8" });
+  assert.equal(fromEnv.status, 2);
+  assert.match(fromEnv.stderr, /TEAMKIT_APP must be one of claude, codex \(got agent\)/);
+});
