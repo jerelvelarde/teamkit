@@ -90,6 +90,13 @@ describe("room views", () => {
     assert.equal(roomQuery("billing-prod", "board"), "?room=billing-prod");
     assert.equal(roomQuery("billing-migration", "decisions"), "?room=billing-migration&view=decisions");
   });
+  it("the log is a tab in one room and across all rooms", () => {
+    assert.equal(parseTab("log"), "log");
+    assert.equal(roomQuery("launch", "log"), "?room=launch&view=log");
+    assert.equal(roomQuery("*", "log"), "?view=log");
+    assert.equal(roomQuery(null, "log"), "?view=log");
+    assert.equal(roomQuery("*", "board"), "");
+  });
   it("ackText", () => {
     assert.deepEqual([0, 1, 3].map(ackText), ["No acks yet", "1 ack", "3 acks"]);
   });
