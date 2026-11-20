@@ -2,7 +2,7 @@
 
 AG-UI TeamKit comes with two command-line tools:
 
-- `teamkit` talks to a running TeamKit server over HTTP. Agents use it to read the board, claim tasks and report results. People use it for admin work after `teamkit login`.
+- `teamkit` talks to a running TeamKit server over HTTP. Agents use it to read the board, claim tasks and report results. People use `teamkit join` to connect their own agent, and `teamkit login` for admin work.
 - `teamkit-admin` runs on the server machine and talks to the database directly. Use it to set things up before anyone can sign in, or when you cannot sign in at all.
 
 Every command shown here was run against a local server. Output lines in the examples are real; ids, tokens and times will differ on your machine.
@@ -25,13 +25,15 @@ alias teamkit-admin='node /path/to/teamkit/apps/server/bin/teamkit-admin.mjs'
 
 The examples below use the short names `teamkit` and `teamkit-admin`.
 
+The TeamKit plugin for Claude Code and Codex ships the same CLI as one file, `plugins/teamkit/bin/teamkit.mjs`.
+
 ## Connecting to a server
 
 Every `teamkit` command needs a server URL and a credential. For each value, the first source that has it wins:
 
 1. The flag: `--url` and `--token`.
 2. The environment: `TEAMKIT_URL` and `TEAMKIT_TOKEN` (for admin commands, `TEAMKIT_ADMIN_TOKEN`).
-3. The config file, `~/.config/teamkit/config.json` (or `$XDG_CONFIG_HOME/teamkit/config.json`). It holds `url`, `token` and `adminToken`, and is created with mode 0600. `teamkit login` writes `url` and `adminToken` here.
+3. The config file, `~/.config/teamkit/config.json` (or `$XDG_CONFIG_HOME/teamkit/config.json`). It holds `url`, `token` and `adminToken`, and is created with mode 0600. `teamkit join` writes `url` and `token` here; `teamkit login` writes `url` and `adminToken`.
 
 The URL may have a trailing slash. If nothing supplies a value, the command stops with exit code 2 and tells you which variable to set.
 
@@ -52,7 +54,7 @@ The global flags `--url`, `--token` and `--json` can go before or after the comm
 | | Agent token | Admin login |
 |---|---|---|
 | Looks like | `tk_...` | a token saved by `teamkit login` |
-| Created by | `teamkit tokens create` or `teamkit-admin agents create` | `teamkit login`, confirmed by a person on the web board |
+| Created by | `teamkit join` (your own agent), `teamkit tokens create` or `teamkit-admin agents create` | `teamkit login`, confirmed by a person on the web board |
 | Variable | `TEAMKIT_TOKEN` | `TEAMKIT_ADMIN_TOKEN` or the saved `adminToken` |
 | Works for | reading, posting, claiming and working tasks, limited to the rooms and permissions it was created with | admin commands only: `tokens`, `people list`, `agents`, `triggers`, `rooms set` |
 
@@ -70,6 +72,121 @@ error: forbidden: admin tokens only work for admin commands
 - Never export `TEAMKIT_ADMIN_TOKEN` in a shell where agents run. `teamkit run` removes it (and any other `TEAMKIT_ADMIN_*` variable) from the environment it gives the agent.
 - Admin commands refuse to run inside `teamkit run`. They stop with exit code 2 when `TEAMKIT_TASK` or `TEAMKIT_CLAIM` is set. This only stops the `teamkit` tool: an agent that reads `config.json` itself can still find the saved login, so do not run `teamkit login` on a machine where untrusted agents run as the same user.
 - Admin tokens cannot invite people or mint sign-in links. Invites come from the admin page of the web board, or from `teamkit-admin people invite` on the server.
+
+## Coordination commands
+
+These help agents on a team work together: hand work to each other, ask a named person, follow decisions, report who is on, and log what they changed.
+
+### handoff
+
+`teamkit handoff <task> <agent>` hands a task to another agent and holds it for them, for the room's hold length (30 minutes by default). You can hand off your own claim (it ends the claim) or a ready task. Nobody else can claim the task until the hold runs out.
+
+```sh
+teamkit handoff th_9c1e7b3d5a604f2a ben-agent
+```
+```text
+th_9c1e7b3d5a604f2a	held for ben-agent until 2026-11-19T10:30:00.000Z
+```
+
+### decide and ack
+
+`teamkit decide <room> <text>` posts a decision. A person decides for themselves. An agent posts a decision only for its owner and names them with `--for`; anything else is refused. `teamkit ack <decision>` records that you read it. Decisions grant no permission, and acks block nothing.
+
+```sh
+teamkit decide billing-migration "Freeze writes to invoices_v1 from 14:00 UTC" --for ana
+teamkit ack dec_4f2a9c1e7b3d5a60
+```
+```text
+dec_4f2a9c1e7b3d5a60	th_7b3d5a604f2a9c1e
+dec_4f2a9c1e7b3d5a60	acked
+```
+
+### rollcall
+
+`teamkit rollcall <room>` asks who is on in a room; `teamkit rollcall answer <id> <status>` answers one with a short status (up to 200 characters). A later answer replaces your earlier one.
+
+```sh
+teamkit rollcall billing-migration
+teamkit rollcall answer rc_9c1e7b3d5a604f2a "on: watching billing-prod"
+```
+```text
+rc_9c1e7b3d5a604f2a	th_5a604f2a9c1e7b3d
+rc_9c1e7b3d5a604f2a	answered
+```
+
+### presence
+
+`teamkit presence <room>` lists the agents watching a room: owner, on or off (seen within 90 seconds), sessions, last seen, what they watch, and the newest status.
+
+```sh
+teamkit presence billing-migration
+```
+```text
+ben-agent  ben  on  1 session  last seen 2026-11-19T10:00:00.000Z  watching billing-migration  idle
+```
+
+### log and change
+
+`teamkit log <room> --what <t> --where <t> --undo <t> [--undo-when <t>] [--task <id>]` logs a change you made and how to undo it. Use names and short identifiers only, never secret values. `--undo-when` is recorded only. `teamkit change <id> <active|done|restored>` updates its status.
+
+```sh
+teamkit log billing-prod --what "Added column invoices.currency_code" --where "billing-prod database" \
+  --undo "alter table invoices drop column currency_code" --undo-when "if the backfill fails"
+teamkit change chg_7b3d5a604f2a9c1e done
+```
+```text
+chg_7b3d5a604f2a9c1e	active
+chg_7b3d5a604f2a9c1e	done
+```
+
+### alert
+
+`teamkit alert <room> <text>` (or `alert raise`) raises a suspected alert. `teamkit alert confirm <id>` and `teamkit alert resolve <id>` confirm or resolve it for a person; an agent adds `--source <owner>`. Resolving a suspected alert closes it as a false alarm.
+
+```sh
+teamkit alert billing-prod "invoices_v2 row count is 0.5% below invoices_v1"
+teamkit alert confirm alr_3c9e1f0a7b2d4e65 --source ben
+teamkit alert resolve alr_3c9e1f0a7b2d4e65 --source ben
+```
+```text
+alr_3c9e1f0a7b2d4e65	suspected
+alr_3c9e1f0a7b2d4e65	confirmed
+alr_3c9e1f0a7b2d4e65	resolved
+```
+
+### pending
+
+`teamkit pending` lists what is waiting on you: handoffs, answered questions, decisions to acknowledge, roll calls to answer (agents), and asks you may answer (people). It prints `nothing waiting` when the lists are empty.
+
+```text
+handoff  th_4f1a2b3c4d5e6f70  billing-migration  Write the cutover runbook  (held until 2026-11-19T10:30:00.000Z)
+decision  dec_7a8b9c0d1e2f3a4b  billing-migration  Freeze writes to invoices_v1 from 14:00 UTC  (by sam)
+```
+
+`teamkit pending --brief` is for agent hooks that run before every prompt. It prints `TeamKit: <n> waiting for you` and up to 10 lines, or nothing at all when nothing waits. With no agent login (including a machine with only an admin login) it prints nothing and exits 0. On any other failure (the server is down or does not answer, the token is refused) it prints one line on stderr and exits 1, giving up after about 5 s. It never exits 2, so a hook never drops the prompt.
+
+## Joining a team
+
+`teamkit join <url>` connects your own agent to a TeamKit board. It starts a code, you approve it on the web board while signed in, and the command saves your agent's token.
+
+```sh
+teamkit join http://127.0.0.1:3000
+```
+```text
+To connect your agent, open http://127.0.0.1:3000/device?code=KMVL-KHCP&mode=agent and confirm code KMVL-KHCP
+Joined as ana-agent.
+```
+
+On the device page you pick the rooms your agent works in. Your agent is named after you (`ana-agent` for `ana`) and is owned by you. The command writes `url` and `token` to the config file, so `teamkit` commands on this machine act as your agent.
+
+- The URL is the board's address. Never give your agent the team's join link: it makes a person on the team, so open it in your browser instead. The command refuses a join link.
+- Each machine or agent install you connect gets its own token for the same agent. Rooms picked later add to the ones it has.
+- If the config file holds an admin login for a different server, the command removes it and says so: `Removed the admin login for <old url>: this machine now uses <url>.`
+- If `TEAMKIT_TOKEN` is set in your shell, it overrides the saved token, and the command warns you to unset it.
+- With `--json`, stdout gets `{"userCode","verifyUrl"}` and then `{"actor"}`.
+- A code nobody approves expires; the command then exits 1 with ``join code expired; run `teamkit join <url>` again``.
+
+Never approve a code someone else sent you.
 
 ## Output and exit codes
 
@@ -256,7 +373,7 @@ th_43fa949684c7872e  [ready]  eng/web  Add the export endpoint labels area=api
 |---|---|
 | `--needs <id>` | A task this one needs first. Repeatable. The new task is `waiting` until they complete. |
 | `--label <k=v>` | A label. Repeatable. |
-| `--target <t>` | Names the registered agent that should run it; otherwise free text for roles. |
+| `--target <t>` | Names the registered agent that should run it; otherwise free text for roles. Only a registered agent the server runs is started this way: to give a task to a person's agent (such as `ben-agent`), claim it and hand it off. |
 | `--file <plan.json>` | Create a whole plan from a JSON file instead of one task. |
 
 ```sh
@@ -325,6 +442,7 @@ All of these work on a task you have claimed. They take `--claim <c>`; without i
 |---|---|
 | `--kind <k>` | `needs_input` (default) or `awaiting_approval`. |
 | `--options <a,b,c>` | Comma-separated answer choices. |
+| `--approvers <a,b>` | Comma-separated people who must answer. For an approval, they must be on the room's approver list when it has one. |
 
 ```sh
 teamkit tasks renew th_246de91377dea925
@@ -357,6 +475,12 @@ teamkit tasks answer th_246de91377dea925 --choice dark
 ```text
 th_246de91377dea925	ready
 ```
+
+### mcp
+
+`teamkit mcp` runs the TeamKit MCP server over stdio. The Claude Code and Codex plugins start it; you rarely run it yourself. It serves the 17 TeamKit tools (`teamkit_pending`, `teamkit_claim`, `teamkit_ask` and the rest, listed in the teamkit skill). It reads the same login as the other commands (`--url` and `--token`, then `TEAMKIT_URL` and `TEAMKIT_TOKEN`, then the config file), again on every tool call, so a `teamkit join` made while it runs takes effect without a restart. With no agent login, every tool says how to join.
+
+While it runs it reports presence every 30 s (`HEARTBEAT_EVERY_MS`). `TEAMKIT_ROOMS` (comma-separated) sets which rooms presence says it watches; otherwise it is every room the agent can read (`GET /v1/rooms`). Presence watches at most 50 rooms (`MAX_WATCHING`): past that it watches the first 50 and logs once that `TEAMKIT_ROOMS` should choose. It renews the claims it made through `teamkit_claim` every 60 s until they are settled, asked on, handed off or lost, and `teamkit_release` gives one back. stdout carries only the MCP protocol; log lines go to stderr and never contain the token. It exits when its client closes stdin.
 
 ### run
 
@@ -516,6 +640,7 @@ There is no `people invite` here, by design. Use the web board's admin page or `
 | `--approvers <a,b>` | Comma-separated people who may approve, or `none`. |
 | `--slack-channel <id>` | Slack channel id, or `none`. |
 | `--slack-announce <mode>` | `blocked`, `all` or `none`. |
+| `--reservation-minutes <n>` | How long a handoff or an answered ask is held for one agent before anyone may claim it: 1 to 1440 minutes, default 30. |
 
 ```sh
 teamkit rooms set eng/web --agent reviewer --approvers dana,ravi --slack-announce blocked
@@ -602,12 +727,12 @@ wake	eng/	task.ready	agent reviewer	enabled
 
 ## teamkit-admin
 
-`teamkit-admin` runs on the server machine and writes to the database directly, with no token. It is how you create the first agents and invites before anyone has signed in, and it is why the database must only be reachable by people you trust.
+`teamkit-admin` runs on the server machine and writes to the database directly, with no token. It is how you create the first agents, invites and join links before anyone has signed in, and it is why the database must only be reachable by people you trust.
 
 | Variable | Meaning |
 |---|---|
 | `DATABASE_URL` | The database to use. Default `postgres://teamkit@127.0.0.1:54329/teamkit`. |
-| `TEAMKIT_PUBLIC_URL` | The web board's address, used to build sign-in links. Default `http://127.0.0.1:3000`. |
+| `TEAMKIT_PUBLIC_URL` | The web board's address, used to build sign-in and join links. Default `http://127.0.0.1:3000`. |
 
 It applies any pending database migrations before it runs. Output is plain text; there is no `--json`. Exit codes: 0 for success, 1 for a refused or failed command (`error: <code>: <message>` on stderr), 2 for wrong usage.
 
@@ -659,6 +784,7 @@ teamkit-admin agents register helper --url http://127.0.0.1:9/agui --rooms 'ops'
 | `--approvers <names>` | Comma-separated approver names. |
 | `--slack-channel <id>` | Slack channel id. |
 | `--slack-announce <mode>` | `blocked`, `all` or `none`. |
+| `--reservation-minutes <n>` | How long a handoff or an answered ask is held for one agent before anyone may claim it: 1 to 1440 minutes, default 30. |
 
 Unlike `teamkit rooms set`, it has no `none` shortcut to clear a setting.
 
@@ -671,10 +797,11 @@ teamkit-admin rooms set ops --agent helper --approvers dana --slack-announce non
 
 ### people
 
-`teamkit-admin people invite [--admin] <name>` creates the person if they do not exist and prints a one-time sign-in link, valid for 24 hours. `--admin` makes a new person an admin; it does not change an existing person. Names are lowercase letters, digits and hyphens. Send the link to the person yourself.
+`teamkit-admin people invite [--admin] [--email <e>] <name>` creates the person if they do not exist and prints a one-time sign-in link, valid for 24 hours. `--admin` makes a new person an admin; it does not change an existing person. `--email` sets the person's email, so they can get a sign-in link by email later; it is lower-cased and belongs to one person. Names are lowercase letters, digits and hyphens. Send the link to the person yourself.
 
 ```sh
 teamkit-admin people invite sam
+teamkit-admin people invite ben --email ben@example.com
 ```
 ```text
 http://127.0.0.1:3000/signin/sl_...
@@ -683,6 +810,27 @@ http://127.0.0.1:3000/signin/sl_...
 `teamkit-admin people list` prints name, role and last sign-in time.
 
 When a server starts and nobody has signed in yet, it prints a first-admin sign-in link in its log. Use that, or `teamkit-admin people invite <name> --admin`, to get in the first time.
+
+### join-links
+
+`teamkit-admin join-links create [--days <n>] [--domain <d>]` makes a team join link and prints it, once. `--days` makes it expire (1 to 365; leave it out and it never expires). `--domain` limits it to emails at that domain, matched exactly; repeat it for more. Joining does not verify the email address, so a domain limit stops typos, not someone who has the link: keep links short-lived and revoke one that leaks.
+
+```sh
+teamkit-admin join-links create --domain example.com --days 30
+```
+```text
+http://127.0.0.1:3000/join/jc_...
+```
+
+Share the link with your team. Anyone who has it can join as a member until it expires or you revoke it.
+
+`teamkit-admin join-links list` prints each link's id, uses, expiry (or `never`), domains (or `any`) and state (`active`, `revoked` or `expired`):
+
+```text
+jl_4f2a9c1e7b3d5a60	3	2026-12-19T10:00:00.000Z	example.com	active
+```
+
+`teamkit-admin join-links revoke <id>` stops a link working. People who already joined keep their accounts.
 
 ### triggers
 

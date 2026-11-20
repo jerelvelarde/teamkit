@@ -256,3 +256,31 @@ test("with trustedProxy, device/start keys on the first X-Forwarded-For address 
     { deviceStartLimit: { burst: 2, perMinute: 1 }, trustedProxy: true },
   );
 });
+
+test("device/start in agent mode puts mode=agent in the verify url; a bad mode is invalid_input", async () => {
+  await withApp(async ({ app }) => {
+    const agent = (await (await post(app, "/v1/device/start", { mode: "agent" }, {})).json()) as { userCode: string; verifyUrl: string };
+    assert.equal(agent.verifyUrl, `http://127.0.0.1:3000/device?code=${agent.userCode}&mode=agent`);
+    const admin = (await (await post(app, "/v1/device/start", {}, {})).json()) as { userCode: string; verifyUrl: string };
+    assert.equal(admin.verifyUrl, `http://127.0.0.1:3000/device?code=${admin.userCode}`);
+    const bad = await post(app, "/v1/device/start", { mode: "root" }, {});
+    assert.equal(bad.status, 400);
+  });
+});
+
+test("device approve in agent mode takes rooms and answers with the agent", async () => {
+  await withApp(async ({ db, app }) => {
+    const invite = await invitePerson(db, { name: "ana", role: "member" });
+    const cookie = cookieOf(await post(app, "/v1/signin", { token: invite.secret }));
+    const start = (await (await post(app, "/v1/device/start", { mode: "agent" }, {})).json()) as { deviceCode: string; userCode: string };
+    const notArray = await post(app, "/v1/device/approve", { userCode: start.userCode, rooms: "billing-migration" }, { ...JSON_TYPE, cookie });
+    assert.equal(notArray.status, 400);
+    const ok = await post(app, "/v1/device/approve", { userCode: start.userCode, rooms: ["billing-migration"] }, { ...JSON_TYPE, cookie });
+    assert.equal(ok.status, 200);
+    const body = (await ok.json()) as { ok: boolean; agent: { name: string; kind: string } };
+    assert.deepEqual([body.ok, body.agent.name, body.agent.kind], [true, "ana-agent", "agent"]);
+    const done = (await (await post(app, "/v1/device/poll", { deviceCode: start.deviceCode })).json()) as { token: string };
+    const who = (await (await app.request("/v1/whoami", { headers: { authorization: `Bearer ${done.token}` } })).json()) as { scope: string };
+    assert.equal(who.scope, "agent");
+  });
+});

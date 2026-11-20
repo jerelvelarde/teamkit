@@ -5,6 +5,7 @@ import { loadConfig } from "./config.js";
 import { createDb } from "./db/pool.js";
 import { migrate } from "./db/migrate.js";
 import { createApp } from "./http/app.js";
+import type { Mailer } from "./mail.js";
 import { createNotifier } from "./notifier.js";
 import { ensureBootstrapLink, signInUrl } from "./store/people.js";
 import { startDispatcher, type Dispatcher } from "./dispatch/dispatcher.js";
@@ -12,6 +13,7 @@ import { SLACK_OUTBOUND_LOCK, startSingleton, TRIGGERS_LOCK, type Singleton } fr
 import { startTriggers } from "./triggers/runner.js";
 import { startSlackBridge, type SlackBridge } from "./slack/bridge.js";
 import { reapExpired } from "./store/reaper.js";
+import { lapseReservations } from "./store/reservations.js";
 
 const config = loadConfig();
 const db = createDb(config.databaseUrl);
@@ -31,15 +33,31 @@ if (bootstrapSecret) {
 }
 
 const notifier = await createNotifier(db);
-const app = createApp({ db, notifier, publicUrl: config.publicUrl }, { trustedProxy: config.trustedProxy });
+let mailer: Mailer | undefined;
+if (config.mail) {
+  const { smtpMailer } = await import("./mail-smtp.js");
+  mailer = smtpMailer({ url: config.mail.smtpUrl, from: config.mail.from });
+  console.log("email sign-in on");
+} else {
+  console.log("email sign-in off (set TEAMKIT_SMTP_URL and TEAMKIT_MAIL_FROM)");
+}
+const app = createApp(
+  { db, notifier, publicUrl: config.publicUrl, mailer, slackSigningSecret: config.slack.signingSecret },
+  { trustedProxy: config.trustedProxy },
+);
 
 const reaper = setInterval(() => {
-  reapExpired(db).then(
-    (n) => {
+  reapExpired(db)
+    .then((n) => {
       if (n > 0) console.log(`reaped ${n} expired lease(s)`);
-    },
-    (err) => console.error("reaper failed", err),
-  );
+      return lapseReservations(db);
+    })
+    .then(
+      (n) => {
+        if (n > 0) console.log(`lapsed ${n} hold(s)`);
+      },
+      (err) => console.error("reaper failed", err),
+    );
 }, config.reapIntervalMs);
 
 const server = serve({ fetch: app.fetch, port: config.port, hostname: config.host }) as Server;
@@ -108,20 +126,25 @@ if (config.triggers) {
 const { botToken } = config.slack;
 if (botToken) {
   const { startOutbound } = await import("./slack/outbound.js");
+  const { startSlackStatus } = await import("./slack/status.js");
   outbound = startSingleton({
     url: config.databaseUrl,
     name: SLACK_OUTBOUND_LOCK,
     log: (line) => console.warn(line),
     start: async () => {
-      const started = await startOutbound({
-        db,
-        notifier,
-        slack: { token: botToken, apiBase: config.slack.apiBase },
-        publicUrl: config.publicUrl,
-        log: (line) => console.warn(line),
-      });
+      const slack = { token: botToken, apiBase: config.slack.apiBase };
+      const log = (line: string) => console.warn(line);
+      const started = await startOutbound({ db, notifier, slack, publicUrl: config.publicUrl, log });
       console.log("slack outbound started");
-      return started;
+      // The status worker runs in the same singleton: one process edits each room's status message.
+      const status = await startSlackStatus({ db, notifier, slack, publicUrl: config.publicUrl, log });
+      console.log("slack status started");
+      return {
+        async stop() {
+          await status.stop();
+          await started.stop();
+        },
+      };
     },
   });
   await outbound.ready;

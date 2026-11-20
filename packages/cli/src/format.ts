@@ -1,4 +1,4 @@
-import type { BoardEvent, RoomView, Task, ThreadView } from "@copilotkit/teamkit-protocol";
+import { PRESENCE_ON_MS, type BoardEvent, type Pending, type Presence, type RoomView, type Task, type ThreadView } from "@copilotkit/teamkit-protocol";
 
 export function firstLine(s: string, max = 80): string {
   const line = s.split(/\r?\n/, 1)[0] ?? "";
@@ -7,7 +7,8 @@ export function firstLine(s: string, max = 80): string {
 
 function formatBlock(b: NonNullable<Task["block"]>): string {
   const options = b.options && b.options.length > 0 ? ` [options: ${b.options.join("|")}]` : "";
-  return `blocked (${b.kind}): ${b.question}${options}`;
+  const waiting = b.approvers ? ` (waiting on ${b.approvers.join(", ")})` : "";
+  return `blocked (${b.kind}): ${b.question}${options}${waiting}`;
 }
 
 export function formatTask(t: Task): string {
@@ -19,6 +20,7 @@ export function formatTask(t: Task): string {
     out += ` needs: ${t.needs.map((id) => `${id}(${t.needStates[id] ?? "unknown"})`).join(",")}`;
   }
   if (t.block) out += ` ${formatBlock(t.block)}`;
+  if (t.reservedFor) out += ` held for ${t.reservedFor.name} until ${t.reservedUntil}`;
   return out;
 }
 
@@ -54,4 +56,52 @@ export function formatThread(v: ThreadView): string {
 export function formatRoom(v: RoomView): string {
   const lines = v.threads.map((t) => `${t.id}  [${t.state ?? "discussion"}]  ${firstLine(t.brief ?? "")}`.trimEnd());
   return [v.room.name, ...lines].join("\n");
+}
+
+/** One line per agent: name, owner, on or off, sessions, last seen, what it watches, and its newest status. */
+export function formatPresence(list: Presence[], nowMs: number): string {
+  if (list.length === 0) return "no agents";
+  return list
+    .map((p) => {
+      const newest = p.sessions[0];
+      const seen = newest ? Date.parse(newest.lastSeenAt) : 0;
+      const on = newest !== undefined && nowMs - seen <= PRESENCE_ON_MS;
+      const watching = [...new Set(p.sessions.flatMap((s) => s.watching))].join(",");
+      const n = p.sessions.length;
+      let line = `${p.actor.name}  ${p.owner?.name ?? "-"}  ${on ? "on" : "off"}  ${n} session${n === 1 ? "" : "s"}`;
+      line += `  last seen ${newest?.lastSeenAt ?? "never"}  watching ${watching}`;
+      if (newest?.status) line += `  ${newest.status}`;
+      return line;
+    })
+    .join("\n");
+}
+
+const BRIEF_LINES = 10;
+
+/** One line per item waiting on the caller: handoffs, answered asks, decisions, roll calls, then asks. */
+function pendingLines(p: Pending): string[] {
+  return [
+    ...p.handoffs.map((t) => `handoff  ${t.id}  ${t.room}  ${firstLine(t.brief)}  (held until ${t.reservedUntil ?? "?"})`),
+    ...p.answered.map((t) => {
+      const payload = t.pendingResume?.[0]?.payload;
+      const said = payload?.choice ?? payload?.text;
+      return `answered  ${t.id}  ${t.room}  ${firstLine(t.brief)}${said === undefined ? "" : `  (answer: ${firstLine(said)})`}`;
+    }),
+    ...p.decisions.map((d) => `decision  ${d.id}  ${d.room}  ${firstLine(d.text)}  (by ${d.decidedBy.name})`),
+    ...p.rollCalls.map((r) => `rollcall  ${r.id}  ${r.room}  (asked by ${r.askedBy.name})`),
+    ...p.asks.map((t) => `ask  ${t.id}  ${t.room}  ${t.block?.kind ?? "blocked"}: ${firstLine(t.block?.question ?? t.brief)}`),
+  ];
+}
+
+/**
+ * Without `brief`, every line or "nothing waiting". With `brief` (for agent hooks), "" when
+ * nothing waits, else a count, the first 10 lines and how many more.
+ */
+export function formatPending(p: Pending, opts: { brief: boolean }): string {
+  const lines = pendingLines(p);
+  if (!opts.brief) return lines.length === 0 ? "nothing waiting" : lines.join("\n");
+  if (lines.length === 0) return "";
+  const out = [`TeamKit: ${lines.length} waiting for you`, ...lines.slice(0, BRIEF_LINES)];
+  if (lines.length > BRIEF_LINES) out.push(`… and ${lines.length - BRIEF_LINES} more (run: teamkit pending)`);
+  return out.join("\n");
 }

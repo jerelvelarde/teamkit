@@ -1,0 +1,49 @@
+.avatar {
+  position: relative;
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: var(--s);
+  height: var(--s);
+  border-radius: 50%;
+  background: hsl(var(--h) 55% 91%);
+  color: hsl(var(--h) 42% 30%);
+  font-size: calc(var(--s) * 0.42);
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  line-height: 1;
+  user-select: none;
+}
+
+.avatar[data-kind="agent"] {
+  border-radius: calc(var(--s) * 0.28);
+}
+
+.avatar[data-live]::after {
+  content: "";
+  position: absolute;
+  inset: -3px;
+  border: 1.5px solid var(--tk-claimed);
+  border-radius: calc(var(--s) * 0.28 + 3px);
+  animation: pulse 2.2s var(--tk-ease) infinite;
+}
+
+@keyframes pulse {
+  0% {
+    opacity: 0.9;
+    transform: scale(0.92);
+  }
+  70%,
+  100% {
+    opacity: 0;
+    transform: scale(1.18);
+  }
+}
+
+@media (prefers-color-scheme: dark) {
+  .avatar {
+    background: hsl(var(--h) 28% 24%);
+    color: hsl(var(--h) 70% 82%);
+  }
+}

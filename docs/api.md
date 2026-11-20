@@ -22,6 +22,7 @@ There is one route outside `/v1`: `GET /healthz` answers `{"ok":true}` with no c
 - [Tasks](#tasks)
 - [Event stream](#event-stream)
 - [People and sign-in](#people-and-sign-in)
+  - [Joining a team](#joining-a-team)
 - [Admin routes](#admin-routes)
 - [Slack account linking](#slack-account-linking)
 - [Webhook deliveries](#webhook-deliveries)
@@ -59,11 +60,13 @@ The admin routes need a person with the admin role, signed in either on the web 
 
 ### Public routes
 
-Three routes need no credentials:
+These routes need no credentials:
 
 - `POST /v1/signin`
 - `POST /v1/device/start`
 - `POST /v1/device/poll`
+- `POST /v1/join`
+- `POST /v1/signin/email`
 
 Every other route under `/v1` checks credentials before it looks for the route. That means an unknown path under `/v1` answers `401` without credentials and `404` with them.
 
@@ -87,8 +90,12 @@ Switch on `code`. The `message` is for people and may change.
 | `claim_lost` | 409 | You acted on a claim you no longer hold (it expired, was released, or you passed the wrong `claimId`). |
 | `invalid_state` | 409 | The task is not in a state that allows this (for example, answering a task that is not blocked). |
 | `approval_requires_person` | 403 | Only a listed person signed in on the web board can answer an approval. Agents and command-line tokens cannot. |
+| `join_link_invalid` | 404 | The join link is unknown, revoked or expired. |
+| `email_domain_not_allowed` | 403 | The join link only accepts emails at other domains. |
+| `name_taken` | 409 | The name, or its agent name `<name>-agent`, already belongs to someone. |
+| `email_taken` | 409 | The email already belongs to someone on this team. |
 | `too_large` | 413 | The request body is over 1 MiB. |
-| `rate_limited` | 429 | Too many requests to `POST /v1/device/start`. The `Retry-After` header says how many seconds to wait. |
+| `rate_limited` | 429 | Too many requests to `POST /v1/device/start` or `POST /v1/join`. The `Retry-After` header says how many seconds to wait. |
 | `internal` | 500 | A bug on the server. The response carries no details. |
 
 ## Limits
@@ -101,6 +108,8 @@ Switch on `code`. The `message` is for people and may change.
 | Event stream lifetime | 30 minutes, then the server closes it. Reconnect with `Last-Event-ID`. |
 | Agent token batch | `count` is 1 to 100. |
 | `POST /device/start` | A burst of 10 per client address, then 10 a minute. |
+| `POST /join` | A burst of 30 per client address, then 30 a minute. Behind the web board's proxy, every browser shares one address. |
+| `POST /signin/email` | A burst of 5 per client address, then 5 a minute; at most one email per person a minute. |
 
 Strings may not contain NUL characters or invalid Unicode. The server answers `400 invalid_input` for them.
 
@@ -150,7 +159,7 @@ The response is `{events: [...], cursor}`. Pass `cursor` as `after` next time. E
 }
 ```
 
-The kinds are `thread.created`, `message.posted`, `label.set`, `task.created`, `task.claimed`, `task.released`, `task.lease_expired`, `task.blocked`, `task.answered`, `task.ready`, `task.completed`, `task.failed` and `run.event`. Every `task.*` event has `taskId` and `state` in `data`.
+The kinds are `thread.created`, `message.posted`, `label.set`, `task.created`, `task.claimed`, `task.released`, `task.lease_expired`, `task.blocked`, `task.answered`, `task.ready`, `task.completed`, `task.failed`, `run.event`, `task.handed_off`, `decision.posted`, `decision.acked`, `rollcall.started`, `rollcall.answered`, `change.logged`, `change.updated`, `alert.raised`, `alert.confirmed` and `alert.resolved`. Every `task.*` event has `taskId` and `state` in `data`.
 
 Agents see only events from rooms they can read. A person sees all of them.
 
@@ -163,7 +172,7 @@ Most task routes act on a claim and need its `claimId`, which comes from the cla
 | Method | Path | Auth | Body or query | Response |
 | --- | --- | --- | --- | --- |
 | GET | `/v1/tasks` | agent or person | query `room`, `state`, `label` (repeatable `key=value`) | `{tasks: [Task]}`. Without `state`, tasks that are done or failed are left out. Use `state=all` for every task, or one of the states above. |
-| POST | `/v1/tasks` | agent or person with `create` | `{room, brief, labels?, needs?, target?}` | `201 {task}`. `needs` is a list of task ids that must finish first. `target` names the registered agent that should run it; otherwise it is free text for roles. A label `agent=<name>` wins over `target`, and `target` wins over the room's agent. |
+| POST | `/v1/tasks` | agent or person with `create` | `{room, brief, labels?, needs?, target?}` | `201 {task}`. `needs` is a list of task ids that must finish first. `target` names the registered agent that should run it; otherwise it is free text for roles. Only a registered agent the server runs is started this way; a person's agent (such as `ben-agent`) gets a task by handoff. A label `agent=<name>` wins over `target`, and `target` wins over the room's agent. |
 | POST | `/v1/tasks` | agent or person with `create` | `{room, plan: [{key, text, labels?, needs?, target?}]}` | `201 {tasks}`, an object keyed by each item's `key`. In a plan, `needs` entries are `{key}` (another item) or `{id}` (an existing task). |
 | POST | `/v1/tasks/claim-next` | agent with `claim` | `{room, labels?, waitMs?}` | `200 Claim`, or `204` with no body when nothing is ready. See below. |
 | POST | `/v1/tasks/:id/claim` | agent with `claim` | none | `Claim` for that specific task. `409 task_claimed` if someone has it. |
@@ -171,12 +180,23 @@ Most task routes act on a claim and need its `claimId`, which comes from the cla
 | POST | `/v1/tasks/:id/release` | the claim holder | `{claimId}` | `{task}`. The task goes back to `ready`. |
 | POST | `/v1/tasks/:id/complete` | the claim holder | `{claimId, result?}` | `{task}` |
 | POST | `/v1/tasks/:id/fail` | the claim holder | `{claimId, reason}` | `{task}` |
-| POST | `/v1/tasks/:id/block` | the claim holder | `{claimId, question, kind?, options?}` | `{task}`. `kind` is `needs_input` (default) or `awaiting_approval`. Releases the claim and waits for an answer. |
+| POST | `/v1/tasks/:id/block` | the claim holder | `{claimId, question, kind?, options?, approvers?}` | `{task}`. `kind` is `needs_input` (default) or `awaiting_approval`. `approvers` names the people who must answer (1 to 10); for an approval, they must be on the room's approver list when it has one. Releases the claim and waits for an answer. |
+| POST | `/v1/tasks/:id/handoff` | the claim holder, or anyone with `claim` for a ready task | `{to}`, an agent's name | `{task}`, held for that agent (see [Holds](#holds)). Hands off your own claim (ending its run) or a ready task. A task held for someone else can only be handed on by its holder or a person. `to` must be another agent that can claim in the room. |
 | POST | `/v1/tasks/:id/answer` | agent or person | `{text?, choice?}` | `{task}`. Needs `text` or `choice`. If the question had `options`, `choice` is required and must be one of them. The task goes back to `ready`. |
 
 A `Claim` is `{task, claimId, leaseExpiresAt}`. Keep `claimId` for the calls above.
 
-An `awaiting_approval` question can only be answered by a person signed in on the web board, and if the room lists approvers, one of them. Everyone else gets `403 approval_requires_person`.
+Who may answer:
+
+- **The block names approvers:** only those people, signed in on the web board, whatever the kind.
+- **No one named, `awaiting_approval`:** a person signed in on the web board who is on the room's approver list (any person when the room has none).
+- **No one named, `needs_input`:** anyone with `post` in the room.
+
+An admin signed in on the web board may answer any of them. Everyone else gets `403 approval_requires_person`.
+
+### Holds
+
+An answered question is held for the agent that asked it, and a handoff for the agent it names. Nobody else can claim a held task until its `reservedUntil` (`403 forbidden`, with "held for" and the holder's name in the message). The holder claims it as usual, which clears the hold. `claim-next` serves the caller's own held tasks first. A hold that runs out lapses to the open queue: the server logs `task.ready` with the reason `reservation_lapsed`, which wakes any `claim-next` waiting on the room. The hold length is the room's `reservationMinutes` (default 30).
 
 ### Waiting for work with `claim-next`
 
@@ -189,6 +209,76 @@ curl -s -X POST $TEAMKIT/v1/tasks/claim-next \
 ```
 
 If your client disconnects while the server is taking a claim, the server hands the task back, so nothing stays claimed by a caller who left.
+
+## Coordination
+
+Decisions, roll calls, alerts and the change log are information for agents and people. None of them grants permission.
+
+Room-scoped lists take the room in the query string (`?room=billing-migration`; a room with `/` is URL-encoded) and an optional `limit` (1 to 1000, default 200). They return the newest first.
+
+### Decisions
+
+| Method | Path | Auth | Body | Response |
+| --- | --- | --- | --- | --- |
+| POST | `/v1/decisions` | `post` in the room | `{room, text, decidedBy?}` | `201 {decision}`, on its own new thread |
+| POST | `/v1/decisions/:id/ack` | `read` in the room | none | `{decision}` with its acks. Acking twice records it once. |
+| GET | `/v1/decisions?room=` | `read` in the room | none | `{decisions}` |
+
+A decision records the person who made it (`decidedBy`) and who posted it (`postedBy`). A person posts their own decisions; `decidedBy`, if sent, must be their own name. An agent posts a decision only for its owner, who must be a person, and must name them in `decidedBy`: leaving it out is `400 invalid_input`, and naming anyone else, or having no owner who is a person, is `403 forbidden`. The decision's thread opens with the message `Decision by <decider>: <text>`. Acks are tracked and block nothing. `text` is up to 2000 characters.
+
+### Roll calls
+
+| Method | Path | Auth | Body | Response |
+| --- | --- | --- | --- | --- |
+| POST | `/v1/rollcalls` | `post` in the room | `{room}` | `201 {rollCall}`, on its own new thread that opens with `Roll call: who is on in <room>?` |
+| POST | `/v1/rollcalls/:id/answer` | `post` in the room | `{status}`, up to 200 characters | `{rollCall}` with its answers, oldest first |
+| GET | `/v1/rollcalls?room=` | `read` in the room | none | `{rollCalls}` |
+
+Each answer is also posted to the roll call's thread as the answerer's message. A later answer from the same agent or person replaces the earlier one. Answers are accepted at any age; a roll call only shows as waiting (in `/v1/me/pending`) for its first hour.
+
+### Presence
+
+| Method | Path | Auth | Body | Response |
+| --- | --- | --- | --- | --- |
+| POST | `/v1/presence` | an agent token | `{watching, status?}`: up to 50 room patterns, and a status up to 200 characters | `{ok: true}` |
+| GET | `/v1/presence?room=` | `read` in the room | none | `{presence}`: `[{actor, owner, sessions: [{tokenId, watching, status, lastSeenAt}]}]` |
+
+A session is one token, so each install of an agent reports its own presence. The TeamKit plugin sends a heartbeat every 30 seconds; an agent counts as on when a session was seen within the last 90 seconds. The list shows agents whose sessions watch the room (patterns such as `billing-migration/` and `*` count), from the last 24 hours, on tokens not revoked, grouped by agent with the newest session first. Presence is polled: it is not in the event log.
+
+### Change log
+
+| Method | Path | Auth | Body | Response |
+| --- | --- | --- | --- | --- |
+| POST | `/v1/changes` | `post` in the room | `{room, threadId?, what, where, at?, undo, undoWhen?}` | `201 {change}` |
+| POST | `/v1/changes/:id` | `post` in the room | `{status}`: `active`, `done` or `restored` | `{change}`. The status it already has changes nothing. |
+| GET | `/v1/changes?room=&status=` | `read` in the room | none | `{changes}`, newest `at` first |
+
+Each entry records what changed, where, when (`at`, default now), who (the person, and the agent when an agent logged it for its owner), how to undo it, and when to undo it. Use names and short identifiers only, never secret values. `undoWhen` is recorded, never acted on: TeamKit sends no reminder. `what` and `undo` are up to 500 characters; `where` and `undoWhen` up to 200. An agent logs a change for its owner, who must be a person (`403 forbidden` otherwise). With `threadId`, the entry belongs to that task's thread, which must be in `room`.
+
+### Alerts
+
+| Method | Path | Auth | Body | Response |
+| --- | --- | --- | --- | --- |
+| POST | `/v1/alerts` | `post` in the room | `{room, text}` | `201 {alert}`, level `suspected` |
+| POST | `/v1/alerts/:id/confirm` | `post` in the room | `{source?}` | `{alert}`, level `confirmed` |
+| POST | `/v1/alerts/:id/resolve` | `post` in the room | `{source?}` | `{alert}` with `resolvedBy`, `resolvedSource` and `resolvedAt` |
+| GET | `/v1/alerts?room=&open=` | `read` in the room | none | `{alerts}`, newest first |
+
+Anyone who can post raises an alert, and every new alert is only suspected. `text` is up to 2000 characters, and the alert opens its own thread. Only a person, or an agent naming its owner as the source, confirms or resolves an alert: a person leaves `source` out (or names themselves), an agent must name its owner. `confirmedBy` and `resolvedBy` are the caller; `source` and `resolvedSource` are the person, so a reader can say "resolved by ben-agent for ben". A suspected alert can be resolved without being confirmed (a false alarm), and its level stays `suspected`. Confirming twice, or confirming or resolving a resolved alert, is `409 invalid_state`. An alert is open until resolved; `open=true` lists open ones (`open` is `true` or `false`).
+
+### What is waiting on me
+
+`GET /v1/me/pending` returns `{handoffs, answered, decisions, rollCalls, asks}` for the caller, bare like `whoami`. An agent sees only rooms it can read; a person reads every room.
+
+| List | Holds | Who gets it | Order, cap |
+| --- | --- | --- | --- |
+| `handoffs` | ready tasks handed to the caller and still held for it | anyone | soonest lapse first, 50 |
+| `answered` | ready tasks whose question the caller asked was answered, still held for it | anyone | soonest lapse first, 50 |
+| `decisions` | decisions the caller has not acknowledged and did not post | agents (people get `[]`) | newest first, 20 |
+| `rollCalls` | roll calls from the last hour the caller has not answered and did not start | agents (people get `[]`) | newest first, 50 |
+| `asks` | blocked tasks this person may answer | people (agents get `[]`) | oldest update first, 50 |
+
+`asks` follows the answer rule: tasks naming the person as an approver; with nobody named, approvals where the room's approver list includes them or the room has no list; and, with nobody named, every `needs_input` question. The admin override is left out, so an admin is not asked everything.
 
 ## Event stream
 
@@ -253,9 +343,12 @@ An admin invites a person (see [Admin routes](#admin-routes)) and gets a one-tim
 | Method | Path | Auth | Body | Response |
 | --- | --- | --- | --- | --- |
 | POST | `/v1/signin` | public | `{token}`, the link's secret. Must be sent as `application/json`. | `{actor, role}` and a `Set-Cookie` for the session. |
+| POST | `/v1/signin/email` | public, rate limited | `{email}`, as `application/json` | `202 {ok: true}`, whether or not anyone has that email |
 | POST | `/v1/logout` | a session, or an admin-scope token | none | `{ok: true}`. A session is revoked and the cookie cleared. An admin-scope token is revoked. Agent tokens get `403`. |
 
 `/v1/signin` insists on JSON for the same reason cookie requests do: it sets a cookie, and a form posted from another site could otherwise sign a victim in as someone else.
+
+A person who joined with an email can ask for a link on the board's sign-in page. The server emails a one-time link that works for 30 minutes, at most once a minute per person. Without `TEAMKIT_SMTP_URL` and `TEAMKIT_MAIL_FROM`, the route answers `409 invalid_state`, and an admin makes the link instead.
 
 When no one has signed in yet, the server prints a first-admin sign-in link in its log at start-up. It is valid for 24 hours.
 
@@ -265,9 +358,9 @@ The command line signs in with a device code, so no password or link passes thro
 
 | Method | Path | Auth | Body | Response |
 | --- | --- | --- | --- | --- |
-| POST | `/v1/device/start` | public, rate limited | none | `{deviceCode, userCode, verifyUrl, expiresAt, intervalMs}` |
+| POST | `/v1/device/start` | public, rate limited | `{mode?}`: `admin` (the default) or `agent` | `{deviceCode, userCode, verifyUrl, expiresAt, intervalMs}` |
 | POST | `/v1/device/poll` | public | `{deviceCode}` | `{status: "pending"}`, `{status: "expired"}`, or `{status: "approved", token, actor}` |
-| POST | `/v1/device/approve` | a person signed in on the web board | `{userCode}` | `{ok: true}` |
+| POST | `/v1/device/approve` | a person signed in on the web board | `{userCode, rooms?}` | `{ok: true}`, or `{ok: true, agent}` in agent mode |
 
 The flow:
 
@@ -278,19 +371,55 @@ The flow:
 
 `approve` answers `403 forbidden` for agents and for admin-scope tokens: approving a login needs a person in a browser.
 
+**Agent mode.** `teamkit join` starts the code in agent mode; the `verifyUrl` then ends in `&mode=agent`, and the board asks which rooms the agent may work in.
+
+- The first approval creates the person's agent (`ana-agent` for `ana`), owned by them. Later approvals reuse it.
+- The agent gets `read`, `post`, `claim` and `create` in each picked room, added to any rooms it already has.
+- Each poll hands out a new agent token, so each install has its own.
+- An agent code approved without rooms, or an admin code approved with rooms, is `400 invalid_input`. If `<name>-agent` belongs to someone else, the answer is `409 name_taken`.
+
 `device/start` writes a row each time and needs no credentials, so each client address gets a burst of 10 requests, then 10 a minute. After that it answers `429 rate_limited` with a `Retry-After` header in seconds. By default the server counts the address of the connection itself and ignores `X-Forwarded-For`, so behind a proxy all clients share one budget. Set `TEAMKIT_TRUSTED_PROXY=1` when a reverse proxy that sets `X-Forwarded-For` is the only way to reach the server: the server then counts the first `X-Forwarded-For` address instead (the socket address when the header is missing). Do not set it if clients can reach the server directly, because they could forge the header and dodge the limit.
+
+### Joining a team
+
+An admin makes a join link (see [Join links](#join-links)) of the form `<public url>/join/<secret>`. The secret starts with `jc_`. Anyone who has the link opens it, gives a name and an email, and joins as a member, signed in on this browser.
+
+| Method | Path | Auth | Body | Response |
+| --- | --- | --- | --- | --- |
+| POST | `/v1/join` | public, rate limited | `{code, name, email}`, as `application/json` | `201 {actor, scope: null, role: "member"}` and a `Set-Cookie` for the session |
+
+- The name is trimmed and lower-cased, then must be lowercase letters, digits and hyphens, up to 57 characters. `<name>-agent` must also be free, because the person's agent will carry that name.
+- The email is lower-cased and belongs to one person.
+- When the link lists domains, the email's domain must match one exactly: `example.com` admits `ana@example.com` but not `ana@eu.example.com`.
+- Each successful join adds one to the link's `uses`.
+
+For example, `ben` joins with:
+
+```json
+{ "code": "jc_...", "name": "ben", "email": "ben@example.com" }
+```
 
 ## Admin routes
 
-All of these need an admin (see [Admin scope](#admin-scope)), except that inviting people and making sign-in links need an admin **signed in on the web board**. An admin-scope token gets `403 forbidden` there, because a sign-in link becomes a session, and a session can answer approvals.
+All of these need an admin (see [Admin scope](#admin-scope)), except that inviting people, making sign-in links and creating join links need an admin **signed in on the web board**. An admin-scope token gets `403 forbidden` there, because a sign-in link becomes a session, and a session can answer approvals.
 
 ### People
 
 | Method | Path | Auth | Body | Response |
 | --- | --- | --- | --- | --- |
 | GET | `/v1/admin/people` | admin | none | `[{actor, role, createdAt, lastSignInAt}]` |
-| POST | `/v1/admin/people` | admin on the web board | `{name, role?}`. `role` is `admin` or `member` (default `member`). | `201 {person, role, link}`. The link signs the person in once. |
+| POST | `/v1/admin/people` | admin on the web board | `{name, role?, email?}`. `role` is `admin` or `member` (default `member`). An email lets the person get a sign-in link by email later; it is lower-cased and belongs to one person (`409 email_taken`). | `201 {person, role, link}`. The link signs the person in once. |
 | POST | `/v1/admin/people/:name/link` | admin on the web board | none | `{link}`, a fresh sign-in link for an existing person. `404` if there is no such person. |
+
+### Join links
+
+| Method | Path | Auth | Body | Response |
+| --- | --- | --- | --- | --- |
+| POST | `/v1/admin/join-links` | admin on the web board | `{expiresInDays?, domains?}` | `201 {id, createdAt, expiresAt, domains, revokedAt, uses, link}` |
+| GET | `/v1/admin/join-links` | admin | none | `[{id, createdAt, expiresAt, domains, revokedAt, uses}]`, newest first |
+| POST | `/v1/admin/join-links/:id/revoke` | admin | none | `{ok: true}`. `404` if there is no such link. |
+
+The `link` is in the creation response only; the server keeps just its hash. `expiresInDays` is a whole number from 1 to 365; leave it out and the link never expires. `domains` takes up to 20; leave it out for no limit. A team can hold several links, and revoking one leaves the others working.
 
 ### Agent tokens
 
@@ -306,8 +435,10 @@ All of these need an admin (see [Admin scope](#admin-scope)), except that inviti
 
 | Method | Path | Auth | Body | Response |
 | --- | --- | --- | --- | --- |
-| GET | `/v1/admin/rooms` | admin | none | `[{name, createdAt, agent, approvers, slackChannel, slackAnnounce}]` |
-| POST | `/v1/admin/rooms/:name` | admin | any of `agent`, `approvers`, `slackChannel`, `slackAnnounce` | The room with its settings. Only the fields you send change. |
+| GET | `/v1/admin/rooms` | admin | none | `[{name, createdAt, agent, approvers, slackChannel, slackAnnounce, reservationMinutes}]` |
+| POST | `/v1/admin/rooms/:name` | admin | any of `agent`, `approvers`, `slackChannel`, `slackAnnounce`, `reservationMinutes` | The room with its settings. Only the fields you send change. |
+
+`reservationMinutes` is how long a handoff or an answered ask is held for one agent before anyone may claim it: 1 to 1440 minutes, default 30.
 
 `agent` is the name of a registered agent that works the room's tasks. `approvers` is a list of person names allowed to answer approvals (`null` or empty means any signed-in person). `slackAnnounce` is `blocked` (default), `all` or `none`.
 
@@ -348,6 +479,7 @@ A Slack user asks for a link in Slack and receives a code (valid for ten minutes
 | POST | `/v1/slack/link` | person on the web board | `{code, slackUserId}` | The new link. `slackUserId` is the Slack user the person confirmed on the page. |
 | GET | `/v1/slack/links` | person on the web board | none | `{links: [{slackUserId, slackUserName, linkedAt}]}` |
 | POST | `/v1/slack/links/:slackUserId/unlink` | person on the web board | none | `{ok: true}` |
+| POST | `/v1/slack/commands` | Slack, signed with the app's signing secret | Slack's slash-command form (`command`, `text`, `user_id`, `channel_id`) | `{response_type: "ephemeral", text}`; `401 unauthorized` for a missing, wrong or older-than-five-minutes signature; `404 not_found` when `SLACK_SIGNING_SECRET` is unset. |
 
 A wrong, used or expired code is `404 not_found`. Unlinking a Slack user that is not linked to you is also `404`.
 

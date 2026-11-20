@@ -1,6 +1,15 @@
 import { MAX_BODY_BYTES } from "@copilotkit/teamkit-protocol";
 
-const FORWARDED_REQUEST_HEADERS = ["authorization", "cookie", "content-type", "accept", "last-event-id"];
+const FORWARDED_REQUEST_HEADERS = [
+  "authorization",
+  "cookie",
+  "content-type",
+  "accept",
+  "last-event-id",
+  // Slack signs /teamkit slash commands; the server checks the signature against the raw body.
+  "x-slack-signature",
+  "x-slack-request-timestamp",
+];
 
 // Hop-by-hop headers (RFC 9110 section 7.6.1) plus the framing headers that
 // no longer describe the body once it is re-streamed.

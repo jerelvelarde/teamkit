@@ -164,3 +164,10 @@ test("an agent with an owner records owner_id", async () => {
     await assert.rejects(createAgent(db, { name: "b2", ownerId: "ac_nope", grants: [] }), code("invalid_input"));
   });
 });
+
+test("authenticate returns the token's id", async () => {
+  await withTestDb(async (db) => {
+    const a = await createAgent(db, { name: "ben-agent", grants: [{ room: "billing-migration", perms: ["read"] }] });
+    assert.equal((await authenticate(db, a.token))?.tokenId, a.tokenId);
+  });
+});

@@ -1,9 +1,12 @@
 import {
+  AGENT_STYLE_NAME_ERROR,
   BoardError,
   PERMISSIONS,
+  isAgentStyleName,
   isValidRoomPattern,
   newId,
   newTokenSecret,
+  personAgentName,
   roomMatches,
   type ActorRef,
   type Permission,
@@ -16,6 +19,8 @@ export interface AuthContext {
   via: "token" | "session" | "system";
   scope: "agent" | "admin" | null;
   role: "admin" | "member" | null;
+  /** The bearer token's id, so each install reports its own presence. Unset for sessions. */
+  tokenId?: string;
 }
 
 export interface Grant {
@@ -58,6 +63,27 @@ function normalizeGrants(grants: Grant[]): Grant[] {
 
 function isUniqueViolation(e: unknown): boolean {
   return typeof e === "object" && e !== null && (e as { code?: unknown }).code === "23505";
+}
+
+/**
+ * The person's own agent, `<person>-agent`: created on first use, owned by them, and given
+ * read, post, claim and create in each room. Grants only ever add up, so another install of
+ * the same agent keeps every room it had.
+ */
+export async function ensureOwnedAgent(q: Q, owner: ActorRef, rooms: string[]): Promise<ActorRef> {
+  const name = personAgentName(owner.name);
+  await q`insert into actors (id, kind, name, owner_id) values (${newId("ac")}, 'agent', ${name}, ${owner.id})
+          on conflict (name) do nothing`;
+  const [row] = await q`select id, kind, owner_id from actors where name = ${name}`;
+  if (!row || row.kind !== "agent" || row.owner_id !== owner.id) {
+    throw new BoardError("name_taken", `the name ${name} belongs to someone else; ask an admin`);
+  }
+  const perms = [...PERMISSIONS];
+  for (const room of rooms) {
+    await q`insert into grants (actor_id, room_pattern, perms) values (${row.id as string}, ${room}, ${perms})
+            on conflict (actor_id, room_pattern) do update set perms = excluded.perms`;
+  }
+  return { id: row.id as string, name, kind: "agent" };
 }
 
 async function insertAgent(
@@ -124,10 +150,11 @@ export async function createAgentTokens(
 }
 
 export async function createPerson(
-  db: Db,
+  db: Q,
   input: { name: string; role: "admin" | "member" },
 ): Promise<ActorRef> {
   checkName(input.name);
+  if (isAgentStyleName(input.name)) throw new BoardError("invalid_input", AGENT_STYLE_NAME_ERROR);
   if (input.role !== "admin" && input.role !== "member") {
     throw new BoardError("invalid_input", "role must be admin or member");
   }
@@ -174,10 +201,10 @@ export async function listTokens(db: Db): Promise<
 export async function authenticate(
   db: Db,
   bearer: string,
-): Promise<{ actor: ActorRef; scope: "agent" | "admin"; role: "admin" | "member" | null } | null> {
+): Promise<{ actor: ActorRef; scope: "agent" | "admin"; role: "admin" | "member" | null; tokenId: string } | null> {
   if (typeof bearer !== "string" || bearer === "") return null;
   const [r] = await db`
-    select a.id, a.name, a.kind, a.role, t.scope
+    select a.id, a.name, a.kind, a.role, t.scope, t.id as token_id
     from tokens t join actors a on a.id = t.actor_id
     where t.hash = ${hashToken(bearer)} and t.revoked_at is null`;
   if (!r) return null;
@@ -185,6 +212,7 @@ export async function authenticate(
     actor: { id: r.id as string, name: r.name as string, kind: r.kind as "agent" | "person" },
     scope: r.scope as "agent" | "admin",
     role: (r.role as "admin" | "member" | null) ?? null,
+    tokenId: r.token_id as string,
   };
 }
 

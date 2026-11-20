@@ -117,10 +117,6 @@ export function SlackLink() {
 
   return (
     <section className={`tk-glass ${styles.panel}`} aria-live="polite">
-      <div className={styles.label}>
-        <span>Slack</span>
-        <div className={styles.line} />
-      </div>
 
       {step.kind === "confirm" ? (
         <>
@@ -185,10 +181,7 @@ export function SlackLink() {
       )}
       {error ? <p className={styles.error}>{error}</p> : null}
 
-      <div className={`${styles.label} ${styles.sectionGap}`}>
-        <span>Your linked Slack accounts</span>
-        <div className={styles.line} />
-      </div>
+      <h3 className={styles.subhead}>Your linked Slack accounts</h3>
       {links === null ? null : links.length === 0 ? (
         <p className={styles.text}>No Slack account is linked to you.</p>
       ) : (

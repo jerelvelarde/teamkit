@@ -4,6 +4,7 @@ import type { AppDeps } from "./app.js";
 import type { AppEnv } from "./auth.js";
 import { labelsFromQuery, optLabels, optString, optStringArray, pathParam, readBody, reqString } from "./body.js";
 import { answer, block } from "../store/blocks.js";
+import { handoff } from "../store/handoff.js";
 import { claimTask, complete, fail, release, renew } from "../store/claims.js";
 import { listTasks } from "../store/task-list.js";
 import { createPlan, createTask } from "../store/tasks.js";
@@ -76,7 +77,14 @@ export function registerTaskRoutes(v1: Hono<AppEnv>, deps: AppDeps): void {
       question: reqString(b, "question"),
       kind: kind as BlockKind,
       options: optStringArray(b, "options"),
+      approvers: optStringArray(b, "approvers"),
     });
+    return c.json({ task });
+  });
+
+  v1.post("/tasks/:id/handoff", async (c) => {
+    const b = await readBody(c);
+    const task = await handoff(db, c.get("auth"), pathParam(c, "id"), reqString(b, "to"));
     return c.json({ task });
   });
 

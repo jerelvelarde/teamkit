@@ -1,0 +1,3 @@
+plugin.schema.json and mcp.schema.json are copied unchanged from https://agent-plugins.org/schemas/1.0.0/
+(the Agent Plugins specification, github.com/agentplugins/agent-plugins-spec), licensed under the
+Apache License, Version 2.0: https://www.apache.org/licenses/LICENSE-2.0

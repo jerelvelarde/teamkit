@@ -11,6 +11,7 @@ import {
   type AguiEvent,
   type BoardEvent,
 } from "@copilotkit/teamkit-protocol";
+import type { ChangeEntry } from "@copilotkit/teamkit-protocol";
 import { foldEvents } from "../lib/fold.js";
 
 const ada = { id: "act_ada", name: "ada", kind: "person" as const };
@@ -34,7 +35,7 @@ const raw = (e: Record<string, unknown>): AguiEvent => e as AguiEvent;
 
 describe("foldEvents", () => {
   it("empty input", () => {
-    assert.deepEqual(foldEvents([]), { items: [], question: null, lastCursor: "0" });
+    assert.deepEqual(foldEvents([]), { items: [], question: null, lastCursor: "0", headline: null });
   });
 
   it("joins message deltas and takes the actor from metadata when the event has no recorded actor", () => {
@@ -356,5 +357,121 @@ describe("foldEvents", () => {
   it("lastCursor is the last event's cursor", () => {
     const events = [ev([runStarted("t", "r", "c")]), ev([])];
     assert.equal(foldEvents(events).lastCursor, events[1]!.cursor);
+  });
+});
+
+const sam = { id: "act_sam", name: "sam", kind: "person" as const };
+const ben = { id: "act_ben", name: "ben", kind: "person" as const };
+const samAgent = { id: "act_sam_agent", name: "sam-agent", kind: "agent" as const };
+const anaAgent = { id: "act_ana_agent", name: "ana-agent", kind: "agent" as const };
+const benAgent = { id: "act_ben_agent", name: "ben-agent", kind: "agent" as const };
+const AT = "2026-11-19T10:00:00.000Z";
+const DECISION = "Freeze writes to the old billing database during the copy";
+const ALERT = "Invoice totals differ between the old and new databases";
+const change: ChangeEntry = {
+  id: "chg_1", room: "billing-migration", threadId: "th_copy", what: "Copied invoices 1 to 500 to the new database",
+  where: "billing-db-new", at: AT, person: ben, agent: benAgent, undo: "Delete the copied rows from billing-db-new",
+  undoWhen: "If the row counts differ", status: "active", createdAt: AT, updatedAt: AT,
+};
+// Plan 02's payloads: the CUSTOM value, then the message that rides with it.
+const decisionPosted = (): AguiEvent[] => [
+  custom("teamkit.decision.posted", { decisionId: "dec_1", room: "billing-migration", text: DECISION, decidedBy: sam, postedBy: samAgent }),
+  ...textMessage({ messageId: "m_dec", role: "assistant", text: `Decision by sam: ${DECISION}`, actor: samAgent }),
+];
+const alertRaised = (): AguiEvent[] => [
+  custom("teamkit.alert.raised", { alertId: "alr_1", room: "billing-prod", text: ALERT, level: "suspected", raisedBy: benAgent }),
+  ...textMessage({ messageId: "m_alr", role: "assistant", text: `Alert (suspected): ${ALERT}`, actor: benAgent }),
+];
+const view = (a: { name: string; kind: "agent" | "person" }) => ({ name: a.name, kind: a.kind });
+const lines = (vm: ReturnType<typeof foldEvents>) =>
+  vm.items.filter((i) => i.kind === "status").map((i) => (i.kind === "status" ? [i.label, i.tone, i.detail] : null));
+
+describe("coordination events", () => {
+  it("a posted decision is one row, its message is not drawn twice, and acks fold in once each", () => {
+    const posted = ev(decisionPosted(), samAgent);
+    const vm = foldEvents([
+      posted,
+      ev(decisionPosted(), samAgent),
+      ev([custom("teamkit.decision.acked", { decisionId: "dec_1", by: anaAgent })], anaAgent),
+      ev([custom("teamkit.decision.acked", { decisionId: "dec_1", by: anaAgent })], anaAgent),
+      ev([custom("teamkit.decision.acked", { decisionId: "dec_1", by: benAgent })], benAgent),
+    ]);
+    assert.deepEqual(vm.items, [{
+      kind: "decision", id: "decision-dec_1", decisionId: "dec_1", text: DECISION,
+      decidedBy: view(sam), postedBy: view(samAgent), acks: [view(anaAgent), view(benAgent)], cursor: posted.cursor,
+    }]);
+    assert.equal(vm.headline, DECISION);
+  });
+
+  it("an ack for a decision that is not in this thread is a plain line", () => {
+    const vm = foldEvents([ev([custom("teamkit.decision.acked", { decisionId: "dec_9", by: anaAgent })], anaAgent)]);
+    assert.deepEqual(lines(vm), [["ana-agent acknowledged a decision", "success", null]]);
+  });
+
+  it("a logged change is one row; an update changes it in place and leaves a line", () => {
+    const vm = foldEvents([
+      ev([custom("teamkit.change.logged", { change })], benAgent),
+      ev([custom("teamkit.change.updated", { changeId: "chg_1", status: "restored", previous: "active" })], ben),
+    ]);
+    const row = vm.items[0]!;
+    assert.ok(row.kind === "change" && row.id === "change-chg_1" && row.status === "restored");
+    assert.ok(row.kind === "change" && row.where === "billing-db-new" && row.undoWhen === "If the row counts differ");
+    assert.deepEqual(row.kind === "change" && [row.person, row.agent], [view(ben), view(benAgent)]);
+    assert.deepEqual(lines(vm), [["Change marked restored", "neutral", change.what]]);
+  });
+
+  it("an update for an unknown change, or with an unknown status, is only a line", () => {
+    const vm = foldEvents([
+      ev([custom("teamkit.change.logged", { change })], benAgent),
+      ev([custom("teamkit.change.updated", { changeId: "chg_1", status: "deleted", previous: "active" })], ben),
+      ev([custom("teamkit.change.updated", { changeId: "chg_9", status: "done", previous: "active" })], ben),
+    ]);
+    assert.ok(vm.items[0]?.kind === "change" && vm.items[0].status === "active");
+    assert.deepEqual(lines(vm), [["Change updated", "neutral", change.what], ["Change marked done", "success", null]]);
+  });
+
+  it("handoffs, roll calls and alerts are status lines, and their messages are not drawn twice", () => {
+    const vm = foldEvents([
+      ev([custom("teamkit.task.handed_off", { to: benAgent, reservedUntil: AT, claimId: null })], anaAgent),
+      ev([custom("teamkit.rollcall.started", { rollCallId: "rc_1", room: "billing-migration", askedBy: sam }),
+        ...textMessage({ messageId: "m_rc", role: "user", text: "Roll call: who is on in billing-migration?", actor: sam })], sam),
+      ev([custom("teamkit.rollcall.answered", { rollCallId: "rc_1", by: benAgent, status: "on, copying invoices" }),
+        ...textMessage({ messageId: "m_rca", role: "assistant", text: "on, copying invoices", actor: benAgent })], benAgent),
+      ev(alertRaised(), benAgent),
+      ev([custom("teamkit.alert.confirmed", { alertId: "alr_1", by: sam, source: sam })], sam),
+      ev([custom("teamkit.alert.resolved", { alertId: "alr_1", by: sam, source: sam })], sam),
+      ev([custom("teamkit.alert.resolved", { alertId: "alr_1", by: benAgent, source: ben })], benAgent),
+    ]);
+    assert.ok(vm.items.every((i) => i.kind === "status"));
+    assert.deepEqual(lines(vm), [
+      ["Handed off to ben-agent", "info", "by ana-agent"],
+      ["Roll call by sam", "info", null],
+      ["Roll call: ben-agent", "neutral", "on, copying invoices"],
+      ["Suspected alert from ben-agent", "warning", ALERT],
+      ["Alert confirmed by sam", "danger", ALERT],
+      ["Alert resolved by sam", "success", ALERT],
+      ["Alert resolved by ben-agent for ben", "success", ALERT],
+    ]);
+    assert.equal(vm.headline, ALERT);
+  });
+
+  it("malformed payloads fall back to plain lines and never throw", () => {
+    const vm = foldEvents([
+      ev([custom("teamkit.decision.posted", {})], sam),
+      ev([custom("teamkit.change.logged", { change: 5 })], sam),
+      ev([custom("teamkit.alert.confirmed", {})], sam),
+      ev([custom("teamkit.alert.resolved", { alertId: 7 })], sam),
+    ]);
+    assert.deepEqual(lines(vm), [["Decision posted", "info", null], ["Change logged", "info", null],
+      ["Alert confirmed by someone", "danger", null], ["Alert resolved by someone", "success", null]]);
+    assert.equal(vm.headline, null);
+  });
+
+  it("an agent's run.event cannot post a decision, log a change or raise an alert", () => {
+    const fromRun = (agui: AguiEvent[]): BoardEvent => ({ ...ev(agui, benAgent), kind: "run.event" });
+    const vm = foldEvents([fromRun([decisionPosted()[0]!, custom("teamkit.change.logged", { change }), alertRaised()[0]!])]);
+    assert.deepEqual(vm.items.map((i) => i.kind), ["status", "status", "status"]);
+    assert.deepEqual(lines(vm).map((l) => l?.[0]), ["teamkit.decision.posted", "teamkit.change.logged", "teamkit.alert.raised"]);
+    assert.equal(vm.headline, null);
   });
 });

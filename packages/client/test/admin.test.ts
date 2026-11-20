@@ -103,3 +103,27 @@ test("admin client: invite and sign-in link refuse an admin-scope token, work wi
     await srv.stop();
   }
 });
+
+test("admin client: join links are created on the web board, listed and revoked with an admin-scope token", async () => {
+  const srv = await startTestServer();
+  try {
+    const admin = createAdminClient({ url: srv.url, token: await adminToken(srv.db, "sam", "admin") });
+    await expectForbidden(admin.createJoinLink());
+    const session = await consumeSignInLink(srv.db, (await invitePerson(srv.db, { name: "ana", role: "admin" })).secret);
+    const cookieFetch: typeof fetch = (url, init) =>
+      fetch(url, { ...init, headers: { ...(init?.headers as Record<string, string>), cookie: `teamkit_session=${session.sessionSecret}` } });
+    const board = createAdminClient({ url: srv.url, fetch: cookieFetch });
+    await board.invitePerson({ name: "ben", email: "ben@example.com" });
+    assert.equal((await srv.db`select email from actors where name = 'ben'`)[0]!.email, "ben@example.com");
+    const created = await board.createJoinLink({ expiresInDays: 7, domains: ["example.com"] });
+    assert.match(created.link, /\/join\/jc_/);
+    assert.deepEqual(created.domains, ["example.com"]);
+    const listed = await admin.joinLinks();
+    assert.deepEqual(listed.map((l) => l.id), [created.id]);
+    assert.equal("link" in listed[0]!, false);
+    await admin.revokeJoinLink(created.id);
+    assert.notEqual((await admin.joinLinks())[0]!.revokedAt, null);
+  } finally {
+    await srv.stop();
+  }
+});

@@ -17,7 +17,11 @@ type Row = {
   claimed_by_name: string | null;
   claimed_by_kind: "agent" | "person" | null;
   lease_expires_at: Date | null;
-  block: TaskBlock | null;
+  block: (Omit<TaskBlock, "approvers"> & { approvers?: string[] | null }) | null;
+  reserved_for: string | null;
+  reserved_for_name: string | null;
+  reserved_for_kind: "agent" | "person" | null;
+  reserved_until: Date | null;
   pending_resume: PendingResume[] | null;
   result: string | null;
   attempts: number;
@@ -30,11 +34,13 @@ async function fetchRows(q: Q, ids: string[]): Promise<Row[]> {
            th.created_by, cb.name as created_by_name, cb.kind as created_by_kind,
            t.state, t.brief, t.target, t.claim_id,
            t.claimed_by, cl.name as claimed_by_name, cl.kind as claimed_by_kind,
-           t.lease_expires_at, t.block, t.pending_resume, t.result, t.attempts, t.updated_at
+           t.lease_expires_at, t.block, t.pending_resume, t.result, t.attempts, t.updated_at,
+           t.reserved_for, rf.name as reserved_for_name, rf.kind as reserved_for_kind, t.reserved_until
     from tasks t
     join threads th on th.id = t.thread_id
     join actors cb on cb.id = th.created_by
     left join actors cl on cl.id = t.claimed_by
+    left join actors rf on rf.id = t.reserved_for
     where t.thread_id in ${q(ids)}`;
 }
 
@@ -75,8 +81,14 @@ async function hydrate(q: Q, rows: Row[]): Promise<Map<string, Task>> {
       needStates: n ? n.states : {},
       target: r.target,
       claim,
-      block: r.block ?? null,
+      // A block stored before named approvers has no approvers key: it reads as null.
+      block: r.block ? { ...r.block, approvers: r.block.approvers ?? null } : null,
       pendingResume: r.pending_resume ?? null,
+      reservedFor:
+        r.reserved_for && r.reserved_for_name && r.reserved_for_kind
+          ? { id: r.reserved_for, name: r.reserved_for_name, kind: r.reserved_for_kind }
+          : null,
+      reservedUntil: r.reserved_until ? r.reserved_until.toISOString() : null,
       attempts: r.attempts,
       result: r.result,
       createdBy,

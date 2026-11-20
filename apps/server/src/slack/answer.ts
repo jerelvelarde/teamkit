@@ -3,6 +3,7 @@ import type { Db } from "../db/pool.js";
 import { answer } from "../store/blocks.js";
 import { parseAnswerValue } from "./blocks.js";
 import { escapeMrkdwn } from "./cards.js";
+import { isNotAnswererError, refusalFor } from "./coordination.js";
 import { createSlackLinkCode, findLinkedPerson, slackLinkUrl } from "./links.js";
 
 export interface SlackAnswerThread {
@@ -52,10 +53,12 @@ export function createSlackAnswerHandler(d: { db: Db; publicUrl: string }): {
         { expectedInterruptId: parsed.interruptId },
       );
     } catch (err) {
+      if (isNotAnswererError(err)) {
+        await tell(await refusalFor(d.db, parsed.taskId));
+        return;
+      }
       if (err instanceof BoardError) {
-        if (err.code === "approval_requires_person") {
-          await tell("Only a listed approver can answer this approval.");
-        } else if (err.code === "invalid_state" || err.code === "not_found") {
+        if (err.code === "invalid_state" || err.code === "not_found") {
           await tell("This question was already answered.");
         } else {
           await tell(escapeMrkdwn(err.message));
@@ -64,7 +67,7 @@ export function createSlackAnswerHandler(d: { db: Db; publicUrl: string }): {
       }
       throw err;
     }
-    await thread.post(`${escapeMrkdwn(linked.actor.name)} answered: ${escapeMrkdwn(parsed.choice)}`);
+    // The "<person> answered: <choice>" line is posted by outbound, for answers from Slack and the board alike.
   }
 
   return {

@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import type { FormEvent } from "react";
 import { createAdminClient } from "@copilotkit/teamkit-client";
 import type { PersonInfo } from "@copilotkit/teamkit-protocol";
+import { inviteEmail } from "../../lib/join-links";
 import styles from "./admin.module.css";
 
 /** Same-origin admin client: the browser sends the session cookie. */
@@ -15,10 +16,7 @@ export function errorText(err: unknown, fallback: string): string {
 
 export function SectionHead({ children }: { children: string }) {
   return (
-    <div className={styles.sectionHead}>
-      <span>{children}</span>
-      <div className={styles.line} />
-    </div>
+    <h2 className={styles.sectionHead}>{children}</h2>
   );
 }
 
@@ -70,13 +68,16 @@ export function ShownOnce({
 function formatTime(iso: string | null): string {
   if (!iso) return "never";
   const d = new Date(iso);
-  return Number.isNaN(d.getTime()) ? iso : d.toLocaleString();
+  return Number.isNaN(d.getTime())
+    ? iso
+    : d.toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
 }
 
 export function People() {
   const [people, setPeople] = useState<PersonInfo[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [name, setName] = useState("");
+  const [email, setEmail] = useState("");
   const [admin, setAdmin] = useState(false);
   const [busy, setBusy] = useState(false);
   const [shown, setShown] = useState<{ title: string; value: string } | null>(null);
@@ -97,11 +98,22 @@ export function People() {
     e.preventDefault();
     setError(null);
     if (name.trim() === "") return setError("Enter a name to invite.");
+    let address: string | undefined;
+    try {
+      address = inviteEmail(email);
+    } catch (err) {
+      return setError(errorText(err, "That is not an email address."));
+    }
     setBusy(true);
     try {
-      const res = await adminApi.invitePerson({ name: name.trim(), role: admin ? "admin" : "member" });
+      const res = await adminApi.invitePerson({
+        name: name.trim(),
+        role: admin ? "admin" : "member",
+        ...(address === undefined ? {} : { email: address }),
+      });
       setShown({ title: `Sign-in link for ${res.person.name}`, value: res.link });
       setName("");
+      setEmail("");
       setAdmin(false);
       await load();
     } catch (err) {
@@ -180,6 +192,17 @@ export function People() {
             value={name}
             onChange={(e) => setName(e.target.value)}
             placeholder="name"
+            autoComplete="off"
+          />
+        </label>
+        <label className={styles.field}>
+          <span className={styles.fieldLabel}>Email (optional)</span>
+          <input
+            className={`tk-input ${styles.input}`}
+            type="email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            placeholder="ben@example.com"
             autoComplete="off"
           />
         </label>

@@ -64,7 +64,7 @@ test("blocked row returns block, pendingResume and attempts as stored", async ()
     await db`insert into tasks (thread_id, state, brief, block, pending_resume, attempts)
              values ('t1','blocked','b', ${db.json(block)}, ${db.json(resume)}, 3)`;
     const t = await loadTask(db, "t1");
-    assert.deepEqual(t!.block, block);
+    assert.deepEqual(t!.block, { ...block, approvers: null });
     assert.deepEqual(t!.pendingResume, resume);
     assert.equal(t!.attempts, 3);
   });
@@ -111,5 +111,41 @@ test("forUpdate holds a row lock until the transaction ends", async () => {
     await holder;
     await updater;
     assert.equal(updated, true);
+  });
+});
+
+async function seedBilling(db: Db) {
+  await db`insert into actors (id, kind, name, role) values ('ac_ben', 'person', 'ben', 'member')`;
+  await db`insert into actors (id, kind, name, owner_id) values ('ac_ben_agent', 'agent', 'ben-agent', 'ac_ben')`;
+  await db`insert into rooms (name) values ('billing-migration')`;
+  await db`insert into threads (id, room, is_task, created_by) values ('th_backfill', 'billing-migration', true, 'ac_ben')`;
+  await db`insert into tasks (thread_id, state, brief) values ('th_backfill', 'ready', 'Backfill invoices_v2 from invoices_v1')`;
+}
+
+test("a task with no hold reads reservedFor and reservedUntil null", async () => {
+  await withTestDb(async (db) => {
+    await seedBilling(db);
+    const t = await loadTask(db, "th_backfill");
+    assert.equal(t!.reservedFor, null);
+    assert.equal(t!.reservedUntil, null);
+  });
+});
+
+test("a stored hold reads back as the holder and an ISO time", async () => {
+  await withTestDb(async (db) => {
+    await seedBilling(db);
+    await db`update tasks set reserved_for = 'ac_ben_agent', reserved_until = '2026-11-19T10:30:00Z', reservation_kind = 'handoff'
+             where thread_id = 'th_backfill'`;
+    const t = await loadTask(db, "th_backfill");
+    assert.deepEqual(t!.reservedFor, { id: "ac_ben_agent", name: "ben-agent", kind: "agent" });
+    assert.equal(t!.reservedUntil, "2026-11-19T10:30:00.000Z");
+  });
+});
+
+test("a hold must be whole: holder, time and kind together", async () => {
+  await withTestDb(async (db) => {
+    await seedBilling(db);
+    await assert.rejects(db`update tasks set reserved_for = 'ac_ben_agent' where thread_id = 'th_backfill'`,
+      (e) => (e as { code?: string }).code === "23514");
   });
 });

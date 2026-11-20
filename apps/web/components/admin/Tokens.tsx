@@ -16,9 +16,11 @@ interface GrantRow {
 let nextKey = 1;
 const newRow = (): GrantRow => ({ key: nextKey++, room: "", perms: ["read", "post", "claim"] });
 
-function formatDate(iso: string): string {
+export function formatDate(iso: string): string {
   const d = new Date(iso);
-  return Number.isNaN(d.getTime()) ? iso : d.toLocaleDateString();
+  return Number.isNaN(d.getTime())
+    ? iso
+    : d.toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
 }
 
 export function Tokens() {

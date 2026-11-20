@@ -1,6 +1,4 @@
 import assert from "node:assert/strict";
-import { createServer, type Server } from "node:http";
-import type { AddressInfo } from "node:net";
 import { test } from "node:test";
 import type { Db } from "../src/db/pool.js";
 import { createNotifier, type Notifier } from "../src/notifier.js";
@@ -9,64 +7,13 @@ import { processOutboundOnce, startOutbound } from "../src/slack/outbound.js";
 import { answer, block } from "../src/store/blocks.js";
 import { claimTask, complete } from "../src/store/claims.js";
 import { setRoom } from "../src/store/rooms.js";
+import { listEvents } from "../src/store/events.js";
 import { createTask } from "../src/store/tasks.js";
 import { agentAuth as makeAgent, personAuth } from "./helpers/actors.js";
 import { withTestDb } from "./helpers/db.js";
+import { fakeSlack, idleNotifier } from "./helpers/fake-slack.js";
 
 const TOKEN = "fake-bot-token-for-tests";
-
-interface Recorded {
-  auth: string | undefined;
-  contentType: string | undefined;
-  body: any;
-}
-
-interface FakeReply {
-  status?: number;
-  headers?: Record<string, string>;
-  body?: unknown;
-}
-
-/**
- * A chat.postMessage stand-in. Each request takes the next scripted reply; once the script runs
- * out, every post succeeds with ts "1.000", "2.000", ... in order of success.
- */
-async function fakeSlack(script: FakeReply[] = []) {
-  const requests: Recorded[] = [];
-  let n = 0;
-  const queue = [...script];
-  const server: Server = createServer((req, res) => {
-    let raw = "";
-    req.on("data", (c) => (raw += c));
-    req.on("end", () => {
-      requests.push({
-        auth: req.headers.authorization,
-        contentType: req.headers["content-type"],
-        body: JSON.parse(raw),
-      });
-      const next = queue.shift();
-      if (next) {
-        res.writeHead(next.status ?? 200, { "content-type": "application/json", ...next.headers });
-        res.end(JSON.stringify(next.body ?? {}));
-        return;
-      }
-      n++;
-      res.setHeader("content-type", "application/json");
-      res.end(JSON.stringify({ ok: true, ts: `${n}.000` }));
-    });
-  });
-  await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
-  const apiBase = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
-  return {
-    requests,
-    apiBase,
-    close: () =>
-      new Promise<void>((r) => {
-        server.closeAllConnections();
-        server.close(() => r());
-      }),
-  };
-}
 
 const bots = new WeakMap<Db, ReturnType<typeof makeAgent>>();
 /** One "bot" agent per database; agentAuth creates a new actor on every call. */
@@ -75,8 +22,6 @@ const agentAuth = (db: Db, _name: string) => {
   if (!bot) bots.set(db, (bot = makeAgent(db, "bot")));
   return bot;
 };
-
-const idleNotifier: Notifier = { onEvent: () => () => {}, close: async () => {} };
 
 const opts = (db: Db, apiBase: string, notifier: Notifier = idleNotifier) => ({
   db,
@@ -121,11 +66,13 @@ test("a blocked task posts top-level, then its outcome posts into that thread", 
       await db`update tasks set state = 'ready', block = null where thread_id = ${t.id}`;
       const c2 = await claimTask(db, bot, t.id);
       await complete(db, bot, t.id, c2.claimId, "done <!channel>");
-      assert.equal((await processOutboundOnce(opts(db, slack.apiBase))).posted, 1);
-      const second = slack.requests[1]!;
-      assert.equal(second.body.thread_ts, "1.000");
-      assert.equal(second.body.channel, "C1");
-      assert.match(JSON.stringify(second.body.blocks), /done &lt;!channel&gt;/);
+      assert.equal((await processOutboundOnce(opts(db, slack.apiBase))).posted, 2);
+      assert.equal(slack.requests[1]!.body.text, "bot claimed this task.");
+      assert.equal(slack.requests[1]!.body.thread_ts, "1.000");
+      const third = slack.requests[2]!;
+      assert.equal(third.body.thread_ts, "1.000");
+      assert.equal(third.body.channel, "C1");
+      assert.match(JSON.stringify(third.body.blocks), /done &lt;!channel&gt;/);
     });
   } finally {
     await slack.close();
@@ -167,8 +114,9 @@ test("completing a never-blocked task posts nothing unless announce is all", asy
       const t2 = await createTask(db, bot, { room: "build", brief: "loud" });
       const c2 = await claimTask(db, bot, t2.id);
       await complete(db, bot, t2.id, c2.claimId, "fine");
-      assert.equal((await processOutboundOnce(opts(db, slack.apiBase))).posted, 1);
-      assert.equal(slack.requests[0]!.body.thread_ts, undefined);
+      assert.equal((await processOutboundOnce(opts(db, slack.apiBase))).posted, 3);
+      assert.deepEqual(slack.requests.map((r) => r.body.thread_ts), [undefined, "1.000", "1.000"]);
+      assert.equal(slack.requests[1]!.body.text, "bot claimed this task.");
       assert.equal((await getSlackThread(db, t2.id))?.ts, "1.000");
     });
   } finally {
@@ -233,6 +181,8 @@ test("history before the first run is never replayed", async () => {
 });
 
 const cursorNow = (db: Db) => getServiceCursor(db, "slack-outbound");
+/** The cursor of the first task.blocked event: a retried pass must stop short of it. */
+const firstBlockedCursor = async (db: Db) => (await listEvents(db, { kinds: ["task.blocked"] })).events[0]!.cursor;
 
 test("a 429 stops the pass on that event, keeps the cursor, and reports Retry-After", async () => {
   const slack = await fakeSlack([
@@ -248,7 +198,7 @@ test("a 429 stops the pass on that event, keeps the cursor, and reports Retry-Af
       const first = await processOutboundOnce(opts(db, slack.apiBase));
       assert.deepEqual(first, { posted: 0, retry: { reason: "http 429", afterMs: 7000 } });
       assert.equal(slack.requests.length, 1);
-      assert.equal(await cursorNow(db), before);
+      assert.ok(BigInt((await cursorNow(db))!) < BigInt(await firstBlockedCursor(db)));
       // The next pass posts both questions, in order.
       assert.deepEqual(await processOutboundOnce(opts(db, slack.apiBase)), { posted: 2, retry: null });
       assert.equal(slack.requests.length, 3);
@@ -275,14 +225,14 @@ test("5xx, Slack's ratelimited or invalid_auth, and network errors keep the even
       for (const reason of ["http 503", "slack error ratelimited", "slack error invalid_auth"]) {
         const r = await processOutboundOnce(opts(db, slack.apiBase));
         assert.deepEqual(r, { posted: 0, retry: { reason, afterMs: null } });
-        assert.equal(await cursorNow(db), before);
+        assert.ok(BigInt((await cursorNow(db))!) < BigInt(await firstBlockedCursor(db)));
       }
       const down = await processOutboundOnce({
         ...opts(db, slack.apiBase),
         slack: { token: TOKEN, fetch: (async () => Promise.reject(new TypeError("fetch failed"))) as typeof fetch },
       });
       assert.deepEqual(down, { posted: 0, retry: { reason: "request failed (TypeError)", afterMs: null } });
-      assert.equal(await cursorNow(db), before);
+      assert.ok(BigInt((await cursorNow(db))!) < BigInt(await firstBlockedCursor(db)));
       assert.equal((await processOutboundOnce(opts(db, slack.apiBase))).posted, 1);
       assert.notEqual(await cursorNow(db), before);
     });

@@ -239,10 +239,11 @@ export function registerAdmin(program: Command, ctx: CliContext): void {
     .option("--approvers <a,b>", 'people who may approve, or "none"')
     .option("--slack-channel <id>", 'Slack channel id, or "none"')
     .option("--slack-announce <mode>", `${ANNOUNCE.join(", ")}`)
+    .option("--reservation-minutes <n>", "how long a handoff or an answered ask is held for one agent (1 to 1440)")
     .action(
       async (
         name: string,
-        o: { agent?: string; approvers?: string; slackChannel?: string; slackAnnounce?: string },
+        o: { agent?: string; approvers?: string; slackChannel?: string; slackAnnounce?: string; reservationMinutes?: string },
         cmd: Command,
       ) => {
         const settings: RoomSettingsInput = {};
@@ -256,6 +257,10 @@ export function registerAdmin(program: Command, ctx: CliContext): void {
           );
         }
         if (o.slackChannel !== undefined) settings.slackChannel = noneOr(o.slackChannel, (s) => s);
+        if (o.reservationMinutes !== undefined) {
+          if (!/^\d+$/.test(o.reservationMinutes)) throw new UsageError("--reservation-minutes must be a whole number of minutes");
+          settings.reservationMinutes = Number(o.reservationMinutes);
+        }
         if (o.slackAnnounce !== undefined) {
           if (!(ANNOUNCE as readonly string[]).includes(o.slackAnnounce)) {
             throw new UsageError(`--slack-announce must be ${ANNOUNCE.join(", ")}`);

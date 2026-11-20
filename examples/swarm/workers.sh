@@ -11,7 +11,7 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TEAMKIT="${TEAMKIT:-teamkit}"
 ROOM="${ROOM:-build}"
 ROLE="${ROLE:-worker}"
-PROMPT="${PROMPT:-$HERE/../../skills/teamkit/prompts/$ROLE.md}"
+PROMPT="${PROMPT:-$HERE/../../plugins/teamkit/skills/teamkit/prompts/$ROLE.md}"
 # Claude Code with the tools a worker needs approved up front: `claude -p` cannot ask for them.
 # The prompt gets the task id and room written in, because an allowed-tools rule never matches a
 # command that contains a variable such as $TEAMKIT_TASK.
