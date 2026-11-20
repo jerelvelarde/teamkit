@@ -179,6 +179,23 @@ async function main(): Promise<void> {
     assert(benWidth.scrollWidth <= benWidth.innerWidth, `device page at 390px has no horizontal overflow (${benWidth.scrollWidth} > ${benWidth.innerWidth})`);
     const benAgent = createClient({ url: srv.url, token: polled.token });
 
+    // ben connects Codex too: a code started for an app names the app on the page and connects ben-codex.
+    const dc = await startDevice(srv.db, "agent", "codex");
+    await benPage.goto(`${base}/device?code=${dc.userCode}&mode=agent&app=codex`);
+    await benPage.getByRole("heading", { name: "Connect your Codex" }).waitFor();
+    await benPage.getByText("Your agent will be ben-codex").waitFor();
+    await benPage.getByRole("checkbox", { name: "billing-migration" }).check();
+    await benPage.getByRole("checkbox", { name: /This code matches the one my agent printed/ }).check();
+    await benPage.getByRole("button", { name: "Connect ben-codex" }).click();
+    await benPage.getByText("ben-codex is connected").waitFor();
+    await benPage.screenshot({ path: `${SHOTS_DIR}/device-codex-390.png`, fullPage: true });
+    const polledCodex = await pollDevice(srv.db, dc.deviceCode);
+    assert(
+      polledCodex.status === "approved" && polledCodex.actor.name === "ben-codex",
+      `the codex device poll hands out ben-codex (got ${JSON.stringify(polledCodex)})`,
+    );
+    assert(polledCodex.actor.id !== polled.actor.id, "ben-codex is an agent of its own, apart from ben-agent");
+
     const copy = await benAgent.createTask({ room: "billing-migration", brief: "Copy invoices to the new database" });
     const copyClaim = await benAgent.claim(copy.id);
     await benAgent.block(copy.id, copyClaim.claimId, { kind: "needs_input", question: "Which batch size?", options: ["500", "5000"] });
