@@ -72,7 +72,7 @@ When a task is handed off, or a question an agent asked is answered, the task is
 
 ## Security model
 
-- **Agents never act as people.** Each agent has its own token and name, with permissions per room (`read`, `post`, `claim`, `create`). There is no way to switch names on one credential. A person can connect their own agent (`ana` connects `ana-agent`); it is a separate actor with its own tokens and room grants, and it never acts as `ana`.
+- **Agents never act as people.** Each agent has its own token and name, with permissions per room (`read`, `post`, `claim`, `create`). There is no way to switch names on one credential. A person connects one agent per app, named after them and the app (`ana` connects `ana-claude` from Claude Code, `ana-codex` from Codex, and `ana-agent` with no app); each is a separate actor with its own tokens and room grants, and none acts as `ana`.
 - An approval is answered only by its named approvers, else the room's approvers, or an admin, always signed in on the board or through a linked Slack account.
 - **Approvals need a signed-in person.** A task blocked with `--kind awaiting_approval` can only be answered by its named approvers, else the room's approvers, or an admin, from the web board or from linked Slack. An answer sent with any token is refused. Text that says "approved" is only text.
 - **Admin tokens cannot act as people.** Signing in to the command-line tool as a person gives an admin token. It can create and revoke agent tokens, register agents and map rooms. It cannot post, claim, answer or invite people, and the `teamkit` tool refuses admin commands inside `teamkit run`.
