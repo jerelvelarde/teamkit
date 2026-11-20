@@ -229,3 +229,83 @@ test("a poll that waits on an agent-mode approval sees the agent the approval cr
     if (got.status === "approved") assert.deepEqual(got.actor, { id: "ac_race", name: "ana-agent", kind: "agent" });
   });
 });
+
+test("startDevice stores the app of an agent-mode code; admin mode and unknown apps are invalid_input", async () => {
+  await withTestDb(async (db) => {
+    const d = await startDevice(db, "agent", "codex");
+    assert.deepEqual([d.mode, d.app], ["agent", "codex"]);
+    assert.equal((await db`select app from device_codes where user_code = ${d.userCode}`)[0]!.app, "codex");
+    const plain = await startDevice(db, "agent");
+    assert.equal(plain.app, null);
+    assert.equal((await db`select app from device_codes where user_code = ${plain.userCode}`)[0]!.app, null);
+    await assert.rejects(startDevice(db, "admin", "claude"), (e: unknown) =>
+      code("invalid_input")(e) && (e as Error).message === "app must be one of claude, codex");
+    for (const app of ["cursor", "Claude", "agent", ""]) {
+      await assert.rejects(startDevice(db, "agent", app), (e: unknown) =>
+        code("invalid_input")(e) && (e as Error).message === "app must be one of claude, codex", app);
+    }
+    assert.equal((await db`select count(*)::int as n from device_codes`)[0]!.n, 2);
+  });
+});
+
+test("agent mode with an app: approving makes <person>-<app> owned by the person, and polls its token", async () => {
+  await withTestDb(async (db) => {
+    const ana = await personAuth(db, "ana", "member");
+    const d = await startDevice(db, "agent", "claude");
+    const out = await approveDevice(db, ana, d.userCode, ["billing-migration"]);
+    assert.deepEqual([out.agent?.name, out.agent?.kind], ["ana-claude", "agent"]);
+    assert.equal((await db`select owner_id from actors where name = 'ana-claude'`)[0]!.owner_id, ana.actor.id);
+    assert.deepEqual(await grantsOf(db, "ana-claude"), [{ room: "billing-migration", perms: ALL }]);
+    const got = await pollDevice(db, d.deviceCode);
+    assert.equal(got.status, "approved");
+    if (got.status !== "approved") return;
+    assert.deepEqual(got.actor, out.agent);
+    assert.equal((await authenticate(db, got.token))?.actor.name, "ana-claude");
+    assert.equal((await db`select count(*)::int as n from actors where name = 'ana-agent'`)[0]!.n, 0);
+  });
+});
+
+test("one person approving a claude code and then a codex code gets two agents, each with its own rooms", async () => {
+  await withTestDb(async (db) => {
+    const ana = await personAuth(db, "ana", "member");
+    const claude = await startDevice(db, "agent", "claude");
+    const codex = await startDevice(db, "agent", "codex");
+    const a = await approveDevice(db, ana, claude.userCode, ["billing-migration"]);
+    const b = await approveDevice(db, ana, codex.userCode, ["billing-prod"]);
+    assert.deepEqual([a.agent?.name, b.agent?.name], ["ana-claude", "ana-codex"]);
+    assert.notEqual(a.agent?.id, b.agent?.id);
+    const owned = await db`select name from actors where owner_id = ${ana.actor.id} order by name`;
+    assert.deepEqual(owned.map((r) => r.name), ["ana-claude", "ana-codex"]);
+    assert.deepEqual((await grantsOf(db, "ana-claude")).map((g) => g.room), ["billing-migration"]);
+    assert.deepEqual((await grantsOf(db, "ana-codex")).map((g) => g.room), ["billing-prod"]);
+    const [pa, pb] = [await pollDevice(db, claude.deviceCode), await pollDevice(db, codex.deviceCode)];
+    assert.ok(pa.status === "approved" && pb.status === "approved");
+    assert.equal((await authenticate(db, pa.token))?.actor.name, "ana-claude");
+    assert.equal((await authenticate(db, pb.token))?.actor.name, "ana-codex");
+  });
+});
+
+test("<person>-<app> owned by someone else is name_taken", async () => {
+  await withTestDb(async (db) => {
+    await createAgent(db, { name: "ben-codex", grants: [] });
+    const ben = await personAuth(db, "ben", "member");
+    const d = await startDevice(db, "agent", "codex");
+    await assert.rejects(approveDevice(db, ben, d.userCode, ["billing-migration"]), code("name_taken"));
+    assert.deepEqual(await pollDevice(db, d.deviceCode), { status: "pending" });
+  });
+});
+
+test("an agent name past the 63-character limit is invalid_input and mints nothing", async () => {
+  await withTestDb(async (db) => {
+    // A person named before the 56-character join limit, or invited by an admin, can have a longer name.
+    const long = await personAuth(db, "a".repeat(57), "member");
+    const d = await startDevice(db, "agent", "claude");
+    await assert.rejects(approveDevice(db, long, d.userCode, ["billing-migration"]), (e: unknown) =>
+      code("invalid_input")(e) && /too long/.test((e as Error).message));
+    assert.deepEqual(await pollDevice(db, d.deviceCode), { status: "pending" });
+    assert.equal((await db`select count(*)::int as n from actors where kind = 'agent'`)[0]!.n, 0);
+    // The same person's codex agent, one character shorter, fits.
+    const c = await startDevice(db, "agent", "codex");
+    assert.equal((await approveDevice(db, long, c.userCode, ["billing-migration"])).agent?.name, `${"a".repeat(57)}-codex`);
+  });
+});

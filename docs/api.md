@@ -358,7 +358,7 @@ The command line signs in with a device code, so no password or link passes thro
 
 | Method | Path | Auth | Body | Response |
 | --- | --- | --- | --- | --- |
-| POST | `/v1/device/start` | public, rate limited | `{mode?}`: `admin` (the default) or `agent` | `{deviceCode, userCode, verifyUrl, expiresAt, intervalMs}` |
+| POST | `/v1/device/start` | public, rate limited | `{mode?, app?}`: `mode` is `admin` (the default) or `agent`; `app` is `claude` or `codex`, agent mode only | `{deviceCode, userCode, verifyUrl, expiresAt, intervalMs}` |
 | POST | `/v1/device/poll` | public | `{deviceCode}` | `{status: "pending"}`, `{status: "expired"}`, or `{status: "approved", token, actor}` |
 | POST | `/v1/device/approve` | a person signed in on the web board | `{userCode, rooms?}` | `{ok: true}`, or `{ok: true, agent}` in agent mode |
 
@@ -371,12 +371,14 @@ The flow:
 
 `approve` answers `403 forbidden` for agents and for admin-scope tokens: approving a login needs a person in a browser.
 
-**Agent mode.** `teamkit join` starts the code in agent mode; the `verifyUrl` then ends in `&mode=agent`, and the board asks which rooms the agent may work in.
+**Agent mode.** `teamkit join` starts the code in agent mode, with the app it runs in when it knows it. The `verifyUrl` then ends in `&mode=agent`, plus `&app=<app>` when the code has an app, and the board asks which rooms the agent may work in.
 
-- The first approval creates the person's agent (`ana-agent` for `ana`), owned by them. Later approvals reuse it.
+- Each app a person connects is its own agent, named after the person and the app: `ana-claude` for `ana` in Claude Code, `ana-codex` in Codex, and `ana-agent` for a code started without an app. Each is owned by the person and acts only for them.
+- The first approval for an app creates that agent. Later approvals for the same app reuse it.
 - The agent gets `read`, `post`, `claim` and `create` in each picked room, added to any rooms it already has.
 - Each poll hands out a new agent token, so each install has its own.
-- An agent code approved without rooms, or an admin code approved with rooms, is `400 invalid_input`. If `<name>-agent` belongs to someone else, the answer is `409 name_taken`.
+- `app` is checked at `device/start`: an app other than `claude` or `codex`, or any app in admin mode, is `400 invalid_input`. The board only shows the app from the `verifyUrl`; the code carries the app the agent is named after.
+- An agent code approved without rooms, or an admin code approved with rooms, is `400 invalid_input`, and so is an agent name longer than 63 characters. If the agent's name belongs to someone else, the answer is `409 name_taken`.
 
 `device/start` writes a row each time and needs no credentials, so each client address gets a burst of 10 requests, then 10 a minute. After that it answers `429 rate_limited` with a `Retry-After` header in seconds. By default the server counts the address of the connection itself and ignores `X-Forwarded-For`, so behind a proxy all clients share one budget. Set `TEAMKIT_TRUSTED_PROXY=1` when a reverse proxy that sets `X-Forwarded-For` is the only way to reach the server: the server then counts the first `X-Forwarded-For` address instead (the socket address when the header is missing). Do not set it if clients can reach the server directly, because they could forge the header and dodge the limit.
 
@@ -388,7 +390,7 @@ An admin makes a join link (see [Join links](#join-links)) of the form `<public 
 | --- | --- | --- | --- | --- |
 | POST | `/v1/join` | public, rate limited | `{code, name, email}`, as `application/json` | `201 {actor, scope: null, role: "member"}` and a `Set-Cookie` for the session |
 
-- The name is trimmed and lower-cased, then must be lowercase letters, digits and hyphens, up to 57 characters. `<name>-agent` must also be free, because the person's agent will carry that name.
+- The name is trimmed and lower-cased, then must be lowercase letters, digits and hyphens, up to 56 characters, and cannot end in `-agent`, `-claude` or `-codex`. `<name>-agent`, `<name>-claude` and `<name>-codex` must also be free, because the person's agents will carry those names.
 - The email is lower-cased and belongs to one person.
 - When the link lists domains, the email's domain must match one exactly: `example.com` admits `ana@example.com` but not `ana@eu.example.com`.
 - Each successful join adds one to the link's `uses`.

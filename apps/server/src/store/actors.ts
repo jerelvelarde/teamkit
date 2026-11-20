@@ -9,6 +9,7 @@ import {
   personAgentName,
   roomMatches,
   type ActorRef,
+  type AgentApp,
   type Permission,
 } from "@copilotkit/teamkit-protocol";
 import { hashToken } from "@copilotkit/teamkit-protocol/server";
@@ -34,6 +35,8 @@ export interface CreatedAgent {
   tokenId: string;
 }
 
+/** Actor names are at most 63 characters. */
+const MAX_NAME_LENGTH = 63;
 const NAME_RE = /^[a-z0-9][a-z0-9-]{0,62}$/;
 const PERM_SET: ReadonlySet<string> = new Set(PERMISSIONS);
 
@@ -66,12 +69,18 @@ function isUniqueViolation(e: unknown): boolean {
 }
 
 /**
- * The person's own agent, `<person>-agent`: created on first use, owned by them, and given
- * read, post, claim and create in each room. Grants only ever add up, so another install of
- * the same agent keeps every room it had.
+ * The person's own agent for an app, `<person>-<app>` (`<person>-agent` without one): created on
+ * first use, owned by them, and given read, post, claim and create in each room. Grants only ever
+ * add up, so another install of the same agent keeps every room it had.
  */
-export async function ensureOwnedAgent(q: Q, owner: ActorRef, rooms: string[]): Promise<ActorRef> {
-  const name = personAgentName(owner.name);
+export async function ensureOwnedAgent(q: Q, owner: ActorRef, rooms: string[], app?: AgentApp): Promise<ActorRef> {
+  const name = personAgentName(owner.name, app);
+  if (name.length > MAX_NAME_LENGTH) {
+    throw new BoardError(
+      "invalid_input",
+      `the agent name ${name} is too long: names are at most ${MAX_NAME_LENGTH} characters; ask an admin`,
+    );
+  }
   await q`insert into actors (id, kind, name, owner_id) values (${newId("ac")}, 'agent', ${name}, ${owner.id})
           on conflict (name) do nothing`;
   const [row] = await q`select id, kind, owner_id from actors where name = ${name}`;

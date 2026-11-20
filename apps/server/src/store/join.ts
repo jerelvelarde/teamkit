@@ -1,8 +1,10 @@
 import {
+  AGENT_APPS,
   AGENT_STYLE_NAME_ERROR,
   BoardError,
   MAX_JOIN_LINK_DAYS,
   MAX_JOIN_LINK_DOMAINS,
+  MAX_JOIN_NAME_LENGTH,
   emailDomain,
   isAgentStyleName,
   newId,
@@ -111,7 +113,7 @@ export async function redeemJoinLink(
     const name = normalizeJoinName(raw);
     if (name === null) {
       if (isAgentStyleName(raw.trim().toLowerCase())) throw new BoardError("invalid_input", AGENT_STYLE_NAME_ERROR);
-      throw new BoardError("invalid_input", "names are lowercase letters, digits and hyphens, up to 57 characters");
+      throw new BoardError("invalid_input", `names are lowercase letters, digits and hyphens, up to ${MAX_JOIN_NAME_LENGTH} characters`);
     }
     const email = normalizeEmail(String(input.email ?? ""));
     if (email === null) throw new BoardError("invalid_input", "that is not an email address");
@@ -123,9 +125,11 @@ export async function redeemJoinLink(
     if ((await tx`select 1 from actors where name = ${name}`).length > 0) {
       throw new BoardError("name_taken", `the name ${name} is taken`);
     }
-    const agentName = personAgentName(name);
-    if ((await tx`select 1 from actors where name = ${agentName}`).length > 0) {
-      throw new BoardError("name_taken", `the name ${name} is taken: ${agentName} is already in use`);
+    // Every agent the person may connect is named after them: ana-agent, ana-claude, ana-codex.
+    for (const agentName of [personAgentName(name), ...AGENT_APPS.map((app) => personAgentName(name, app))]) {
+      if ((await tx`select 1 from actors where name = ${agentName}`).length > 0) {
+        throw new BoardError("name_taken", `the name ${name} is taken: ${agentName} is already in use`);
+      }
     }
     if ((await tx`select 1 from actors where email = ${email}`).length > 0) {
       throw new BoardError("email_taken", "that email already belongs to someone on this team");

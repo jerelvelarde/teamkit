@@ -1,4 +1,15 @@
-import { BoardError, isValidRoom, newId, newTokenSecret, type ActorRef, type DeviceMode, type DevicePoll } from "@copilotkit/teamkit-protocol";
+import {
+  AGENT_APPS,
+  BoardError,
+  isAgentApp,
+  isValidRoom,
+  newId,
+  newTokenSecret,
+  type ActorRef,
+  type AgentApp,
+  type DeviceMode,
+  type DevicePoll,
+} from "@copilotkit/teamkit-protocol";
 import { hashToken } from "@copilotkit/teamkit-protocol/server";
 import type { Db } from "../db/pool.js";
 import { ensureOwnedAgent, type AuthContext } from "./actors.js";
@@ -51,10 +62,24 @@ function isUniqueViolation(e: unknown): boolean {
   return typeof e === "object" && e !== null && (e as { code?: unknown }).code === "23505";
 }
 
+/**
+ * The app an agent-mode code connects, or null. invalid_input for an app on an admin login or one
+ * outside AGENT_APPS, so a code never names an agent the board does not know how to name.
+ */
+function deviceApp(mode: DeviceMode, app: string | undefined): AgentApp | null {
+  if (app === undefined) return null;
+  if (mode !== "agent" || !isAgentApp(app)) {
+    throw new BoardError("invalid_input", `app must be one of ${AGENT_APPS.join(", ")}`);
+  }
+  return app;
+}
+
 export async function startDevice(
   db: Db,
   mode: DeviceMode = "admin",
-): Promise<{ deviceCode: string; userCode: string; expiresAt: string; mode: DeviceMode }> {
+  app?: string,
+): Promise<{ deviceCode: string; userCode: string; expiresAt: string; mode: DeviceMode; app: AgentApp | null }> {
+  const agentApp = deviceApp(mode, app);
   const ms = deviceTtlMs();
   const deviceCode = randomDeviceCode();
   // device/start is public, so every start also clears out codes long past their expiry.
@@ -65,10 +90,10 @@ export async function startDevice(
     const userCode = randomUserCode();
     try {
       const [row] = await db`
-        insert into device_codes (code, user_code, expires_at, mode)
-        values (${hashToken(deviceCode)}, ${userCode}, now() + (${ms}::double precision / 1000) * interval '1 second', ${mode})
+        insert into device_codes (code, user_code, expires_at, mode, app)
+        values (${hashToken(deviceCode)}, ${userCode}, now() + (${ms}::double precision / 1000) * interval '1 second', ${mode}, ${agentApp})
         returning expires_at`;
-      return { deviceCode, userCode, expiresAt: new Date(row!.expires_at as Date).toISOString(), mode };
+      return { deviceCode, userCode, expiresAt: new Date(row!.expires_at as Date).toISOString(), mode, app: agentApp };
     } catch (e) {
       if (!isUniqueViolation(e) || attempt >= USER_CODE_ATTEMPTS) throw e;
     }
@@ -89,7 +114,8 @@ function agentRooms(rooms: string[] | undefined): string[] {
 
 /**
  * A signed-in person approves a code. An admin-mode code becomes their command-line admin
- * login; an agent-mode code becomes their own agent (`ana-agent`), with the rooms they picked.
+ * login; an agent-mode code becomes their own agent for the code's app (`ana-claude`, or
+ * `ana-agent` without an app), with the rooms they picked.
  */
 export async function approveDevice(
   db: Db,
@@ -104,7 +130,7 @@ export async function approveDevice(
   if (!normalized) throw new BoardError("invalid_input", "that is not a valid login code");
   return db.begin(async (tx) => {
     const [row] = await tx`
-      select approved_at, mode from device_codes
+      select approved_at, mode, app from device_codes
       where user_code = ${normalized} and expires_at > now() and consumed_at is null
       for update`;
     if (!row) throw new BoardError("not_found", "unknown or expired code");
@@ -118,7 +144,10 @@ export async function approveDevice(
       await tx`update device_codes set actor_id = ${auth.actor.id}, approved_at = now() where user_code = ${normalized}`;
       return { mode, agent: null };
     }
-    const agent = await ensureOwnedAgent(tx, auth.actor, agentRooms(rooms));
+    // The app was checked when the code started; a value no longer known names no agent.
+    const app = isAgentApp(row.app) ? row.app : undefined;
+    if (row.app !== null && app === undefined) throw new BoardError("invalid_input", `this code connects an unknown app: ${String(row.app)}`);
+    const agent = await ensureOwnedAgent(tx, auth.actor, agentRooms(rooms), app);
     await tx`update device_codes set actor_id = ${agent.id}, approved_at = now() where user_code = ${normalized}`;
     return { mode, agent };
   });
