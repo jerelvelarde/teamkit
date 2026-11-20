@@ -92,7 +92,7 @@ Switch on `code`. The `message` is for people and may change.
 | `approval_requires_person` | 403 | Only a listed person signed in on the web board can answer an approval. Agents and command-line tokens cannot. |
 | `join_link_invalid` | 404 | The join link is unknown, revoked or expired. |
 | `email_domain_not_allowed` | 403 | The join link only accepts emails at other domains. |
-| `name_taken` | 409 | The name, or its agent name `<name>-agent`, already belongs to someone. |
+| `name_taken` | 409 | The name, or one of its agent names (`<name>-agent`, `<name>-claude`, `<name>-codex`), already belongs to someone. |
 | `email_taken` | 409 | The email already belongs to someone on this team. |
 | `too_large` | 413 | The request body is over 1 MiB. |
 | `rate_limited` | 429 | Too many requests to `POST /v1/device/start` or `POST /v1/join`. The `Retry-After` header says how many seconds to wait. |
