@@ -90,20 +90,22 @@ test("names are trimmed and lower-cased; a name an agent name cannot carry is in
   await withTestDb(async (db) => {
     const { secret } = await createJoinLink(db, { createdBy: null });
     assert.equal((await redeemJoinLink(db, { code: secret, name: " Ana ", email: "ana@example.com" })).actor.name, "ana");
-    for (const name of ["Ana Lopez", "a".repeat(58)]) {
+    for (const name of ["Ana Lopez", "a".repeat(57)]) {
       await assert.rejects(redeemJoinLink(db, { code: secret, name, email: "ben@example.com" }),
-        code("invalid_input", /lowercase letters, digits and hyphens, up to 57 characters/));
+        code("invalid_input", /lowercase letters, digits and hyphens, up to 56 characters/));
     }
+    assert.equal((await redeemJoinLink(db, { code: secret, name: "s".repeat(56), email: "sam@example.com" })).actor.name, "s".repeat(56));
     await assert.rejects(redeemJoinLink(db, { code: secret, name: "ben", email: "ben" }), code("invalid_input", /not an email address/));
-    // A person named ben-agent would take ben's agent name before ben's agent exists.
-    for (const name of ["ben-agent", " Ben-Agent "]) {
-      await assert.rejects(redeemJoinLink(db, { code: secret, name, email: "ben@example.com" }), code("invalid_input", /-agent/));
+    // A person named ben-agent or ben-codex would take ben's agent name before ben's agent exists.
+    for (const name of ["ben-agent", " Ben-Agent ", "ben-claude", "ben-codex"]) {
+      await assert.rejects(redeemJoinLink(db, { code: secret, name, email: "ben@example.com" }),
+        code("invalid_input", /cannot end in -agent, -claude or -codex/), name);
     }
   });
 });
 
 // Review Focus 2
-test("a taken name, a taken <name>-agent or a taken email is refused, and a refused join counts no use", async () => {
+test("a taken name, a taken agent name of that person or a taken email is refused, and a refused join counts no use", async () => {
   await withTestDb(async (db) => {
     const { secret } = await createJoinLink(db, { createdBy: null });
     await redeemJoinLink(db, { code: secret, name: "ana", email: "ana@example.com" });
@@ -113,6 +115,10 @@ test("a taken name, a taken <name>-agent or a taken email is refused, and a refu
     await assert.rejects(redeemJoinLink(db, { code: secret, name: "ben", email: "ben@example.com" }),
       code("name_taken", /ben-agent is already in use/));
     await assert.rejects(redeemJoinLink(db, { code: secret, name: "sam", email: "ana@example.com" }), code("email_taken"));
+    // Each app's agent name is the person's too: someone else's sam-codex would take sam's.
+    await createAgent(db, { name: "sam-codex", grants: [] });
+    await assert.rejects(redeemJoinLink(db, { code: secret, name: "sam", email: "sam@example.com" }),
+      code("name_taken", /sam-codex is already in use/));
     assert.equal(await uses(db), 1);
   });
 });

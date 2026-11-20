@@ -73,3 +73,12 @@ test("008_join: join_links, a unique person email, and a device code mode of adm
       (e) => (e as { code?: string }).code === "23514");
   });
 });
+
+test("011_device_app: a device code may carry the app it connects", async () => {
+  await withTestDb(async (db) => {
+    await db`insert into device_codes (code, user_code, expires_at, mode) values ('h1', 'BBBB-BBBB', now() + interval '1 minute', 'agent')`;
+    assert.equal((await db`select app from device_codes where code = 'h1'`)[0]!.app, null);
+    await db`insert into device_codes (code, user_code, expires_at, mode, app) values ('h2', 'CCCC-CCCC', now() + interval '1 minute', 'agent', 'codex')`;
+    assert.equal((await db`select app from device_codes where code = 'h2'`)[0]!.app, "codex");
+  });
+});

@@ -31,3 +31,8 @@ test("the skill has the protocol sections", () => {
     "## Keep the channel quiet",
   ]) assert.ok(skill.includes(`\n${h}\n`), h);
 });
+
+test("the skill's environment section names the variables that pick the login, TEAMKIT_APP among them", () => {
+  const env = skill.slice(skill.indexOf("\n## Environment\n"), skill.indexOf("\n## Rules\n"));
+  for (const name of ["TEAMKIT_URL", "TEAMKIT_TOKEN", "TEAMKIT_APP", "TEAMKIT_ROOMS"]) assert.ok(env.includes(`\`${name}\``), name);
+});

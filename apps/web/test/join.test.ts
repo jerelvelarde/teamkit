@@ -27,9 +27,10 @@ test("email sign-in errors say what to do", () => {
   assert.equal(emailSignInErrorMessage(new TypeError("fetch failed")), "Something went wrong. Try again.");
 });
 
-test("joinNameHint names the agent, explains the name rule, and refuses a name ending in -agent", () => {
-  assert.equal(joinNameHint(" Ben "), "Your agent will be ben-agent.");
+test("joinNameHint names the agents, explains the name rule, and refuses a name ending like an agent's", () => {
+  assert.equal(joinNameHint(" Ben "), "Your agents will be ben-claude and ben-codex.");
   assert.equal(joinNameHint("Ben Lopez"), "Lowercase letters, digits and hyphens.");
-  assert.equal(joinNameHint("ben-agent"), "Names cannot end in -agent; that is how agent names end.");
-  assert.equal(joinNameHint(" Ben-Agent "), "Names cannot end in -agent; that is how agent names end.");
+  for (const name of ["ben-agent", " Ben-Agent ", "ben-claude", "ben-codex"]) {
+    assert.equal(joinNameHint(name), "A person's name cannot end in -agent, -claude or -codex; that is how agent names end.", name);
+  }
 });

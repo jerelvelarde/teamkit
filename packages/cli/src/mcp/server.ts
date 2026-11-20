@@ -4,7 +4,7 @@ import { serveStdio } from "@modelcontextprotocol/server/stdio";
 import { TeamkitError } from "@copilotkit/teamkit-client";
 import { startKeepalive } from "./keepalive.js";
 import { createLeases } from "./leases.js";
-import { createSession, NotSignedInError, type Env } from "./session.js";
+import { createSession, NotSignedInError, type Env, type SessionFlags } from "./session.js";
 import { coordinationTools } from "./coordination-tools.js";
 import { taskTools, type McpTool, type ToolDeps } from "./tools.js";
 
@@ -39,7 +39,7 @@ export function createMcpServer(deps: ToolDeps, opts: { version: string; tools?:
 
 export interface RunMcpOptions {
   env: Env;
-  flags: { url?: string; token?: string };
+  flags: SessionFlags;
   log: (line: string) => void;
   version: string;
   heartbeatMs?: number;

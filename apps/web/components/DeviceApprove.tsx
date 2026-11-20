@@ -2,9 +2,9 @@
 
 import { useEffect, useState, type FormEvent } from "react";
 import { useSearchParams } from "next/navigation";
-import { personAgentName, type ActorRef, type RoomSummary } from "@copilotkit/teamkit-protocol";
+import type { ActorRef, RoomSummary } from "@copilotkit/teamkit-protocol";
 import { api, postJson } from "../lib/api";
-import { deviceErrorMessage, deviceMode, roomsToApprove } from "../lib/device";
+import { agentDeviceText, deviceApp, deviceErrorMessage, deviceMode, roomsToApprove } from "../lib/device";
 import { useWhoami } from "../lib/session";
 import { ServerUnavailable, SignedOut } from "./SignedOut";
 import styles from "./auth.module.css";
@@ -15,6 +15,7 @@ export function DeviceApprove() {
   const params = useSearchParams();
   const initial = params.get("code") ?? "";
   const mode = deviceMode(params);
+  const app = deviceApp(params);
   const { state, who, refresh } = useWhoami();
   const [code, setCode] = useState(initial.toUpperCase());
   const [confirmed, setConfirmed] = useState(false);
@@ -50,7 +51,8 @@ export function DeviceApprove() {
   }
   if (state === "unavailable") return <ServerUnavailable onRetry={refresh} />;
 
-  const agent = who ? personAgentName(who.actor.name) : "your agent";
+  const text = agentDeviceText(who ? who.actor.name : null, app);
+  const agent = text.agent;
   const picked = roomsToApprove(checked, typed);
 
   async function approve(e: FormEvent) {
@@ -97,11 +99,8 @@ export function DeviceApprove() {
     const ready = !busy && code.trim() !== "" && confirmed && picked.rooms.length > 0 && picked.invalid.length === 0;
     return (
       <section className={`tk-glass ${styles.panel}`} aria-live="polite">
-        <h2 className={styles.title}>Connect your agent</h2>
-        <p className={styles.text}>
-          This signs in {agent}, an agent that belongs to you. It can read, post, claim and create tasks in the rooms you
-          pick.
-        </p>
+        <h2 className={styles.title}>{text.title}</h2>
+        <p className={styles.text}>{text.lead}</p>
         {result.kind === "approved" ? (
           <p className={styles.success}>{result.agent ?? agent} is connected. Return to your agent.</p>
         ) : (

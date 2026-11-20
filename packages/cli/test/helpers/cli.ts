@@ -1,5 +1,5 @@
 import { spawn, type ChildProcess } from "node:child_process";
-import { mkdtempSync } from "node:fs";
+import { mkdirSync, mkdtempSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -49,14 +49,24 @@ export function runNode(
   });
 }
 
+/** `bin` runs the CLI from another path, such as a link to BIN inside a `.codex` folder. */
 export function runCli(
   args: string[],
   env: NodeJS.ProcessEnv,
-  opts?: { timeoutMs?: number; input?: string },
+  opts?: { timeoutMs?: number; input?: string; bin?: string },
 ): Promise<RunResult> {
-  return runNode([BIN, ...args], env, opts);
+  return runNode([opts?.bin ?? BIN, ...args], env, opts);
 }
 
-export function spawnCli(args: string[], env: NodeJS.ProcessEnv): ChildProcess {
-  return spawn(process.execPath, [BIN, ...args], { env, stdio: "pipe" });
+export function spawnCli(args: string[], env: NodeJS.ProcessEnv, bin = BIN): ChildProcess {
+  return spawn(process.execPath, [bin, ...args], { env, stdio: "pipe" });
+}
+
+/** A link to BIN at `<tmp>/<folder>/plugins/teamkit/bin/teamkit.mjs`, so the CLI sees that install path. */
+export function linkedBin(folder: string): string {
+  const dir = join(mkdtempSync(join(tmpdir(), "teamkit-install-")), folder, "plugins", "teamkit", "bin");
+  mkdirSync(dir, { recursive: true });
+  const bin = join(dir, "teamkit.mjs");
+  symlinkSync(BIN, bin);
+  return bin;
 }

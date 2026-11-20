@@ -1,7 +1,7 @@
 import type { Command } from "commander";
 import { TeamkitError, waitForDeviceLogin } from "@copilotkit/teamkit-client";
 import { clearConfigKeys, readConfigFile, writeConfigFile } from "../config.js";
-import { globalOpts, type CliContext } from "../context.js";
+import { appFor, globalOpts, type CliContext } from "../context.js";
 import { startDeviceOrExit } from "../device.js";
 import { CliExit, UsageError } from "../errors.js";
 
@@ -29,12 +29,15 @@ export function joinServerUrl(raw: string): string {
 export function registerJoin(program: Command, ctx: CliContext): void {
   program
     .command("join <url>")
-    .description("connect your own agent to a TeamKit board with a code you approve on the web board")
+    .description(
+      "connect your own agent to a TeamKit board with a code you approve on the web board; each app is its own agent, picked by --app claude|codex or TEAMKIT_APP (ana-claude, ana-codex)",
+    )
     .action(async (rawUrl: string, _opts: unknown, cmd: Command) => {
       const { json } = globalOpts(cmd);
       const url = joinServerUrl(rawUrl);
+      const app = appFor(cmd, ctx);
 
-      const start = await startDeviceOrExit(url, "agent");
+      const start = await startDeviceOrExit(url, "agent", app);
       ctx.err(`To connect your agent, open ${start.verifyUrl} and confirm code ${start.userCode}`);
       if (json) ctx.out(JSON.stringify({ userCode: start.userCode, verifyUrl: start.verifyUrl }));
 
@@ -48,13 +51,26 @@ export function registerJoin(program: Command, ctx: CliContext): void {
         throw e;
       }
 
-      // A machine talks to one TeamKit server, so an admin login for another server goes.
+      // A machine talks to one TeamKit server, so the logins for another server go.
       const file = readConfigFile(ctx.env);
-      if (file.adminToken !== undefined && file.url !== undefined && file.url !== url) {
-        clearConfigKeys(["adminToken"], ctx.env);
-        ctx.err(`Removed the admin login for ${file.url}: this machine now uses ${url}.`);
+      if (file.url !== undefined && file.url !== url) {
+        if (file.adminToken !== undefined) {
+          clearConfigKeys(["adminToken"], ctx.env);
+          ctx.err(`Removed the admin login for ${file.url}: this machine now uses ${url}.`);
+        }
+        if (file.token !== undefined || file.apps !== undefined) {
+          clearConfigKeys(["token", "apps"], ctx.env);
+          ctx.err(`Removed the agent logins for ${file.url}: this machine now uses ${url}.`);
+        }
       }
-      writeConfigFile({ url, token: result.token }, ctx.env);
+      if (app === undefined) {
+        writeConfigFile({ url, token: result.token }, ctx.env);
+      } else {
+        // Each app keeps its own token beside the others on this server.
+        const kept = readConfigFile(ctx.env).apps;
+        const apps = typeof kept === "object" && kept !== null && !Array.isArray(kept) ? kept : {};
+        writeConfigFile({ url, apps: { ...apps, [app]: result.token } }, ctx.env);
+      }
 
       if (json) ctx.out(JSON.stringify({ actor: result.actor }));
       else ctx.out(`Joined as ${result.actor.name}.`);

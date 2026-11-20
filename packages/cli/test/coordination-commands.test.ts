@@ -197,3 +197,24 @@ test("pending --brief with a server that is down, or a token it does not know, e
     await srv.stop();
   }
 });
+
+test("pending --brief uses the app's saved token; an unknown TEAMKIT_APP exits 1 with one line, never 2", async () => {
+  const { srv, team, client } = await setup();
+  try {
+    const env = isolatedEnv();
+    writeConfigFile({ url: srv.url, token: team.anaAgent.token, apps: { claude: team.benAgent.token } }, env);
+    const task = await client(team.anaAgent).createTask({ room: "billing-migration", brief: "Write the cutover runbook" });
+    await client(team.anaAgent).handoff(task.id, "ben-agent");
+    const asBen = await runCli(["pending", "--brief"], { ...env, TEAMKIT_APP: "claude" });
+    assert.equal(asBen.code, 0, asBen.stderr);
+    assert.ok(asBen.stdout.startsWith("TeamKit: 1 waiting for you\nhandoff  "), asBen.stdout);
+    const asAna = await runCli(["pending", "--brief"], env);
+    assert.deepEqual([asAna.code, asAna.stdout], [0, ""], asAna.stderr);
+    const bad = await runCli(["pending", "--brief"], { ...env, TEAMKIT_APP: "cursor" });
+    assert.deepEqual([bad.code, bad.stdout], [1, ""]);
+    assert.equal(bad.stderr.trim().split("\n").length, 1, bad.stderr);
+    assert.match(bad.stderr, /TEAMKIT_APP must be one of claude, codex/);
+  } finally {
+    await srv.stop();
+  }
+});

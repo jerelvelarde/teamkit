@@ -177,3 +177,44 @@ test("logout targets: the saved login, plus a different flag or env token", () =
     (err: unknown) => err instanceof UsageError && err.message === "set TEAMKIT_URL or --url",
   );
 });
+
+test("an app's agent token: flag > env > the app's saved token > the saved token", () => {
+  const e = env();
+  writeConfigFile({ url: "http://file", token: "file-tok", apps: { claude: "claude-tok", codex: "codex-tok" } }, e);
+  assert.deepEqual(resolveConfig({ app: "codex" }, e), { url: "http://file", token: "codex-tok" });
+  assert.deepEqual(resolveConfig({ app: "claude" }, e), { url: "http://file", token: "claude-tok" });
+  // No app: the token from before apps had their own, so earlier logins keep working.
+  assert.deepEqual(resolveConfig({}, e), { url: "http://file", token: "file-tok" });
+  assert.deepEqual(resolveConfig({ app: "codex" }, { ...e, TEAMKIT_TOKEN: "env-tok" }), { url: "http://file", token: "env-tok" });
+  assert.deepEqual(resolveConfig({ app: "codex", token: "flag-tok" }, e), { url: "http://file", token: "flag-tok" });
+  // An app with no token of its own falls back to the saved token.
+  const legacy = env();
+  writeConfigFile({ url: "http://file", token: "file-tok", apps: { claude: "claude-tok" } }, legacy);
+  assert.deepEqual(resolveConfig({ app: "codex" }, legacy), { url: "http://file", token: "file-tok" });
+  const appOnly = env();
+  writeConfigFile({ url: "http://file", apps: { codex: "codex-tok" } }, appOnly);
+  assert.throws(() => resolveConfig({}, appOnly), (err: unknown) => err instanceof UsageError && err.message === "set TEAMKIT_TOKEN or --token");
+  assert.throws(() => resolveConfig({ app: "claude" }, appOnly), UsageError);
+});
+
+test("a malformed apps entry is a UsageError only when that app needs it", () => {
+  const e = env();
+  writeRaw(e, JSON.stringify({ url: "http://file", token: "file-tok", apps: { codex: 7 } }));
+  assert.throws(
+    () => resolveConfig({ app: "codex" }, e),
+    (err: unknown) => err instanceof UsageError && err.code === 2 && err.message === `apps.codex in ${configPath(e)} must be a string`,
+  );
+  assert.deepEqual(resolveConfig({}, e), { url: "http://file", token: "file-tok" });
+  writeRaw(e, JSON.stringify({ url: "http://file", token: "file-tok", apps: "codex-tok" }));
+  assert.throws(
+    () => resolveConfig({ app: "codex" }, e),
+    (err: unknown) => err instanceof UsageError && err.message === `apps in ${configPath(e)} must be an object`,
+  );
+});
+
+test("app tokens are saved at 0600 and never read as the admin token", () => {
+  const e = env({ TEAMKIT_URL: "http://x" });
+  writeConfigFile({ apps: { claude: "tk_claude" } }, e);
+  assert.equal(statSync(configPath(e)).mode & 0o777, 0o600);
+  assert.throws(() => resolveAdminConfig({}, e), UsageError);
+});

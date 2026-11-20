@@ -79,13 +79,16 @@ export function registerPeopleRoutes(
     // Public and each call writes a row, so each client address gets a modest budget.
     const waitMs = deviceStarts.take(clientAddress(c, opts.trustedProxy === true));
     if (waitMs > 0) return rateLimited(c, waitMs, "too many login codes requested; try again shortly");
-    const raw = optString(await readBody(c), "mode") ?? "admin";
+    const body = await readBody(c);
+    const raw = optString(body, "mode") ?? "admin";
     if (!(DEVICE_MODES as readonly string[]).includes(raw)) throw new BoardError("invalid_input", "mode must be admin or agent");
-    const d = await startDevice(db, raw as DeviceMode);
+    const d = await startDevice(db, raw as DeviceMode, optString(body, "app"));
+    // The app in the link only changes what the approve page says; the code itself carries the app.
+    const query = d.mode === "agent" ? `&mode=agent${d.app ? `&app=${d.app}` : ""}` : "";
     const out: DeviceStart = {
       deviceCode: d.deviceCode,
       userCode: d.userCode,
-      verifyUrl: `${publicUrl}/device?code=${d.userCode}${d.mode === "agent" ? "&mode=agent" : ""}`,
+      verifyUrl: `${publicUrl}/device?code=${d.userCode}${query}`,
       expiresAt: d.expiresAt,
       intervalMs: DEVICE_POLL_INTERVAL_MS,
     };

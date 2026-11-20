@@ -26,6 +26,7 @@ export function buildProgram(ctx: CliContext): Command {
     .version(VERSION)
     .option("--url <u>", "TeamKit server URL")
     .option("--token <t>", "TeamKit API token")
+    .option("--app <app>", "the app this agent runs in, claude or codex; picks its saved login (default: TEAMKIT_APP, or the folder the CLI is installed in)")
     .option("--json", "machine-readable output")
     .exitOverride();
   registerWhoami(program, ctx);
@@ -49,7 +50,7 @@ export function buildProgram(ctx: CliContext): Command {
 }
 
 export async function main(argv: string[], overrides: Partial<CliContext> = {}): Promise<number> {
-  const ctx: CliContext = { ...defaultContext(), ...overrides };
+  const ctx: CliContext = { ...defaultContext(), scriptPath: argv[1], ...overrides };
   try {
     await buildProgram(ctx).parseAsync(argv);
     return 0;

@@ -284,3 +284,25 @@ test("device approve in agent mode takes rooms and answers with the agent", asyn
     assert.equal(who.scope, "agent");
   });
 });
+
+test("device/start takes an app for agent mode and puts it in the verify url; approve answers with <person>-<app>", async () => {
+  await withApp(async ({ db, app }) => {
+    const start = (await (await post(app, "/v1/device/start", { mode: "agent", app: "codex" }, {})).json()) as {
+      deviceCode: string;
+      userCode: string;
+      verifyUrl: string;
+    };
+    assert.equal(start.verifyUrl, `http://127.0.0.1:3000/device?code=${start.userCode}&mode=agent&app=codex`);
+    for (const body of [{ app: "codex" }, { mode: "admin", app: "claude" }, { mode: "agent", app: "cursor" }, { mode: "agent", app: 1 }]) {
+      const bad = await post(app, "/v1/device/start", body, {});
+      assert.equal(bad.status, 400, JSON.stringify(body));
+    }
+    const invite = await invitePerson(db, { name: "ana", role: "member" });
+    const cookie = cookieOf(await post(app, "/v1/signin", { token: invite.secret }));
+    const ok = await post(app, "/v1/device/approve", { userCode: start.userCode, rooms: ["billing-migration"] }, { ...JSON_TYPE, cookie });
+    assert.equal(ok.status, 200);
+    assert.equal(((await ok.json()) as { agent: { name: string } }).agent.name, "ana-codex");
+    const done = (await (await post(app, "/v1/device/poll", { deviceCode: start.deviceCode })).json()) as { actor: { name: string } };
+    assert.equal(done.actor.name, "ana-codex");
+  });
+});

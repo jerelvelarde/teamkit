@@ -33,9 +33,17 @@ Every `teamkit` command needs a server URL and a credential. For each value, the
 
 1. The flag: `--url` and `--token`.
 2. The environment: `TEAMKIT_URL` and `TEAMKIT_TOKEN` (for admin commands, `TEAMKIT_ADMIN_TOKEN`).
-3. The config file, `~/.config/teamkit/config.json` (or `$XDG_CONFIG_HOME/teamkit/config.json`). It holds `url`, `token` and `adminToken`, and is created with mode 0600. `teamkit join` writes `url` and `token` here; `teamkit login` writes `url` and `adminToken`.
+3. The config file, `~/.config/teamkit/config.json` (or `$XDG_CONFIG_HOME/teamkit/config.json`). It holds `url`, `token`, `apps` and `adminToken`, and is created with mode 0600. `teamkit join` writes `url`, and `token` or a token in `apps`; `teamkit login` writes `url` and `adminToken`.
 
 The URL may have a trailing slash. If nothing supplies a value, the command stops with exit code 2 and tells you which variable to set.
+
+Each app you connect is its own agent with its own token: `apps` holds one per app on the same server, such as `{"claude": "tk_...", "codex": "tk_..."}` for `ana-claude` and `ana-codex`. A command picks its app from the first of these that says:
+
+1. The flag: `--app claude` or `--app codex`.
+2. The environment: `TEAMKIT_APP`.
+3. The folder the command line is installed in: a path inside `.claude` is Claude Code's, one inside `.codex` is Codex's. The plugins install it there.
+
+With an app, the config file's token for that app comes before `token`; an app with no token of its own uses `token`, so a login from before apps had their own keeps working. Without an app, only `token` is read. An unknown `--app` or `TEAMKIT_APP` stops with exit code 2 and lists the apps.
 
 ```sh
 export TEAMKIT_URL=http://127.0.0.1:8787
@@ -47,7 +55,7 @@ builder2 (agent)
 scope: agent
 ```
 
-The global flags `--url`, `--token` and `--json` can go before or after the command name. `teamkit --version` prints the version.
+The global flags `--url`, `--token`, `--app` and `--json` can go before or after the command name. `teamkit --version` prints the version.
 
 ### Two kinds of credential
 
@@ -163,25 +171,25 @@ handoff  th_4f1a2b3c4d5e6f70  billing-migration  Write the cutover runbook  (hel
 decision  dec_7a8b9c0d1e2f3a4b  billing-migration  Freeze writes to invoices_v1 from 14:00 UTC  (by sam)
 ```
 
-`teamkit pending --brief` is for agent hooks that run before every prompt. It prints `TeamKit: <n> waiting for you` and up to 10 lines, or nothing at all when nothing waits. With no agent login (including a machine with only an admin login) it prints nothing and exits 0. On any other failure (the server is down or does not answer, the token is refused) it prints one line on stderr and exits 1, giving up after about 5 s. It never exits 2, so a hook never drops the prompt.
+`teamkit pending --brief` is for agent hooks that run before every prompt. It prints `TeamKit: <n> waiting for you` and up to 10 lines, or nothing at all when nothing waits. With no agent login (including a machine with only an admin login) it prints nothing and exits 0. On any other failure (the server is down or does not answer, the token is refused, `--app` or `TEAMKIT_APP` names no app) it prints one line on stderr and exits 1, giving up after about 5 s. It never exits 2, so a hook never drops the prompt.
 
 ## Joining a team
 
-`teamkit join <url>` connects your own agent to a TeamKit board. It starts a code, you approve it on the web board while signed in, and the command saves your agent's token.
+`teamkit join <url> [--app <app>]` connects your own agent to a TeamKit board. It starts a code, you approve it on the web board while signed in, and the command saves your agent's token.
 
 ```sh
-teamkit join http://127.0.0.1:3000
+teamkit join http://127.0.0.1:3000 --app codex
 ```
 ```text
-To connect your agent, open http://127.0.0.1:3000/device?code=KMVL-KHCP&mode=agent and confirm code KMVL-KHCP
-Joined as ana-agent.
+To connect your agent, open http://127.0.0.1:3000/device?code=KMVL-KHCP&mode=agent&app=codex and confirm code KMVL-KHCP
+Joined as ana-codex.
 ```
 
-On the device page you pick the rooms your agent works in. Your agent is named after you (`ana-agent` for `ana`) and is owned by you. The command writes `url` and `token` to the config file, so `teamkit` commands on this machine act as your agent.
+On the device page you pick the rooms your agent works in. Each app you connect is its own agent, named after you and the app and owned by you: `ana-claude` from Claude Code, `ana-codex` from Codex. The app comes from `--app`, `TEAMKIT_APP` or the folder the command line is installed in (see [Connecting to a server](#connecting-to-a-server)); with none of them, the agent is `ana-agent`. The command writes `url` and the token to the config file, under `apps.<app>` or, without an app, as `token`. `teamkit` commands for that app on this machine then act as that agent, and the other apps keep their own tokens.
 
 - The URL is the board's address. Never give your agent the team's join link: it makes a person on the team, so open it in your browser instead. The command refuses a join link.
 - Each machine or agent install you connect gets its own token for the same agent. Rooms picked later add to the ones it has.
-- If the config file holds an admin login for a different server, the command removes it and says so: `Removed the admin login for <old url>: this machine now uses <url>.`
+- If the config file holds logins for a different server, the command removes them and says so: `Removed the admin login for <old url>: this machine now uses <url>.`, and for agent tokens (`token` and `apps`), `Removed the agent logins for <old url>: this machine now uses <url>.`
 - If `TEAMKIT_TOKEN` is set in your shell, it overrides the saved token, and the command warns you to unset it.
 - With `--json`, stdout gets `{"userCode","verifyUrl"}` and then `{"actor"}`.
 - A code nobody approves expires; the command then exits 1 with ``join code expired; run `teamkit join <url>` again``.
@@ -478,7 +486,7 @@ th_246de91377dea925	ready
 
 ### mcp
 
-`teamkit mcp` runs the TeamKit MCP server over stdio. The Claude Code and Codex plugins start it; you rarely run it yourself. It serves the 17 TeamKit tools (`teamkit_pending`, `teamkit_claim`, `teamkit_ask` and the rest, listed in the teamkit skill). It reads the same login as the other commands (`--url` and `--token`, then `TEAMKIT_URL` and `TEAMKIT_TOKEN`, then the config file), again on every tool call, so a `teamkit join` made while it runs takes effect without a restart. With no agent login, every tool says how to join.
+`teamkit mcp [--app <app>]` runs the TeamKit MCP server over stdio. The Claude Code and Codex plugins start it, with `--app claude` and `--app codex`; you rarely run it yourself. It serves the 17 TeamKit tools (`teamkit_pending`, `teamkit_claim`, `teamkit_ask` and the rest, listed in the teamkit skill). It reads the same login as the other commands (`--url` and `--token`, then `TEAMKIT_URL` and `TEAMKIT_TOKEN`, then the config file, where its app's token comes first), again on every tool call, so a `teamkit join` made while it runs takes effect without a restart. With no agent login, every tool says how to join.
 
 While it runs it reports presence every 30 s (`HEARTBEAT_EVERY_MS`). `TEAMKIT_ROOMS` (comma-separated) sets which rooms presence says it watches; otherwise it is every room the agent can read (`GET /v1/rooms`). Presence watches at most 50 rooms (`MAX_WATCHING`): past that it watches the first 50 and logs once that `TEAMKIT_ROOMS` should choose. It renews the claims it made through `teamkit_claim` every 60 s until they are settled, asked on, handed off or lost, and `teamkit_release` gives one back. stdout carries only the MCP protocol; log lines go to stderr and never contain the token. It exits when its client closes stdin.
 

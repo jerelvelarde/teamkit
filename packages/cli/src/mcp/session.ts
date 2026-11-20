@@ -1,4 +1,5 @@
 import { createClient, type TeamkitClient } from "@copilotkit/teamkit-client";
+import type { AgentApp } from "@copilotkit/teamkit-protocol";
 import { resolveConfig, type ResolvedConfig } from "../config.js";
 import { UsageError } from "../errors.js";
 
@@ -20,14 +21,21 @@ export interface Session {
   client(): TeamkitClient;
 }
 
+/** `--url` and `--token`, and the app (already resolved) whose saved token the session reads. */
+export interface SessionFlags {
+  url?: string;
+  token?: string;
+  app?: AgentApp;
+}
+
 /**
- * Re-reads the CLI's login (flags, then TEAMKIT_URL / TEAMKIT_TOKEN, then the config file) on every
- * call, so a `teamkit join` made while the MCP server runs takes effect on the next tool call. It uses
- * only the agent token, never the admin login.
+ * Re-reads the CLI's login (flags, then TEAMKIT_URL / TEAMKIT_TOKEN, then the config file: the app's
+ * token, then the saved token) on every call, so a `teamkit join` made while the MCP server runs
+ * takes effect on the next tool call. It uses only the agent token, never the admin login.
  */
 export function createSession(opts: {
   env: Env;
-  flags?: { url?: string; token?: string };
+  flags?: SessionFlags;
   makeClient?: (c: ResolvedConfig) => TeamkitClient;
 }): Session {
   const make = opts.makeClient ?? ((c: ResolvedConfig) => createClient(c));

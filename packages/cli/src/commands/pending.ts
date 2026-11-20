@@ -1,6 +1,6 @@
 import type { Command } from "commander";
 import { createClient, TeamkitError, type TeamkitClient } from "@copilotkit/teamkit-client";
-import { clientFor, configFor, globalOpts, type CliContext } from "../context.js";
+import { appFor, clientFor, configFor, globalOpts, type CliContext } from "../context.js";
 import { CliExit, UsageError } from "../errors.js";
 import { formatPending } from "../format.js";
 
@@ -13,6 +13,13 @@ export const BRIEF_TIMEOUT_MS = 5_000;
  * exits 0; any other failure prints one line on stderr and exits 1, within about 5 s.
  */
 async function brief(cmd: Command, ctx: CliContext): Promise<void> {
+  try {
+    appFor(cmd, ctx);
+  } catch (e) {
+    // An unknown --app or TEAMKIT_APP is a mistake to show, not a missing login, and never exit 2.
+    if (e instanceof UsageError) throw new CliExit(1, `teamkit pending: ${e.message}`);
+    throw e;
+  }
   let client: TeamkitClient;
   let token: string | undefined;
   try {

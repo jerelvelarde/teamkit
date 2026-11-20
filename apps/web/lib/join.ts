@@ -1,5 +1,5 @@
 import { TeamkitError } from "@copilotkit/teamkit-client";
-import { isAgentStyleName, normalizeJoinName, personAgentName } from "@copilotkit/teamkit-protocol";
+import { AGENT_APPS, AGENT_STYLE_NAME_ERROR, isAgentStyleName, normalizeJoinName, personAgentName } from "@copilotkit/teamkit-protocol";
 
 export interface JoinErrorView {
   message: string;
@@ -7,11 +7,14 @@ export interface JoinErrorView {
   offerEmailSignIn: boolean;
 }
 
-/** The line under the join form's name field: the agent the name gives, or why the name cannot be used. */
+/** The line under the join form's name field: the agents the name gives, or why the name cannot be used. */
 export function joinNameHint(raw: string): string {
   const name = normalizeJoinName(raw);
-  if (name !== null) return `Your agent will be ${personAgentName(name)}.`;
-  if (isAgentStyleName(raw.trim().toLowerCase())) return "Names cannot end in -agent; that is how agent names end.";
+  if (name !== null) {
+    const agents = AGENT_APPS.map((app) => personAgentName(name, app));
+    return `Your agents will be ${agents.slice(0, -1).join(", ")} and ${agents[agents.length - 1]}.`;
+  }
+  if (isAgentStyleName(raw.trim().toLowerCase())) return sentence(AGENT_STYLE_NAME_ERROR);
   return "Lowercase letters, digits and hyphens.";
 }
 

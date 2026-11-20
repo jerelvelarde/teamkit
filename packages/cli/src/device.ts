@@ -1,11 +1,11 @@
-import type { DeviceMode, DeviceStart } from "@copilotkit/teamkit-protocol";
+import type { AgentApp, DeviceMode, DeviceStart } from "@copilotkit/teamkit-protocol";
 import { startDeviceLogin, TeamkitError } from "@copilotkit/teamkit-client";
 import { CliExit } from "./errors.js";
 
 /** Asks the server for a login code; a rate-limited request exits 1 with how long to wait. */
-export async function startDeviceOrExit(url: string, mode: DeviceMode): Promise<DeviceStart> {
+export async function startDeviceOrExit(url: string, mode: DeviceMode, app?: AgentApp): Promise<DeviceStart> {
   try {
-    return await startDeviceLogin(url, { mode });
+    return await startDeviceLogin(url, { mode, ...(app === undefined ? {} : { app }) });
   } catch (e) {
     if (e instanceof TeamkitError && e.status === 429 && e.code === "rate_limited") {
       const wait = e.retryAfterSeconds;
