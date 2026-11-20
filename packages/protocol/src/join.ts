@@ -3,27 +3,55 @@
  * CLI and the web board, so it imports nothing from Node.
  */
 
-/** Long enough for `<name>-agent` to fit the 63-character actor name limit. */
-export const MAX_JOIN_NAME_LENGTH = 57;
+/** The apps a person connects as agents of their own. Each app is its own agent: `ana-claude`, `ana-codex`. */
+export const AGENT_APPS = ["claude", "codex"] as const;
+export type AgentApp = (typeof AGENT_APPS)[number];
+
+const AGENT_APP_LABELS: Record<AgentApp, string> = { claude: "Claude", codex: "Codex" };
+
+/**
+ * Long enough for `<name>-claude`, the longest agent suffix, to fit the 63-character actor name
+ * limit (NAME_RE in apps/server/src/store/actors.ts).
+ */
+export const MAX_JOIN_NAME_LENGTH = 56;
 export const MAX_JOIN_LINK_DAYS = 365;
 export const MAX_JOIN_LINK_DOMAINS = 20;
 
-const JOIN_NAME = /^[a-z0-9][a-z0-9-]{0,56}$/;
+const JOIN_NAME = /^[a-z0-9][a-z0-9-]{0,55}$/;
 const DOMAIN_LABEL = /^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$/;
 const MAX_DOMAIN_LENGTH = 253;
 const MAX_EMAIL_LENGTH = 254;
 
-/** The agent a person connects is named after them: `ana` runs `ana-agent`. */
-export function personAgentName(person: string): string {
-  return `${person}-agent`;
+/** How an agent name ends: `-agent` for an agent connected without an app, or `-<app>`. */
+const AGENT_SUFFIXES = ["agent", ...AGENT_APPS].map((s) => `-${s}`);
+
+export function isAgentApp(x: unknown): x is AgentApp {
+  return typeof x === "string" && (AGENT_APPS as readonly string[]).includes(x);
 }
 
-/** True for a name only an agent may carry: a person named `ben-agent` would take ben's agent's name. */
+/** The app's name for people: "Claude" or "Codex". */
+export function agentAppLabel(app: AgentApp): string {
+  return AGENT_APP_LABELS[app];
+}
+
+/**
+ * The agent a person connects is named after them and the app: `ana` runs `ana-claude` in Claude
+ * Code and `ana-codex` in Codex, and `ana-agent` when no app is given.
+ */
+export function personAgentName(person: string, app?: AgentApp): string {
+  return `${person}-${app ?? "agent"}`;
+}
+
+/** True for a name only an agent may carry: a person named `ben-codex` would take ben's agent's name. */
 export function isAgentStyleName(name: string): boolean {
-  return name.endsWith("-agent");
+  return AGENT_SUFFIXES.some((suffix) => name.endsWith(suffix));
 }
 
-export const AGENT_STYLE_NAME_ERROR = "a person's name cannot end in -agent; that is how agent names end";
+function listOf(items: readonly string[]): string {
+  return items.length <= 1 ? items.join("") : `${items.slice(0, -1).join(", ")} or ${items[items.length - 1]}`;
+}
+
+export const AGENT_STYLE_NAME_ERROR = `a person's name cannot end in ${listOf(AGENT_SUFFIXES)}; that is how agent names end`;
 
 /** Trimmed and lower-cased, or null when it could not name a person and their agent. */
 export function normalizeJoinName(raw: string): string | null {
