@@ -101,3 +101,17 @@ test("agent mode: start, approve with rooms, and wait resolves with <person>-age
     await srv.stop();
   }
 });
+
+test("agent mode with an app: the verify url names the app, and wait resolves with <person>-<app>", async () => {
+  const srv = await startTestServer();
+  try {
+    const ana = await personAuth(srv.db, "ana", "member");
+    const start = await startDeviceLogin(srv.url, { mode: "agent", app: "codex" });
+    assert.ok(start.verifyUrl.endsWith(`/device?code=${start.userCode}&mode=agent&app=codex`), start.verifyUrl);
+    const waiting = waitForDeviceLogin(srv.url, start, { sleep: fast });
+    await approveDevice(srv.db, ana, start.userCode, ["billing-migration"]);
+    assert.deepEqual((await waiting).actor.name, "ana-codex");
+  } finally {
+    await srv.stop();
+  }
+});
