@@ -30,7 +30,7 @@ export function registerJoin(program: Command, ctx: CliContext): void {
   program
     .command("join <url>")
     .description(
-      "connect your own agent to a TeamKit board with a code you approve on the web board; each app is its own agent (ana-claude, ana-codex)",
+      "connect your own agent to a TeamKit board with a code you approve on the web board; each app is its own agent, picked by --app claude|codex or TEAMKIT_APP (ana-claude, ana-codex)",
     )
     .action(async (rawUrl: string, _opts: unknown, cmd: Command) => {
       const { json } = globalOpts(cmd);
