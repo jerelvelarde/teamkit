@@ -54,17 +54,22 @@ export function mayAnswer(block: TaskBlock, roomApprovers: string[] | null | und
   return list === null || list.includes(who.actor.name);
 }
 
-/** The three views of one room. */
-export type RoomTab = "board" | "decisions" | "changes";
+/** The views of one room. All rooms has only the board and the log. */
+export type RoomTab = "board" | "decisions" | "changes" | "log";
 export const ROOM_TABS: { tab: RoomTab; label: string }[] = [
   { tab: "board", label: "Board" },
   { tab: "decisions", label: "Decisions" },
   { tab: "changes", label: "Changes" },
+  { tab: "log", label: "Log" },
+];
+export const ALL_ROOMS_TABS: { tab: RoomTab; label: string }[] = [
+  { tab: "board", label: "Board" },
+  { tab: "log", label: "Log" },
 ];
 
 /** The `?view=` value as a tab; anything else is the board. */
 export function parseTab(v: string | null): RoomTab {
-  return v === "decisions" || v === "changes" ? v : "board";
+  return v === "decisions" || v === "changes" || v === "log" ? v : "board";
 }
 
 const ALL_ROOMS = "*";
@@ -74,8 +79,8 @@ const ALL_ROOMS = "*";
  * The room always rides in `?room=`, never in a path segment, since room names may contain `/`.
  */
 export function roomQuery(room: string | null, tab?: RoomTab): string {
-  if (!room || room === ALL_ROOMS) return "";
-  const view = tab === "decisions" || tab === "changes" ? `&view=${tab}` : "";
+  if (!room || room === ALL_ROOMS) return tab === "log" ? "?view=log" : "";
+  const view = tab === "decisions" || tab === "changes" || tab === "log" ? `&view=${tab}` : "";
   return `?room=${encodeURIComponent(room)}${view}`;
 }
 

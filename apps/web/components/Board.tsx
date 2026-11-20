@@ -15,6 +15,7 @@ import { AlertBanner } from "./AlertBanner";
 import { ChangeLog } from "./ChangeLog";
 import { DecisionList } from "./DecisionList";
 import { NewTaskForm } from "./NewTaskForm";
+import { RoomLog } from "./RoomLog";
 import { RoomTabs } from "./RoomTabs";
 import { SignedOut } from "./SignedOut";
 import { TaskCard } from "./TaskCard";
@@ -59,7 +60,9 @@ export function Board({ children }: { children?: ReactNode }) {
   const lastJson = useRef("");
   const allRooms = selected === ALL_ROOMS;
   const room = allRooms ? null : selected;
-  const tab = allRooms ? "board" : parseTab(params.get("view"));
+  const view = parseTab(params.get("view"));
+  // All rooms has the board and the log; decisions and changes belong to one room.
+  const tab = allRooms ? (view === "log" ? "log" : "board") : view;
   const query = roomQuery(selected, tab);
   const decisions = useRoomList<Decision>(room, "decision.", (r) => api.decisions(r));
   const changes = useRoomList<ChangeEntry>(room, "change.", (r) => api.changes(r));
@@ -182,13 +185,13 @@ export function Board({ children }: { children?: ReactNode }) {
           </button>
         )}
       </PageHeader>
-      {room ? (
-        <RoomTabs
+      <RoomTabs
           room={room}
           tab={tab}
-          agents={agentsOn(presence.get(room) ?? [], presenceAt)}
+          agents={room ? agentsOn(presence.get(room) ?? [], presenceAt) : []}
           now={presenceAt}
           onStartRollCall={async () => {
+            if (!room) return;
             try {
               const rollCall = await api.startRollCall(room);
               router.push(`/t/${encodeURIComponent(rollCall.threadId)}${query}`, { scroll: false });
@@ -198,7 +201,6 @@ export function Board({ children }: { children?: ReactNode }) {
           }}
           onRaiseAlert={() => setAlerting(true)}
         />
-      ) : null}
       {room && alerts.items ? <AlertBanner alerts={alerts.items} query={query} now={now} onChanged={alerts.reload} /> : null}
 
       {error ? (
@@ -207,7 +209,9 @@ export function Board({ children }: { children?: ReactNode }) {
         </p>
       ) : null}
 
-      {tab === "decisions" && room ? (
+      {tab === "log" ? (
+        <RoomLog key={room ?? "*"} room={room} tasks={tasks} query={query} />
+      ) : tab === "decisions" && room ? (
         <DecisionList decisions={decisions.items} room={room} openId={openId} query={query} />
       ) : tab === "changes" && room ? (
         <ChangeLog changes={changes.items} room={room} openId={openId} query={query} />

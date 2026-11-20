@@ -1,0 +1,137 @@
+/* Room log: one channel-like column, newest at the bottom. */
+
+.scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.log {
+  display: flex;
+  flex-direction: column;
+  width: min(820px, 100%);
+  margin: 0 auto;
+  padding: 8px 16px 32px;
+}
+
+.error {
+  margin: 16px 8px 0;
+  color: var(--tk-failed-text);
+  font-size: 13px;
+}
+
+.empty {
+  margin: 24px 8px 0;
+  padding: 14px 16px;
+  border: 1px dashed var(--tk-line-strong);
+  border-radius: var(--tk-radius-md);
+  color: var(--tk-fg-3);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.skeleton {
+  height: 56px;
+  margin-top: 12px;
+  border-radius: var(--tk-radius-md);
+  background: linear-gradient(90deg, var(--tk-bg-sunken), var(--tk-bg-hover), var(--tk-bg-sunken));
+  background-size: 200% 100%;
+  animation: shimmer 1.4s ease-in-out infinite;
+}
+
+@keyframes shimmer {
+  from {
+    background-position: 100% 0;
+  }
+  to {
+    background-position: -100% 0;
+  }
+}
+
+/* A day divider, like a chat's: a rule with the day in a pill. */
+
+.day {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 18px 0 2px;
+  padding: 4px 0;
+}
+
+.day::before {
+  content: "";
+  position: absolute;
+  inset: 50% 0 auto;
+  height: 1px;
+  background: var(--tk-line);
+}
+
+.dayLabel {
+  position: relative;
+  padding: 2px 12px;
+  border: 1px solid var(--tk-line);
+  border-radius: var(--tk-radius-full);
+  background: var(--tk-bg-main);
+  color: var(--tk-fg-2);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+/* A run of entries under the task they belong to. */
+
+.group {
+  margin-top: 14px;
+}
+
+.head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 0 8px 2px 50px;
+}
+
+.headLink {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  color: var(--tk-fg-2);
+  font-size: 12.5px;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.headLink:hover .headTitle {
+  color: var(--tk-fg);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.headTitle {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.room {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 2px;
+  color: var(--tk-fg-3);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+@media (max-width: 899px) {
+  .log {
+    padding: 4px 8px 24px;
+  }
+
+  .head {
+    padding-left: 8px;
+  }
+}

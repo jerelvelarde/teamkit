@@ -216,6 +216,12 @@ async function main(): Promise<void> {
     const view = await benAgent.thread(copy.id);
     assert(view.task?.state === "ready", `server state is ready (got ${view.task?.state})`);
 
+    // The room's log shows the same answer, under the task it belongs to.
+    await page.goto(`${base}/?room=billing-migration&view=log`);
+    const log = page.getByRole("log", { name: "Log for billing-migration" });
+    await log.getByText("Answered by sam").first().waitFor();
+    await log.getByRole("link", { name: "Copy invoices to the new database" }).first().waitFor();
+
     // The ask card names its approver; only sam (or an admin) may answer the approval.
     await page.goto(`${base}/t/${writes.id}?room=billing-prod`);
     const ask = page.getByRole("region", { name: "Question" });
