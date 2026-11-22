@@ -180,7 +180,7 @@ pnpm typecheck
 
 The repository is a pnpm workspace: `apps/server` (the Hono server), `apps/web` (the Next.js board), `packages/protocol`, `packages/client` and `packages/cli`, plus `examples/` and an end-to-end suite in `e2e/`.
 
-After changing `packages/cli`, `packages/client` or `packages/protocol`, run `pnpm --filter @copilotkit/teamkit bundle` and commit `plugins/teamkit/bin/teamkit.mjs`: CI fails on a stale bundle. A plugin release bumps the version in `packages/cli/package.json` and in both plugin manifests.
+After changing `packages/cli`, `packages/client` or `packages/protocol`, run `pnpm --filter @copilotkit/teamkit bundle` and commit `plugins/teamkit/bin/teamkit.mjs`: CI fails on a stale bundle. A plugin release bumps the version in `packages/cli/package.json` and in both plugin manifests: Claude Code and Codex only update an installed plugin when its version changes.
 
 ## Security
 
